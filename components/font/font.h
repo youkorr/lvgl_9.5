@@ -96,6 +96,9 @@ class Font
   const Glyph *get_glyph_data_(uint32_t unicode_letter);
   uint32_t last_letter_{};
   const Glyph *last_data_{};
+  // Buffer temporaire pour copier les données bitmap depuis PROGMEM
+  // Taille max: 128x128 pixels à 8bpp = 16384 bytes
+  static uint8_t bitmap_buffer_[16384];
 #endif
 };
 

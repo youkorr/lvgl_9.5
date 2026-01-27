@@ -9,6 +9,9 @@ namespace font {
 static const char *const TAG = "font";
 
 #ifdef USE_LVGL_FONT
+// Définition du buffer statique pour copier les données bitmap depuis PROGMEM
+uint8_t Font::bitmap_buffer_[16384];
+
 // LVGL 9.x compatible implementation
 const void *Font::get_glyph_bitmap(lv_font_glyph_dsc_t *g_dsc, lv_draw_buf_t *draw_buf) {
   // Extract the font from the resolved_font field
@@ -21,7 +24,26 @@ const void *Font::get_glyph_bitmap(lv_font_glyph_dsc_t *g_dsc, lv_draw_buf_t *dr
   if (gd == nullptr) {
     return nullptr;
   }
-  return gd->data;
+
+  // Sur ESP32, les données sont en PROGMEM (flash) et ne peuvent pas être accédées directement
+  // Il faut les copier dans un buffer en RAM avant de les retourner à LVGL
+  // Calculer la taille des données bitmap
+  uint8_t bpp = fe->get_bpp();
+  size_t bitmap_size = (gd->width * gd->height * bpp + 7) / 8;
+
+  // Vérifier que le buffer est assez grand
+  if (bitmap_size > sizeof(bitmap_buffer_)) {
+    ESP_LOGE(TAG, "Bitmap trop grand: %zu bytes (max: %zu bytes)", bitmap_size, sizeof(bitmap_buffer_));
+    return nullptr;
+  }
+
+  // Copier les données depuis PROGMEM vers le buffer RAM
+  const uint8_t *progmem_data = gd->data;
+  for (size_t i = 0; i < bitmap_size; i++) {
+    bitmap_buffer_[i] = progmem_read_byte(progmem_data + i);
+  }
+
+  return bitmap_buffer_;
 }
 
 bool Font::get_glyph_dsc_cb(const lv_font_t *font, lv_font_glyph_dsc_t *dsc, uint32_t unicode_letter, uint32_t next) {
