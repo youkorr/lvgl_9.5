@@ -76,9 +76,25 @@ const void *Font::get_glyph_bitmap(lv_font_glyph_dsc_t *g_dsc, lv_draw_buf_t *dr
     ESP_LOGD(TAG, "get_glyph_bitmap: converting A1->A8, src_stride=%d, a8_stride=%d, a8_size=%d", src_stride, a8_stride,
              a8_size);
 
-    if (draw_buf != nullptr && draw_buf->data != nullptr && gd->data != nullptr) {
+    // Determine destination buffer - use draw_buf if available, otherwise use static buffer
+    // Static buffer for when LVGL doesn't provide draw_buf (happens with some render paths)
+    static uint8_t static_a8_buffer[4096];  // 4KB should cover most glyphs (64x64 max)
+    uint8_t *dst = nullptr;
+
+    if (draw_buf != nullptr && draw_buf->data != nullptr) {
+      dst = (uint8_t *) draw_buf->data;
+      ESP_LOGD(TAG, "get_glyph_bitmap: using draw_buf->data for A1->A8 conversion");
+    } else if (a8_size <= (int) sizeof(static_a8_buffer)) {
+      dst = static_a8_buffer;
+      ESP_LOGD(TAG, "get_glyph_bitmap: using static buffer for A1->A8 conversion");
+    } else {
+      ESP_LOGE(TAG, "get_glyph_bitmap: glyph too large for static buffer (%d > %d)", a8_size,
+               (int) sizeof(static_a8_buffer));
+      return gd->data;  // Fallback to original data
+    }
+
+    if (dst != nullptr && gd->data != nullptr) {
       // Convert 1bpp to 8bpp: each bit becomes 0x00 or 0xFF
-      uint8_t *dst = (uint8_t *) draw_buf->data;
       const uint8_t *src = gd->data;
 
       for (int y = 0; y < gd->height; y++) {
@@ -89,8 +105,8 @@ const void *Font::get_glyph_bitmap(lv_font_glyph_dsc_t *g_dsc, lv_draw_buf_t *dr
           dst[y * a8_stride + x] = pixel ? 0xFF : 0x00;
         }
       }
-      ESP_LOGD(TAG, "get_glyph_bitmap: A1->A8 conversion done, returning draw_buf->data");
-      return draw_buf->data;
+      ESP_LOGD(TAG, "get_glyph_bitmap: A1->A8 conversion done, returning dst=%p", (void *) dst);
+      return dst;
     }
   } else {
     // For other formats (A2, A4, A8), copy directly
