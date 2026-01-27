@@ -92,8 +92,10 @@ bool Font::get_glyph_dsc_cb(const lv_font_t *font, lv_font_glyph_dsc_t *dsc, uin
   ESP_LOGD(TAG, "get_glyph_dsc_cb: found glyph 0x%04X, w=%d, h=%d, adv=%d", unicode_letter, gd->width, gd->height,
            gd->advance);
 
-  // Note: Do NOT memset the entire dsc structure - LVGL may have pre-initialized some fields
-  // Only set the fields that we need to populate
+  // CRITICAL: Zero out the entire structure first to ensure no garbage values
+  // LVGL 9.x has additional internal fields (like 'entry' for caching) that must be NULL/0
+  // The crash at address 0x1c86c371 was caused by uninitialized fields being read by LVGL renderer
+  memset(dsc, 0, sizeof(lv_font_glyph_dsc_t));
 
   dsc->adv_w = gd->advance;
   dsc->ofs_x = gd->offset_x;
