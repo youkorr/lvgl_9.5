@@ -6,7 +6,7 @@
 
 ## 🎯 About This Component
 
-This is a **full-featured LVGL v9.4.0 component** for ESPHome, forked from [@clydebarrow's lvgl-9.4 branch](https://github.com/clydebarrow/esphome/tree/lvgl-9.4) with the following enhancements:
+This is a **full-featured LVGL v9.4.0 component** for ESPHome
 
 ✅ **ThorVG enabled by default** - No need for external configuration
 ✅ **SVG support** - Vector graphics with perfect scaling
