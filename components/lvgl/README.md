@@ -302,29 +302,6 @@ lvgl:
 
 ---
 
-## 📊 Performance Metrics
-
-### Rendering Performance (ESP32-P4)
-
-| Feature | FPS | RAM Usage | Notes |
-|---------|-----|-----------|-------|
-| **Static UI** | 60 FPS | ~500 KB | Labels, buttons, images |
-| **Lottie Animations** | 60 FPS | ~1 MB | Smooth vector animations |
-| **SVG Rendering** | 60 FPS | ~100 KB | Per SVG loaded |
-| **Camera Display** | 30 FPS | ~2 MB | 800x600 JPEG |
-
-### Memory Comparison
-
-| Image Type | Size | RAM (800x600) | Scalable |
-|------------|------|---------------|----------|
-| **Bitmap PNG** | 500 KB | 10 MB | ❌ No |
-| **SVG** | 50 KB | 1 MB | ✅ Yes |
-| **Lottie** | 200 KB | 1 MB | ✅ Yes |
-| **GIF** | 2 MB | 10 MB | ❌ No |
-
----
-
-
 
 ### Issue: Compilation fails with "LV_USE_THORVG_INTERNAL undefined"
 
