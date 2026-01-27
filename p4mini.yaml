@@ -16,7 +16,7 @@ substitutions:
    
   #frigate1: rtsp://Tapoone:Tapoone132@192.168.1.56:554/stream1 
 
-  frigate: "http://192.168.1.38:8123/local/llmvision/frigate1.jpg"
+  frigate: 
 
   #wallpaper: "http://192.168.1.38:8123/local/llmvision/abstrac.png"
   #mediaplayer
@@ -190,20 +190,17 @@ logger:
 
 
 api:
-  encryption:
-    key: "SPXlsFbRuIwan1L4E96bnzCJiRfnCszLDKqZhRu5/8k="
+
 
 ota:
-  - platform: esphome
-    password: "f95e7d66cd0255aee677569992f63570"
+
 
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
 
   ap:
-    ssid: "P4Mini Fallback Hotspot"
-    password: "5slstk9DZ6Q2"
+
 
 
 time:
@@ -248,8 +245,8 @@ external_components:
     refresh: 1h
   - source:
       type: git
-      url: https://github.com/youkorr/test2_esp_video_esphome
-      ref: claude/fix-lvgl-import-error-Xuy01 #claude/fix-esp-video-errors-Ln67h #claude/fix-mjpeg-streaming-seuCV
+      url: https://github.com/youkorr/lvgl_9.4
+      ref: main#claude/fix-esp-video-errors-Ln67h #claude/fix-mjpeg-streaming-seuCV
     components: [esp_cam_sensor, esp_video, lvgl_camera_display, sd_mmc_card, webdavbox3, storage, simple_video_player, pedestrian_detection, lvgl, font, image, network_camera]
     refresh: 0s
 
@@ -324,8 +321,7 @@ lvgl_camera_display:
 
 network_camera:
   - id: security_cam_1
-    url: "http://192.168.1.38:1984/api/stream.mjpeg?src=frigate1_esp32" #"http://192.168.1.38:1984/api/stream.mjpeg?src=frigate1_esp32"  #""rtsp://192.168.1.38:8554/frigate1_esp32_h264""
-    protocol: mjpeg
+    url: 
     width: 640
     height: 480
     canvas_id: security_canvas
