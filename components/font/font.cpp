@@ -303,9 +303,10 @@ Font::Font(const Glyph *data, int data_nr, int baseline, int height, int descend
   this->lv_font_.fallback = nullptr;
   // Set kerning to 0 (no kerning support)
   this->lv_font_.kerning = 0;
-  // CRITICAL for LVGL 9.x: Set static_bitmap to 1 because our bitmap data is in PROGMEM/flash
-  // If this is 0, LVGL may try to free the bitmap data which causes a crash!
-  this->lv_font_.static_bitmap = 1;
+  // CRITICAL for LVGL 9.x: Set static_bitmap to 0 to force LVGL to provide a draw_buf
+  // When static_bitmap=1, LVGL doesn't provide draw_buf for A1 format and expects static data
+  // But returning static pointers doesn't work on ESP32-P4 (RISC-V), so we need draw_buf
+  this->lv_font_.static_bitmap = 0;
   // release_glyph callback not needed for static bitmaps
   this->lv_font_.release_glyph = nullptr;
   // user_data must be nullptr for LVGL 9.x
