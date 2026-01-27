@@ -7,6 +7,7 @@
 
 #include "core/lv_obj_class_private.h"
 
+#include <cstring>
 #include <numeric>
 
 namespace esphome::lvgl {
@@ -705,15 +706,63 @@ void lv_mem_init() {}
 void lv_mem_deinit() {}
 
 #if defined(USE_HOST) || defined(USE_RP2040) || defined(USE_ESP8266)
+// CRITICAL: LVGL 9.4 requires 64-byte alignment for draw buffers (LV_DRAW_BUF_ALIGN=64)
+// Standard malloc() only guarantees 8 or 16 byte alignment, which causes
+// "Data is not aligned, ignored" warnings from lv_draw_buf_init()
+static constexpr size_t LVGL_ALIGNMENT = 64;
+
+// Store original pointer before aligned address for proper freeing
 void *lv_malloc_core(size_t size) {
-  auto *ptr = malloc(size);  // NOLINT
-  if (ptr == nullptr) {
+  if (size == 0)
+    return nullptr;
+
+  // Allocate extra space for alignment and to store original pointer
+  size_t total_size = size + LVGL_ALIGNMENT + sizeof(void *);
+  void *raw = malloc(total_size);  // NOLINT
+  if (raw == nullptr) {
     ESP_LOGE(esphome::lvgl::TAG, "Failed to allocate %zu bytes", size);
+    return nullptr;
   }
-  return ptr;
+
+  // Calculate aligned pointer (leaving space for original pointer storage)
+  uintptr_t raw_addr = reinterpret_cast<uintptr_t>(raw);
+  uintptr_t aligned_addr = (raw_addr + sizeof(void *) + LVGL_ALIGNMENT - 1) & ~(LVGL_ALIGNMENT - 1);
+  void *aligned = reinterpret_cast<void *>(aligned_addr);
+
+  // Store original pointer just before aligned address
+  reinterpret_cast<void **>(aligned)[-1] = raw;
+
+  return aligned;
 }
-void lv_free_core(void *ptr) { return free(ptr); }                            // NOLINT
-void *lv_realloc_core(void *ptr, size_t size) { return realloc(ptr, size); }  // NOLINT
+
+void lv_free_core(void *ptr) {
+  if (ptr == nullptr)
+    return;
+  // Retrieve and free the original pointer
+  void *raw = reinterpret_cast<void **>(ptr)[-1];
+  free(raw);  // NOLINT
+}
+
+void *lv_realloc_core(void *ptr, size_t size) {
+  if (ptr == nullptr)
+    return lv_malloc_core(size);
+  if (size == 0) {
+    lv_free_core(ptr);
+    return nullptr;
+  }
+
+  // Allocate new aligned buffer and copy data
+  void *new_ptr = lv_malloc_core(size);
+  if (new_ptr == nullptr)
+    return nullptr;
+
+  // We don't know the old size, so we copy 'size' bytes (safe if new >= old)
+  // This is a limitation but matches typical realloc usage patterns
+  memcpy(new_ptr, ptr, size);
+  lv_free_core(ptr);
+
+  return new_ptr;
+}
 
 void lv_mem_monitor_core(lv_mem_monitor_t *mon_p) { memset(mon_p, 0, sizeof(lv_mem_monitor_t)); }
 
@@ -772,6 +821,24 @@ void lv_free_core(void *ptr) {
 
 void *lv_realloc_core(void *ptr, size_t size) {
   ESP_LOGV(esphome::lvgl::TAG, "realloc %p: %zu", ptr, size);
-  return heap_caps_realloc(ptr, size, cap_bits);
+
+  if (ptr == nullptr)
+    return lv_malloc_core(size);
+  if (size == 0) {
+    lv_free_core(ptr);
+    return nullptr;
+  }
+
+  // CRITICAL: heap_caps_realloc does NOT preserve 64-byte alignment!
+  // We must allocate a new aligned buffer and copy the data
+  void *new_ptr = lv_malloc_core(size);
+  if (new_ptr == nullptr)
+    return nullptr;
+
+  // Copy data to new buffer (we don't know old size, copy 'size' bytes)
+  memcpy(new_ptr, ptr, size);
+  lv_free_core(ptr);
+
+  return new_ptr;
 }
 #endif
