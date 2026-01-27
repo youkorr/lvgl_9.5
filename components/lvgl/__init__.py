@@ -216,8 +216,14 @@ async def to_code(configs):
 
     # suppress default enabling of extra widgets
     df.add_define("_LV_KCONFIG_PRESENT")
-    # Always enable - lots of things use it.
-    df.add_define("LV_DRAW_BUF_ALIGN", "64")  # ESP32-P4 requires 64-byte alignment for PSRAM/cache
+    # Memory alignment configuration for LVGL 9.4
+    # These are the official LVGL defaults. Setting higher values causes warnings
+    # from LVGL's internal stack/static buffers that can't meet stricter alignment.
+    # Our custom lv_malloc_core() always uses 64-byte alignment on ESP32 for
+    # optimal PSRAM/cache performance, regardless of these settings.
+    # See: https://github.com/lvgl/lvgl/blob/master/lv_conf_template.h
+    df.add_define("LV_DRAW_BUF_STRIDE_ALIGN", "1")  # LVGL default
+    df.add_define("LV_DRAW_BUF_ALIGN", "4")  # LVGL default
     df.add_define("LV_USE_STDLIB_MALLOC", "LV_STDLIB_CUSTOM")
 
     # ============================================
@@ -433,7 +439,7 @@ LVGL_SCHEMA = cv.All(
                 ): cv.boolean,
                 cv.Optional(CONF_DRAW_ROUNDING, default=2): cv.positive_int,
                 cv.Optional(CONF_BUFFER_SIZE, default=0): cv.percentage,
-                cv.Optional(CONF_LOG_LEVEL, default="WARN"): cv.one_of(
+                cv.Optional(CONF_LOG_LEVEL, default="ERROR"): cv.one_of(
                     *df.LV_LOG_LEVELS, upper=True
                 ),
                 cv.Optional(CONF_BYTE_ORDER, default="big_endian"): cv.one_of(
