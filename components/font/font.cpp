@@ -239,7 +239,10 @@ Font::Font(const Glyph *data, int data_nr, int baseline, int height, int descend
       xheight_(xheight),
       capheight_(capheight),
       bpp_(bpp) {
+  ESP_LOGI(TAG, "Font created: glyphs=%d, height=%d, baseline=%d, bpp=%d", data_nr, height, baseline, bpp);
 #ifdef USE_LVGL_FONT
+  ESP_LOGI(TAG, "LVGL font init: line_height=%d, base_line=%d", this->get_height(),
+           this->get_height() - this->get_baseline());
   // Ensure all fields are properly initialized to prevent crashes
   // The lv_font_{} initializer zeros everything, but we explicitly set critical fields
   this->lv_font_.dsc = this;
@@ -259,6 +262,8 @@ Font::Font(const Glyph *data, int data_nr, int baseline, int height, int descend
   this->lv_font_.static_bitmap = 1;
   // release_glyph callback not needed for static bitmaps
   this->lv_font_.release_glyph = nullptr;
+#else
+  ESP_LOGW(TAG, "USE_LVGL_FONT not defined - LVGL font callbacks not initialized!");
 #endif
 }
 
