@@ -11,6 +11,20 @@ static const char *const TAG = "font";
 #ifdef USE_LVGL_FONT
 // LVGL 9.x compatible implementation
 const void *Font::get_glyph_bitmap(lv_font_glyph_dsc_t *g_dsc, lv_draw_buf_t *draw_buf) {
+  // Safety checks to prevent crashes from null pointers
+  if (g_dsc == nullptr) {
+    ESP_LOGE(TAG, "get_glyph_bitmap: g_dsc is null");
+    return nullptr;
+  }
+  if (g_dsc->resolved_font == nullptr) {
+    ESP_LOGE(TAG, "get_glyph_bitmap: resolved_font is null");
+    return nullptr;
+  }
+  if (g_dsc->resolved_font->dsc == nullptr) {
+    ESP_LOGE(TAG, "get_glyph_bitmap: font dsc is null");
+    return nullptr;
+  }
+
   // Extract the font from the resolved_font field
   auto *fe = (Font *) g_dsc->resolved_font->dsc;
 
@@ -25,6 +39,20 @@ const void *Font::get_glyph_bitmap(lv_font_glyph_dsc_t *g_dsc, lv_draw_buf_t *dr
 }
 
 bool Font::get_glyph_dsc_cb(const lv_font_t *font, lv_font_glyph_dsc_t *dsc, uint32_t unicode_letter, uint32_t next) {
+  // Safety checks to prevent crashes from null pointers
+  if (font == nullptr) {
+    ESP_LOGE(TAG, "get_glyph_dsc_cb: font is null");
+    return false;
+  }
+  if (font->dsc == nullptr) {
+    ESP_LOGE(TAG, "get_glyph_dsc_cb: font->dsc is null");
+    return false;
+  }
+  if (dsc == nullptr) {
+    ESP_LOGE(TAG, "get_glyph_dsc_cb: dsc is null");
+    return false;
+  }
+
   auto *fe = (Font *) font->dsc;
   const auto *gd = fe->get_glyph_data_(unicode_letter);
   if (gd == nullptr) {
@@ -198,6 +226,8 @@ Font::Font(const Glyph *data, int data_nr, int baseline, int height, int descend
       capheight_(capheight),
       bpp_(bpp) {
 #ifdef USE_LVGL_FONT
+  // Ensure all fields are properly initialized to prevent crashes
+  // The lv_font_{} initializer zeros everything, but we explicitly set critical fields
   this->lv_font_.dsc = this;
   this->lv_font_.line_height = this->get_height();
   this->lv_font_.base_line = this->lv_font_.line_height - this->get_baseline();
@@ -206,10 +236,18 @@ Font::Font(const Glyph *data, int data_nr, int baseline, int height, int descend
   this->lv_font_.subpx = LV_FONT_SUBPX_NONE;
   this->lv_font_.underline_position = -1;
   this->lv_font_.underline_thickness = 1;
+  // Explicitly set fallback to nullptr to prevent LVGL from following invalid pointer
+  this->lv_font_.fallback = nullptr;
+  // Set kerning to 0 (no kerning support)
+  this->lv_font_.kerning = 0;
 #endif
 }
 
 const Glyph *Font::find_glyph(uint32_t codepoint) const {
+  // Safety check: return nullptr if no glyphs are available
+  if (this->glyphs_.empty()) {
+    return nullptr;
+  }
   int lo = 0;
   int hi = this->glyphs_.size() - 1;
   while (lo != hi) {

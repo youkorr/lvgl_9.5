@@ -71,6 +71,46 @@ dsc->stride = (gd->width * bpp + 7) / 8;
 - `dsc->gid.index = unicode_letter;` - Stores unicode for bitmap retrieval
 - `dsc->resolved_font = font;` - Allows bitmap callback to access the font
 
+### 6. Null Pointer Safety Checks (font.cpp) - ESP32 Crash Fix
+
+Added comprehensive null pointer checks in callback functions to prevent crashes on ESP32:
+
+**In `get_glyph_bitmap`:**
+- Check if `g_dsc` is null
+- Check if `g_dsc->resolved_font` is null
+- Check if `g_dsc->resolved_font->dsc` is null
+
+**In `get_glyph_dsc_cb`:**
+- Check if `font` is null
+- Check if `font->dsc` is null
+- Check if `dsc` is null
+
+**In `find_glyph`:**
+- Check if glyph vector is empty before binary search
+
+### 7. Explicit lv_font_t Initialization (font.cpp)
+
+Added explicit initialization of critical `lv_font_t` fields to prevent LVGL from following invalid pointers:
+```cpp
+this->lv_font_.fallback = nullptr;  // Prevent invalid fallback font access
+this->lv_font_.kerning = 0;         // No kerning support
+```
+
+## Troubleshooting
+
+### Custom fonts crash ESP32 but built-in fonts (montserrat) work
+
+This is typically caused by:
+1. Missing null pointer checks in font callbacks (fixed in this version)
+2. Uninitialized `lv_font_t` fields like `fallback` (fixed in this version)
+3. Empty glyph list accessing invalid memory (fixed in this version)
+
+If you still experience crashes, enable logging to see which null pointer check fails:
+```yaml
+logger:
+  level: DEBUG
+```
+
 ## Compatibility
 
 - **LVGL Version:** 9.4.0
