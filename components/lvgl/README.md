@@ -180,7 +180,7 @@ lvgl:
   widgets:
     # Method 1: Direct file path (SD card)
     - image:
-        src: "S:/icons/weather/sun.svg"  # S: = SD card mount
+        src: "/sdcard/icons/weather/sun.svg"  # S: = SD card mount
         width: 128  # Scale to any size
         height: 128
 
@@ -220,7 +220,7 @@ lvgl:
   widgets:
     - lottie:
         id: weather_anim
-        src: "S:/animations/clear-day.json"
+        src: "/sdcard/animations/clear-day.json"
         x: 100
         y: 100
         width: 200
@@ -272,8 +272,8 @@ lvgl:
     - platform: rgb
       id: my_display
       dimensions:
-        width: 800
-        height: 480
+        width: 1024
+        height: 600
       dma: true  # Hardware DMA for faster updates
 ```
 
@@ -368,7 +368,7 @@ sd_mmc_card:
 lvgl:
   widgets:
     - image:
-        src: "S:/icons/sun.svg"  # Must start with S:/
+        src: "/sdcard/icons/sun.svg"  # Must start with S:/
 
 # 3. Test with simple SVG first
 # Create a minimal SVG:
@@ -394,13 +394,13 @@ lvgl:
 
 3. **Use SVG instead of PNG**:
 ```yaml
-# ❌ PNG (10 MB RAM)
+# PNG (10 MB RAM)
 - image:
-    src: "S:/icons/large.png"
+    src: "/sdcard/icons/large.png"
 
-# ✅ SVG (1 MB RAM)
+# SVG (1 MB RAM)
 - image:
-    src: "S:/icons/large.svg"
+    src: "/sdsard/icons/large.svg"
 ```
 
 ---
@@ -439,18 +439,7 @@ esphome clean your_config.yaml
 esphome compile your_config.yaml
 ```
 
-Or force refresh:
 
-```yaml
-external_components:
-  - source:
-      type: git
-      url: https://github.com/youkorr/test2_esp_video_esphome
-    components: [lvgl]
-    refresh: always  # ← Force update every compile
-```
-
----
 
 ## 🤝 Contributing
 
@@ -475,7 +464,6 @@ Contributions are welcome! See [CONTRIBUTING.md](../../CONTRIBUTING.md) for guid
 
 ## 🙏 Credits
 
-- **@clydebarrow** - Original LVGL v9.4 ESPHome implementation
 - **LVGL Team** - Amazing UI library
 - **ThorVG Team** - Vector graphics engine
 - **ESPHome Team** - Best IoT framework
