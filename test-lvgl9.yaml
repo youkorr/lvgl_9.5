@@ -8,7 +8,7 @@ substitutions:
   # for Greek use "Noto Sans" for other languages use a compatible font family
   font_family: Figtree  
 
-  frigate: "http://192.168.1.38:8123/local/snapshots/last_snapshot.jpg"
+  frigate: 
 
 
 
@@ -57,11 +57,10 @@ logger:
 # Enable Home Assistant API
 api:
   encryption:
-    key: "l6FMxNIikEoNz2wtj0kCiuDCNFtyJFAJ1LP8o1wJB4Y="
+    key: 
 
 ota:
-  - platform: esphome
-    password: "e79a5b8fd99f68adc3e97eed88596789"
+
 
 wifi:
   ssid: !secret wifi_ssid
@@ -69,8 +68,7 @@ wifi:
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
-    ssid: "Test-Lvgl9 Fallback Hotspot"
-    password: "7N34Qk1l0x7f"
+
 
 captive_portal:
 
@@ -1763,24 +1761,7 @@ lvgl:
             # ✅ Image (fonctionne maintenant!)
             - lvgl.image.update:
                 id: update_wallpaper
-                src: peaceful  # sd_image ID
-
- 
-
-                
-            # Charger le fichier Lottie
-            #- lambda: |-
-                #lv_lottie_set_src_file(id(my_svg), "/sdcard/lottie/emoji.json");
-                #ESP_LOGI("lottie", "File loaded");               
-            
-            # ✅ Lottie - utiliser lambda
-            #- lambda: |-
-                #lv_lottie_set_src_file(id(thunderstorms), "/sdcard/lottie/thunderstorms_day_extreme_rain.json");
-                #ESP_LOGI("page_home", "Lottie chargé depuis SD card");
-            # ✅ SVG (chemin direct, pas sd_image)
-            #- lambda: |-
-                #lv_lottie_set_src_file(id(my_svg), "/sdcard/svg/extreme_day_haze.svg"); 
-                #ESP_LOGI("page_home", "Lottie chargé depuis SD card");      
+                src: peaceful  # sd_image ID   
         widgets:
           # Fond d'écran
           - obj:
