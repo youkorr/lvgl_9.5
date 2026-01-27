@@ -64,10 +64,17 @@ bool Font::get_glyph_dsc_cb(const lv_font_t *font, lv_font_glyph_dsc_t *dsc, uin
   }
 
   auto *fe = (Font *) font->dsc;
+  ESP_LOGD(TAG, "get_glyph_dsc_cb: unicode=0x%04X, font bpp=%d, glyphs=%d", unicode_letter, fe->get_bpp(),
+           (int) fe->glyphs_.size());
+
   const auto *gd = fe->get_glyph_data_(unicode_letter);
   if (gd == nullptr) {
+    ESP_LOGW(TAG, "get_glyph_dsc_cb: glyph 0x%04X not found in font", unicode_letter);
     return false;
   }
+
+  ESP_LOGD(TAG, "get_glyph_dsc_cb: found glyph 0x%04X, w=%d, h=%d, adv=%d", unicode_letter, gd->width, gd->height,
+           gd->advance);
 
   // Initialize all dsc fields to safe defaults first (LVGL 9.x requirement)
   // This ensures no uninitialized fields cause crashes
