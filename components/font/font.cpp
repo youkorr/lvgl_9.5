@@ -60,12 +60,24 @@ const void *Font::get_glyph_bitmap(lv_font_glyph_dsc_t *g_dsc, lv_draw_buf_t *dr
     return nullptr;
   }
 
-  // Calculate expected data size for debugging
+  // Calculate expected data size
   int stride = (gd->width * fe->get_bpp() + 7) / 8;
   int expected_size = stride * gd->height;
-  ESP_LOGD(TAG, "get_glyph_bitmap: returning data=%p, stride=%d, expected_size=%d bytes", (void *) gd->data, stride,
-           expected_size);
+  ESP_LOGD(TAG, "get_glyph_bitmap: stride=%d, expected_size=%d bytes", stride, expected_size);
 
+  // LVGL 9.x: If draw_buf is provided, we need to set up its data pointer
+  // Even with static_bitmap=1, LVGL might use draw_buf internally
+  if (draw_buf != nullptr && gd->data != nullptr) {
+    // Copy bitmap data to draw_buf for LVGL 9.x compatibility
+    // The draw_buf->data should point to usable memory
+    if (draw_buf->data != nullptr && expected_size > 0) {
+      ESP_LOGD(TAG, "get_glyph_bitmap: copying %d bytes to draw_buf->data=%p", expected_size, draw_buf->data);
+      memcpy(draw_buf->data, gd->data, expected_size);
+      return draw_buf->data;
+    }
+  }
+
+  ESP_LOGD(TAG, "get_glyph_bitmap: returning static data=%p", (void *) gd->data);
   return gd->data;
 }
 
