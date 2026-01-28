@@ -79,6 +79,7 @@ const void *Font::get_glyph_bitmap(lv_font_glyph_dsc_t *g_dsc, lv_draw_buf_t *dr
 
     if (bpp == 1) {
       // Convert A1 to A8: each bit becomes a byte (0x00 or 0xFF)
+      // Use progmem_read_byte() to read from flash memory on ESP32-P4 (RISC-V)
       ESP_LOGD(TAG, "get_glyph_bitmap: converting A1->A8, %dx%d pixels", gd->width, gd->height);
       for (int y = 0; y < gd->height; y++) {
         const uint8_t *src_row = src + y * src_stride;
@@ -86,12 +87,14 @@ const void *Font::get_glyph_bitmap(lv_font_glyph_dsc_t *g_dsc, lv_draw_buf_t *dr
         for (int x = 0; x < gd->width; x++) {
           int byte_idx = x / 8;
           int bit_idx = 7 - (x % 8);  // MSB first
-          uint8_t bit = (src_row[byte_idx] >> bit_idx) & 1;
+          uint8_t src_byte = progmem_read_byte(src_row + byte_idx);
+          uint8_t bit = (src_byte >> bit_idx) & 1;
           dst_row[x] = bit ? 0xFF : 0x00;
         }
       }
     } else if (bpp == 2) {
       // Convert A2 to A8: each 2-bit value becomes a byte (0x00, 0x55, 0xAA, 0xFF)
+      // Use progmem_read_byte() to read from flash memory on ESP32-P4 (RISC-V)
       ESP_LOGD(TAG, "get_glyph_bitmap: converting A2->A8, %dx%d pixels", gd->width, gd->height);
       static const uint8_t a2_to_a8[4] = {0x00, 0x55, 0xAA, 0xFF};
       for (int y = 0; y < gd->height; y++) {
@@ -100,14 +103,23 @@ const void *Font::get_glyph_bitmap(lv_font_glyph_dsc_t *g_dsc, lv_draw_buf_t *dr
         for (int x = 0; x < gd->width; x++) {
           int bit_offset = (3 - (x % 4)) * 2;  // MSB first, 2 bits per pixel
           int byte_idx = x / 4;
-          uint8_t val = (src_row[byte_idx] >> bit_offset) & 0x03;
+          uint8_t src_byte = progmem_read_byte(src_row + byte_idx);
+          uint8_t val = (src_byte >> bit_offset) & 0x03;
           dst_row[x] = a2_to_a8[val];
         }
       }
+    } else if (bpp == 4) {
+      // A4: copy using progmem_read_byte for each byte
+      ESP_LOGD(TAG, "get_glyph_bitmap: copying A4 data %d bytes", dst_size);
+      for (int i = 0; i < dst_size; i++) {
+        dst[i] = progmem_read_byte(src + i);
+      }
     } else {
-      // A4 or A8: direct copy
-      ESP_LOGD(TAG, "get_glyph_bitmap: direct copy %d bytes", dst_size);
-      memcpy(dst, src, dst_size);
+      // A8: copy using progmem_read_byte for each byte
+      ESP_LOGD(TAG, "get_glyph_bitmap: copying A8 data %d bytes", dst_size);
+      for (int i = 0; i < dst_size; i++) {
+        dst[i] = progmem_read_byte(src + i);
+      }
     }
 
     ESP_LOGD(TAG, "get_glyph_bitmap: done, returning draw_buf->data");
