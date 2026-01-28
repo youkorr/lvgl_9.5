@@ -78,47 +78,113 @@ const void *Font::get_glyph_bitmap(lv_font_glyph_dsc_t *g_dsc, lv_draw_buf_t *dr
     const uint8_t *src = gd->data;
 
     if (bpp == 1) {
-      // Convert A1 to A8: each bit becomes a byte (0x00 or 0xFF)
-      // Use progmem_read_byte() to read from flash memory on ESP32-P4 (RISC-V)
-      ESP_LOGD(TAG, "get_glyph_bitmap: converting A1->A8, %dx%d pixels", gd->width, gd->height);
+      // ESPHome font format: bits are packed sequentially (bit-stream, no row padding)
+      // This matches the format used in Font::print() function
+      ESP_LOGD(TAG, "get_glyph_bitmap: converting A1->A8 (bit-stream), %dx%d pixels", gd->width, gd->height);
+      uint8_t bitmask = 0;
+      uint8_t byte_data = 0;
+      const uint8_t *src_ptr = src;
+
       for (int y = 0; y < gd->height; y++) {
-        const uint8_t *src_row = src + y * src_stride;
         uint8_t *dst_row = dst + y * dst_stride;
         for (int x = 0; x < gd->width; x++) {
-          int byte_idx = x / 8;
-          int bit_idx = 7 - (x % 8);  // MSB first
-          uint8_t src_byte = progmem_read_byte(src_row + byte_idx);
-          uint8_t bit = (src_byte >> bit_idx) & 1;
-          dst_row[x] = bit ? 0xFF : 0x00;
+          // Read next byte when bitmask is exhausted
+          if (bitmask == 0) {
+            byte_data = progmem_read_byte(src_ptr++);
+            bitmask = 0x80;
+          }
+          // Extract bit and convert to A8 (0x00 or 0xFF)
+          dst_row[x] = (byte_data & bitmask) ? 0xFF : 0x00;
+          bitmask >>= 1;
         }
       }
     } else if (bpp == 2) {
-      // Convert A2 to A8: each 2-bit value becomes a byte (0x00, 0x55, 0xAA, 0xFF)
-      // Use progmem_read_byte() to read from flash memory on ESP32-P4 (RISC-V)
-      ESP_LOGD(TAG, "get_glyph_bitmap: converting A2->A8, %dx%d pixels", gd->width, gd->height);
+      // ESPHome font format: 2 bits per pixel, packed sequentially (bit-stream)
+      ESP_LOGD(TAG, "get_glyph_bitmap: converting A2->A8 (bit-stream), %dx%d pixels", gd->width, gd->height);
       static const uint8_t a2_to_a8[4] = {0x00, 0x55, 0xAA, 0xFF};
+      uint8_t bitmask = 0;
+      uint8_t byte_data = 0;
+      const uint8_t *src_ptr = src;
+
       for (int y = 0; y < gd->height; y++) {
-        const uint8_t *src_row = src + y * src_stride;
         uint8_t *dst_row = dst + y * dst_stride;
         for (int x = 0; x < gd->width; x++) {
-          int bit_offset = (3 - (x % 4)) * 2;  // MSB first, 2 bits per pixel
-          int byte_idx = x / 4;
-          uint8_t src_byte = progmem_read_byte(src_row + byte_idx);
-          uint8_t val = (src_byte >> bit_offset) & 0x03;
-          dst_row[x] = a2_to_a8[val];
+          uint8_t pixel = 0;
+          // Read 2 bits per pixel
+          for (int bit_num = 0; bit_num < 2; bit_num++) {
+            if (bitmask == 0) {
+              byte_data = progmem_read_byte(src_ptr++);
+              bitmask = 0x80;
+            }
+            pixel <<= 1;
+            if (byte_data & bitmask)
+              pixel |= 1;
+            bitmask >>= 1;
+          }
+          dst_row[x] = a2_to_a8[pixel & 0x03];
         }
       }
     } else if (bpp == 4) {
-      // A4: copy using progmem_read_byte for each byte
-      ESP_LOGD(TAG, "get_glyph_bitmap: copying A4 data %d bytes", dst_size);
-      for (int i = 0; i < dst_size; i++) {
-        dst[i] = progmem_read_byte(src + i);
+      // ESPHome font format: 4 bits per pixel, packed sequentially (bit-stream)
+      // LVGL A4 expects 2 pixels per byte, high nibble first - same as ESPHome
+      ESP_LOGD(TAG, "get_glyph_bitmap: converting A4 (bit-stream), %dx%d pixels", gd->width, gd->height);
+      uint8_t bitmask = 0;
+      uint8_t byte_data = 0;
+      const uint8_t *src_ptr = src;
+
+      // Output buffer for LVGL A4 format: 2 pixels per byte
+      int dst_idx = 0;
+      for (int y = 0; y < gd->height; y++) {
+        for (int x = 0; x < gd->width; x++) {
+          uint8_t pixel = 0;
+          // Read 4 bits per pixel from ESPHome bit-stream
+          for (int bit_num = 0; bit_num < 4; bit_num++) {
+            if (bitmask == 0) {
+              byte_data = progmem_read_byte(src_ptr++);
+              bitmask = 0x80;
+            }
+            pixel <<= 1;
+            if (byte_data & bitmask)
+              pixel |= 1;
+            bitmask >>= 1;
+          }
+          // Pack into LVGL A4 format: high nibble = even pixel, low nibble = odd pixel
+          if ((x % 2) == 0) {
+            dst[dst_idx] = pixel << 4;
+          } else {
+            dst[dst_idx] |= pixel & 0x0F;
+            dst_idx++;
+          }
+        }
+        // If odd width, finish the last byte of this row
+        if (gd->width % 2 != 0) {
+          dst_idx++;
+        }
       }
     } else {
-      // A8: copy using progmem_read_byte for each byte
-      ESP_LOGD(TAG, "get_glyph_bitmap: copying A8 data %d bytes", dst_size);
-      for (int i = 0; i < dst_size; i++) {
-        dst[i] = progmem_read_byte(src + i);
+      // A8: ESPHome format packs 8 bits per pixel sequentially
+      ESP_LOGD(TAG, "get_glyph_bitmap: copying A8 (bit-stream), %dx%d pixels", gd->width, gd->height);
+      uint8_t bitmask = 0;
+      uint8_t byte_data = 0;
+      const uint8_t *src_ptr = src;
+
+      for (int y = 0; y < gd->height; y++) {
+        uint8_t *dst_row = dst + y * dst_stride;
+        for (int x = 0; x < gd->width; x++) {
+          uint8_t pixel = 0;
+          // Read 8 bits per pixel
+          for (int bit_num = 0; bit_num < 8; bit_num++) {
+            if (bitmask == 0) {
+              byte_data = progmem_read_byte(src_ptr++);
+              bitmask = 0x80;
+            }
+            pixel <<= 1;
+            if (byte_data & bitmask)
+              pixel |= 1;
+            bitmask >>= 1;
+          }
+          dst_row[x] = pixel;
+        }
       }
     }
 
