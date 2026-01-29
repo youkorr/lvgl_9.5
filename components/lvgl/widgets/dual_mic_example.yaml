@@ -202,7 +202,7 @@ voice_assistant:
     - lambda: 'id(va_is_listening) = false;'
     - lvgl.label.update:
         id: mic_status_label
-        text: "Goodbye"
+        text: "Say 'Okay HAL'"
         text_color: 0x660000
     - wait_until:
         condition:
@@ -215,23 +215,18 @@ voice_assistant:
             - not:
                 media_player.is_playing:
     - delay: 1s
-    # Return to home page after conversation ends
-    - lvgl.page.show:
-        id: home_page
-        animation: MOVE_RIGHT
-        time: 300ms
     - micro_wake_word.start:
   on_error:
     - lambda: 'id(va_is_listening) = false;'
     - lvgl.label.update:
         id: mic_status_label
-        text: "Error"
+        text: "Error - Try again"
         text_color: 0xFF0000
     - delay: 2s
-    - lvgl.page.show:
-        id: home_page
-        animation: FADE_OUT
-        time: 300ms
+    - lvgl.label.update:
+        id: mic_status_label
+        text: "Say 'Okay HAL'"
+        text_color: 0x660000
   on_client_connected:
     - micro_wake_word.start:
   on_client_disconnected:
