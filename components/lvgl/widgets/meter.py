@@ -319,8 +319,8 @@ class MeterType(WidgetType):
             CONF_METER,
             lv_obj_t,  # Use scale widget instead of meter
             # Note that mapping from 8.x to 9.x, indicator styling is applied to needles, and tick styling
-            # is migrated to indicator
-            (CONF_MAIN, CONF_INDICATOR, CONF_TICKS, CONF_ITEMS),
+            # is migrated to indicator. LV_PART_TICKS doesn't exist in LVGL 9.x, use ITEMS instead.
+            (CONF_MAIN, CONF_INDICATOR, CONF_ITEMS),
             METER_SCHEMA,
             lv_name=CONF_CONTAINER,
         )

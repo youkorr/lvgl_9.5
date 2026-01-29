@@ -391,7 +391,7 @@ PARTS = (
     CONF_KNOB,
     CONF_SELECTED,
     CONF_ITEMS,
-    CONF_TICKS,
+    # Note: CONF_TICKS removed - LV_PART_TICKS doesn't exist in LVGL 9.x
     CONF_CURSOR,
     CONF_TEXTAREA_PLACEHOLDER,
 )
