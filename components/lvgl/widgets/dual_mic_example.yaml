@@ -202,7 +202,7 @@ voice_assistant:
     - lambda: 'id(va_is_listening) = false;'
     - lvgl.label.update:
         id: mic_status_label
-        text: "Say 'Okay HAL'"
+        text: "Goodbye"
         text_color: 0x660000
     - wait_until:
         condition:
@@ -215,18 +215,22 @@ voice_assistant:
             - not:
                 media_player.is_playing:
     - delay: 1s
+    - lvgl.page.show:
+        id: home_page
+        animation: MOVE_RIGHT
+        time: 300ms
     - micro_wake_word.start:
   on_error:
     - lambda: 'id(va_is_listening) = false;'
     - lvgl.label.update:
         id: mic_status_label
-        text: "Error - Try again"
+        text: "Error"
         text_color: 0xFF0000
     - delay: 2s
-    - lvgl.label.update:
-        id: mic_status_label
-        text: "Say 'Okay HAL'"
-        text_color: 0x660000
+    - lvgl.page.show:
+        id: home_page
+        animation: FADE_OUT
+        time: 300ms
   on_client_connected:
     - micro_wake_word.start:
   on_client_disconnected:
@@ -239,6 +243,43 @@ lvgl:
   displays:
     - display_id: my_display
       pages:
+        # =====================================================================
+        # PAGE: HOME - Main page with wake word hint
+        # =====================================================================
+        - id: home_page
+          bg_color: 0x1a1a1a
+          widgets:
+            - label:
+                align: CENTER
+                y: -50
+                text: "Voice Assistant Ready"
+                text_color: 0xFFFFFF
+                text_font: montserrat_24
+
+            - label:
+                align: CENTER
+                y: 0
+                text: "Say 'Okay HAL' to start"
+                text_color: 0x808080
+                text_font: montserrat_18
+
+            # Microphone icon hint
+            - obj:
+                align: CENTER
+                y: 80
+                width: 60
+                height: 60
+                radius: 30
+                bg_color: 0x333333
+                border_width: 2
+                border_color: 0x00FF00
+                widgets:
+                  - label:
+                      align: CENTER
+                      text: "MIC"
+                      text_color: 0x00FF00
+                      text_font: montserrat_14
+
         # =====================================================================
         # PAGE: HAL - Voice Assistant Active Page
         # =====================================================================
