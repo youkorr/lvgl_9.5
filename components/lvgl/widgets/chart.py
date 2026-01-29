@@ -21,6 +21,7 @@ from esphome.const import (
     CONF_VALUE,
 )
 from esphome.core import Lambda
+from esphome.cpp_generator import RawStatement
 
 from ..automation import action_to_code
 from ..defines import (
@@ -34,7 +35,7 @@ from ..defines import (
 )
 from ..helpers import lvgl_components_required
 from ..lv_validation import lv_color, lv_int
-from ..lvcode import lv, lv_assign, lv_expr, lv_Pvariable
+from ..lvcode import lv, lv_add, lv_assign, lv_expr, lv_Pvariable
 from ..types import LvType, ObjUpdateAction
 from . import Widget, WidgetType, get_widgets
 
@@ -228,11 +229,14 @@ class ChartType(WidgetType):
         y_points = series_config.get(CONF_Y_POINTS)
 
         if x_points and y_points:
-            # Scatter chart with X/Y coordinates
+            # Scatter chart with X/Y coordinates - use direct array access
+            # since lv_chart_set_value_by_id2 may not exist in all LVGL versions
             for i, (x_val, y_val) in enumerate(zip(x_points, y_points)):
                 x = await lv_int.process(x_val)
                 y = await lv_int.process(y_val)
-                lv.chart_set_value_by_id2(w.obj, series_var, i, x, y)
+                lv_add(RawStatement(f"{series_var}->x_points[{i}] = {x}"))
+                lv_add(RawStatement(f"{series_var}->y_points[{i}] = {y}"))
+            lv.chart_refresh(w.obj)
         elif points := series_config.get(CONF_POINTS):
             # LINE/BAR chart with Y values only
             for point_value in points:
@@ -360,7 +364,11 @@ CHART_SET_VALUE_BY_ID2_SCHEMA = cv.Schema(
     CHART_SET_VALUE_BY_ID2_SCHEMA,
 )
 async def chart_set_value_by_id2(config, action_id, template_arg, args):
-    """Set X and Y values for scatter chart point by index"""
+    """Set X and Y values for scatter chart point by index.
+
+    Uses direct array access since lv_chart_set_value_by_id2 may not exist
+    in all LVGL versions.
+    """
     widgets = await get_widgets(config)
     series = await cg.get_variable(config[CONF_SERIES_ID])
     point_index = config[CONF_POINT_INDEX]
@@ -386,7 +394,9 @@ async def chart_set_value_by_id2(config, action_id, template_arg, args):
         else:
             y_val = y_value
 
-        lv.chart_set_value_by_id2(w.obj, series, idx_val, x_val, y_val)
+        # Use direct array access since lv_chart_set_value_by_id2 may not exist
+        lv_add(RawStatement(f"{series}->x_points[{idx_val}] = {x_val}"))
+        lv_add(RawStatement(f"{series}->y_points[{idx_val}] = {y_val}"))
         lv.chart_refresh(w.obj)
 
     return await action_to_code(widgets, do_set_value2, action_id, template_arg, args)
