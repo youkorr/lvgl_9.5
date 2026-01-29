@@ -7,7 +7,6 @@ The chart widget displays data visualization with support for:
 - SCATTER charts: Point-based data
 - Multiple series per chart
 - Configurable axes and division lines
-- Axis ticks and labels
 - Cursors for point selection
 """
 
@@ -120,31 +119,16 @@ CONF_POINT_INDEX = "point_index"
 CONF_X_VALUE = "x_value"
 CONF_Y_VALUE = "y_value"
 
-# Axis tick configuration keys
-CONF_MAJOR_TICK_LENGTH = "major_tick_length"
-CONF_MINOR_TICK_LENGTH = "minor_tick_length"
-CONF_MAJOR_TICK_COUNT = "major_tick_count"
-CONF_MINOR_TICK_COUNT = "minor_tick_count"
-CONF_LABEL_ENABLED = "label_enabled"
-CONF_DRAW_SIZE = "draw_size"
-
 # Cursor configuration keys
 CONF_CURSORS = "cursors"
 CONF_CURSOR_ID = "cursor_id"
 
-# Axis configuration with tick support
+# Axis configuration (note: ticks/labels not supported in LVGL 9.x - use scale widget instead)
 AXIS_SCHEMA = cv.Schema(
     {
         cv.Optional(CONF_MIN_VALUE): lv_int,
         cv.Optional(CONF_MAX_VALUE): lv_int,
         cv.Optional(CONF_DIV_LINE_COUNT): cv.positive_int,
-        # Tick configuration
-        cv.Optional(CONF_MAJOR_TICK_LENGTH, default=0): cv.positive_int,
-        cv.Optional(CONF_MINOR_TICK_LENGTH, default=0): cv.positive_int,
-        cv.Optional(CONF_MAJOR_TICK_COUNT, default=5): cv.positive_int,
-        cv.Optional(CONF_MINOR_TICK_COUNT, default=2): cv.positive_int,
-        cv.Optional(CONF_LABEL_ENABLED, default=False): cv.boolean,
-        cv.Optional(CONF_DRAW_SIZE, default=50): cv.positive_int,
     }
 )
 
@@ -247,7 +231,7 @@ class ChartType(WidgetType):
                 await self._add_cursor(w, cursor)
 
     async def _configure_axis(self, w: Widget, config, axis_key, axis_const):
-        """Configure a specific axis range and ticks"""
+        """Configure a specific axis range"""
         if axis_config := config.get(axis_key):
             axis_literal = literal(axis_const)
 
@@ -256,25 +240,6 @@ class ChartType(WidgetType):
                 min_val = await lv_int.process(axis_config[CONF_MIN_VALUE])
                 max_val = await lv_int.process(axis_config[CONF_MAX_VALUE])
                 lv.chart_set_range(w.obj, axis_literal, min_val, max_val)
-
-            # Set axis ticks if major_tick_length > 0
-            major_len = axis_config.get(CONF_MAJOR_TICK_LENGTH, 0)
-            if major_len > 0:
-                minor_len = axis_config.get(CONF_MINOR_TICK_LENGTH, 0)
-                major_cnt = axis_config.get(CONF_MAJOR_TICK_COUNT, 5)
-                minor_cnt = axis_config.get(CONF_MINOR_TICK_COUNT, 2)
-                label_en = axis_config.get(CONF_LABEL_ENABLED, False)
-                draw_size = axis_config.get(CONF_DRAW_SIZE, 50)
-                lv.chart_set_axis_tick(
-                    w.obj,
-                    axis_literal,
-                    major_len,
-                    minor_len,
-                    major_cnt,
-                    minor_cnt,
-                    label_en,
-                    draw_size,
-                )
 
     async def _add_series(self, w: Widget, series_config):
         """Add a data series to the chart"""
