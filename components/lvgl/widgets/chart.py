@@ -50,6 +50,8 @@ CONF_UPDATE_MODE = "update_mode"
 CONF_COLOR = "color"
 
 lv_chart_t = LvType("lv_chart_t")
+# Chart series type - declared as C++ struct pointer for ID registration
+lv_chart_series_t = cg.global_ns.struct("lv_chart_series_t")
 
 # Chart types
 CHART_TYPE_NONE = "NONE"
@@ -85,7 +87,7 @@ AXIS_SCHEMA = cv.Schema(
 # Series configuration
 SERIES_SCHEMA = cv.Schema(
     {
-        cv.Required(CONF_ID): cv.declare_id(LvType("lv_chart_series_t")),
+        cv.Required(CONF_ID): cv.declare_id(lv_chart_series_t),
         cv.Optional(CONF_COLOR): lv_color,
         cv.Optional(CONF_POINTS): cv.ensure_list(lv_int),
         cv.Optional(CONF_TYPE): cv.enum(CHART_TYPES, upper=True),
@@ -181,7 +183,7 @@ class ChartType(WidgetType):
 
         # Declare series variable and add series to chart
         series_id = series_config[CONF_ID]
-        series_var = lv_Pvariable(LvType("lv_chart_series_t"), series_id)
+        series_var = cg.new_Pvariable(series_id)
         lv_assign(
             series_var,
             lv_expr.chart_add_series(w.obj, color, literal("LV_CHART_AXIS_PRIMARY_Y")),
@@ -199,9 +201,6 @@ class ChartType(WidgetType):
 
 
 chart_spec = ChartType()
-
-# Type for chart series (used in actions)
-lv_chart_series_t = LvType("lv_chart_series_t")
 
 CONF_SERIES_ID = "series_id"
 
