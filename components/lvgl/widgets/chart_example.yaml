@@ -1,82 +1,315 @@
-# ESPHome LVGL Chart Widget Example
-# Demonstrates chart widget features in LVGL v9.4
+# ESPHome LVGL Chart Widget Examples
+# Demonstrates all chart widget features in LVGL v9.4
+#
+# Available chart types: LINE, BAR, SCATTER, NONE
+# Available update modes: SHIFT, CIRCULAR
+# Available axes: PRIMARY_Y, SECONDARY_Y, PRIMARY_X, SECONDARY_X
+#
+# Actions available:
+#   - lvgl.chart.set_next_value: Add point (SHIFT/CIRCULAR mode)
+#   - lvgl.chart.set_value_by_id: Set specific point by index
+#   - lvgl.chart.set_value_by_id2: Set X/Y for scatter charts
+#   - lvgl.chart.set_series_color: Change series color dynamically
+#   - lvgl.chart.refresh: Refresh chart display
 
+# =============================================================================
+# GLOBALS FOR ANIMATIONS
+# =============================================================================
+globals:
+  - id: scatter_angle
+    type: float
+    initial_value: "0"
+  - id: ecg_counter
+    type: int
+    initial_value: "0"
+
+# =============================================================================
+# SENSORS EXAMPLE (Home Assistant + Internal)
+# =============================================================================
+sensor:
+  # Temperature from Home Assistant
+  - platform: homeassistant
+    id: weather_temp
+    entity_id: weather.forecast_maison
+    attribute: temperature
+    on_value:
+      then:
+        # Update label with current value
+        - lvgl.label.update:
+            id: temp_value_label
+            text:
+              format: "%.1f°C"
+              args: [id(weather_temp).state]
+        # Add point to chart
+        - lvgl.chart.set_next_value:
+            id: weather_chart
+            series_id: temp_series
+            value: !lambda 'return (int)id(weather_temp).state;'
+
+  # Humidity from Home Assistant
+  - platform: homeassistant
+    id: weather_humidity
+    entity_id: weather.forecast_maison
+    attribute: humidity
+    on_value:
+      then:
+        # Update label with current value
+        - lvgl.label.update:
+            id: humidity_value_label
+            text:
+              format: "%.0f%%"
+              args: [id(weather_humidity).state]
+        # Add point to chart
+        - lvgl.chart.set_next_value:
+            id: weather_chart
+            series_id: humidity_series
+            value: !lambda 'return (int)id(weather_humidity).state;'
+
+  # ESP32 Internal Temperature (always available)
+  - platform: internal_temperature
+    name: "ESP32 Temperature"
+    id: esp32_temp
+    update_interval: 5s
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: esp_temp_label
+            text:
+              format: "ESP: %.1f°C"
+              args: [id(esp32_temp).state]
+        - lvgl.chart.set_next_value:
+            id: ecg_chart
+            series_id: ecg_series
+            value: !lambda 'return (int)id(esp32_temp).state;'
+
+# =============================================================================
+# INTERVALS FOR ANIMATIONS
+# =============================================================================
+interval:
+  # ECG-style animation (circular mode)
+  - interval: 100ms
+    then:
+      - lambda: |-
+          id(ecg_counter)++;
+          int val = 50;
+          // Simulate ECG pattern
+          if (id(ecg_counter) % 20 == 0) val = 90;      // R peak
+          else if (id(ecg_counter) % 20 == 1) val = 10; // S valley
+          else if (id(ecg_counter) % 20 == 5) val = 60; // T wave
+          else val = 50 + (rand() % 10) - 5;            // Baseline noise
+      - lvgl.chart.set_next_value:
+          id: ecg_chart
+          series_id: ecg_series
+          value: !lambda |-
+            int val = 50;
+            if (id(ecg_counter) % 20 == 0) val = 90;
+            else if (id(ecg_counter) % 20 == 1) val = 10;
+            else if (id(ecg_counter) % 20 == 5) val = 60;
+            else val = 50 + (rand() % 10) - 5;
+            return val;
+
+  # Scatter chart animation (rotating point)
+  - interval: 50ms
+    then:
+      - lambda: |-
+          id(scatter_angle) += 0.1;
+          if (id(scatter_angle) > 6.28) id(scatter_angle) = 0;
+      - lvgl.chart.set_value_by_id2:
+          id: scatter_chart
+          series_id: scatter_series
+          point_index: 0
+          x_value: !lambda 'return 50 + (int)(40 * cos(id(scatter_angle)));'
+          y_value: !lambda 'return 50 + (int)(40 * sin(id(scatter_angle)));'
+
+  # Dynamic bar color based on temperature
+  - interval: 2s
+    then:
+      - if:
+          condition:
+            lambda: 'return id(weather_temp).state > 25;'
+          then:
+            - lvgl.chart.set_series_color:
+                id: weather_chart
+                series_id: temp_series
+                series_color: 0xFF0000  # Red when hot
+          else:
+            - lvgl.chart.set_series_color:
+                id: weather_chart
+                series_id: temp_series
+                series_color: 0x2196F3  # Blue when cold
+
+# =============================================================================
+# LVGL DISPLAY CONFIGURATION
+# =============================================================================
 lvgl:
   displays:
     - display_id: my_display
       pages:
-        - id: charts_page
+        # =====================================================================
+        # PAGE 1: Weather Charts with Labels
+        # =====================================================================
+        - id: weather_page
+          bg_color: 0x0a0a14
           widgets:
-            # Example 1: Basic Line Chart (Temperature)
-            - chart:
-                id: temp_chart
-                x: 10
+            # Title
+            - label:
+                x: 20
                 y: 10
-                width: 300
-                height: 150
+                text: "Weather Monitor"
+                text_color: 0xFFFFFF
+                text_font: montserrat_20
+
+            # Current values container
+            - obj:
+                x: 20
+                y: 40
+                width: 200
+                height: 60
+                bg_color: 0x1a1a2e
+                radius: 10
+                widgets:
+                  - label:
+                      id: temp_value_label
+                      x: 10
+                      y: 10
+                      text: "--.-°C"
+                      text_color: 0xFF6B6B
+                      text_font: montserrat_28
+                  - label:
+                      id: humidity_value_label
+                      x: 110
+                      y: 10
+                      text: "--%"
+                      text_color: 0x4ECDC4
+                      text_font: montserrat_28
+
+            # Weather line chart with dual axis
+            - chart:
+                id: weather_chart
+                x: 20
+                y: 110
+                width: 400
+                height: 180
                 type: LINE
-                point_count: 20
+                point_count: 24
                 update_mode: SHIFT
-                bg_color: 0xFFFFFF
-                border_width: 2
+                bg_color: 0x1a1a2e
+                border_width: 1
                 border_color: 0x333333
+                div_line_count_hor: 4
+                div_line_count_ver: 6
+                # Style the lines
+                items:
+                  line_width: 2
+                # Style the points
+                indicator:
+                  radius: 3
+                # Primary Y axis for temperature (-10 to 40)
                 axis_primary_y:
+                  min_value: -10
+                  max_value: 40
+                # Secondary Y axis for humidity (0 to 100)
+                axis_secondary_y:
                   min_value: 0
-                  max_value: 50
-                  div_line_count: 5
+                  max_value: 100
                 series:
                   - id: temp_series
-                    color: 0xFF0000  # Red line
+                    color: 0xFF6B6B      # Red for temperature
+                    axis: PRIMARY_Y
+                  - id: humidity_series
+                    color: 0x4ECDC4      # Cyan for humidity
+                    axis: SECONDARY_Y
 
-            # Example 2: Multi-Series Chart
+            # Axis labels
+            - label:
+                x: 0
+                y: 180
+                text: "°C"
+                text_color: 0xFF6B6B
+            - label:
+                x: 425
+                y: 180
+                text: "%"
+                text_color: 0x4ECDC4
+
+        # =====================================================================
+        # PAGE 2: ECG-Style Circular Chart
+        # =====================================================================
+        - id: ecg_page
+          bg_color: 0x000000
+          widgets:
+            - label:
+                x: 20
+                y: 10
+                text: "ECG Monitor (Circular Mode)"
+                text_color: 0x00FF00
+
+            - label:
+                id: esp_temp_label
+                x: 300
+                y: 10
+                text: "ESP: --.-°C"
+                text_color: 0x888888
+
+            # ECG-style chart with circular update mode
             - chart:
-                id: multi_sensor_chart
-                x: 10
-                y: 170
-                width: 300
-                height: 150
+                id: ecg_chart
+                x: 20
+                y: 50
+                width: 440
+                height: 200
                 type: LINE
-                point_count: 30
-                update_mode: CIRCULAR
+                point_count: 150
+                update_mode: CIRCULAR    # ECG-style circular buffer
+                bg_color: 0x001100
+                border_width: 1
+                border_color: 0x004400
+                div_line_count_hor: 5
+                div_line_count_ver: 10
+                items:
+                  line_color: 0x00FF00
+                  line_width: 2
+                indicator:
+                  radius: 0              # No points visible
                 axis_primary_y:
                   min_value: 0
                   max_value: 100
-                  div_line_count: 10
                 series:
-                  - id: temp_series_2
-                    color: 0xFF0000  # Red
-                  - id: humidity_series
-                    color: 0x0000FF  # Blue
-                  - id: pressure_series
-                    color: 0x00FF00  # Green
+                  - id: ecg_series
+                    color: 0x00FF00
 
-            # Example 3: Bar Chart (Monthly Data)
-            - chart:
-                id: monthly_chart
-                x: 320
+        # =====================================================================
+        # PAGE 3: Scatter Chart with Animation
+        # =====================================================================
+        - id: scatter_page
+          bg_color: 0x0a0a14
+          widgets:
+            - label:
+                x: 20
                 y: 10
-                width: 300
-                height: 200
-                type: BAR
-                point_count: 12
-                axis_primary_y:
-                  min_value: 0
-                  max_value: 1000
-                  div_line_count: 5
-                series:
-                  - id: sales_data
-                    color: 0x00AA00
-                    points: [120, 180, 240, 200, 280, 350, 380, 340, 300, 260, 220, 180]
+                text: "Scatter Chart Animation"
+                text_color: 0xFFFFFF
 
-            # Example 4: Scatter Plot
+            # Animated scatter chart
             - chart:
                 id: scatter_chart
-                x: 320
-                y: 220
-                width: 200
-                height: 200
+                x: 50
+                y: 50
+                width: 250
+                height: 250
                 type: SCATTER
-                point_count: 25
+                point_count: 8
+                bg_color: 0x1a1a2e
+                border_width: 1
+                border_color: 0x333333
+                div_line_count_hor: 5
+                div_line_count_ver: 5
+                items:
+                  line_width: 1          # Connect points with lines
+                  line_color: 0x444444
+                indicator:
+                  bg_color: 0xFF6600
+                  radius: 8
                 axis_primary_y:
                   min_value: 0
                   max_value: 100
@@ -84,72 +317,114 @@ lvgl:
                   min_value: 0
                   max_value: 100
                 series:
-                  - id: scatter_data
-                    color: 0xFF00FF
+                  - id: scatter_series
+                    color: 0xFF6600
+                    # Initial points forming a shape
+                    x_points: [50, 85, 85, 50, 15, 15, 50, 50]
+                    y_points: [10, 30, 70, 90, 70, 30, 50, 50]
 
-# Sensor integration example
-sensor:
-  - platform: template
-    name: "Temperature"
-    id: temperature_sensor
-    update_interval: 2s
-    lambda: |-
-      // Simulated temperature reading
-      return 20.0 + (rand() % 100) / 10.0;
-    on_value:
-      then:
-        # Add point to chart (will shift old data)
-        - lambda: |-
-            // Update chart with new temperature value
-            // Note: Actual chart update action would be implemented
-            // in the LVGL component's action handlers
+        # =====================================================================
+        # PAGE 4: Bar Chart with Interactive Points
+        # =====================================================================
+        - id: bar_page
+          bg_color: 0x0a0a14
+          widgets:
+            - label:
+                x: 20
+                y: 10
+                text: "Monthly Sales (Click a bar)"
+                text_color: 0xFFFFFF
 
-  - platform: template
-    name: "Humidity"
-    id: humidity_sensor
-    update_interval: 2s
-    lambda: |-
-      return 40.0 + (rand() % 400) / 10.0;
-    on_value:
-      then:
-        - lambda: |-
-            // Update humidity series
+            # Value display for clicked bar
+            - label:
+                id: clicked_bar_label
+                x: 20
+                y: 35
+                text: "Select a bar..."
+                text_color: 0xFFCC00
 
-  - platform: template
-    name: "Pressure"
-    id: pressure_sensor
-    update_interval: 2s
-    lambda: |-
-      return 980.0 + (rand() % 400) / 10.0;
-    on_value:
-      then:
-        - lambda: |-
-            // Update pressure series (scaled to 0-100)
-            // value = (pressure - 980) / 4
+            # Interactive bar chart
+            - chart:
+                id: bar_chart
+                x: 20
+                y: 70
+                width: 400
+                height: 200
+                type: BAR
+                point_count: 12
+                clickable: true          # Enable click detection
+                bg_color: 0x1a1a2e
+                border_width: 1
+                border_color: 0x333333
+                div_line_count_hor: 5
+                div_line_count_ver: 12
+                items:
+                  bg_opa: 80%
+                axis_primary_y:
+                  min_value: 0
+                  max_value: 500
+                series:
+                  - id: sales_series
+                    color: 0x4CAF50
+                    points: [120, 180, 240, 200, 280, 350, 420, 380, 320, 290, 250, 200]
+                # Detect when a bar is clicked
+                on_value:
+                  then:
+                    - lvgl.label.update:
+                        id: clicked_bar_label
+                        text:
+                          format: "Month %d selected"
+                          args: [point_index]
 
-# Chart update examples (conceptual - actual actions depend on implementation)
-# on_...:
-#   then:
-#     # Set specific point value
-#     - lvgl.chart.set_point:
-#         id: temp_chart
-#         series_id: temp_series
-#         point_index: 5
-#         value: 25
-#
-#     # Add new point (shifts data based on update_mode)
-#     - lvgl.chart.add_point:
-#         id: temp_chart
-#         series_id: temp_series
-#         value: !lambda 'return id(temperature_sensor).state;'
-#
-#     # Clear chart data
-#     - lvgl.chart.clear:
-#         id: temp_chart
-#
-#     # Update axis range dynamically
-#     - lvgl.chart.set_range:
-#         id: temp_chart
-#         axis: PRIMARY_Y
-#         min_value: -10
-#         max_value: 60
+            # Month labels
+            - label:
+                x: 30
+                y: 275
+                text: "J F M A M J J A S O N D"
+                text_color: 0x888888
+                letter_space: 12
+
+        # =====================================================================
+        # PAGE 5: Faded Area Chart
+        # =====================================================================
+        - id: faded_page
+          bg_color: 0x0a0a14
+          widgets:
+            - label:
+                x: 20
+                y: 10
+                text: "Faded Area Chart"
+                text_color: 0xFFFFFF
+
+            # Line chart with faded area underneath
+            - chart:
+                id: faded_chart
+                x: 20
+                y: 50
+                width: 400
+                height: 200
+                type: LINE
+                point_count: 20
+                update_mode: SHIFT
+                bg_color: 0x0a0a14
+                border_width: 0
+                div_line_count_hor: 4
+                div_line_count_ver: 5
+                # Faded area effect
+                items:
+                  line_color: 0x00BFFF
+                  line_width: 3
+                  bg_color: 0x00BFFF
+                  bg_opa: 30%
+                  bg_grad_color: 0x0a0a14
+                  bg_grad_dir: VER
+                indicator:
+                  bg_color: 0x00BFFF
+                  radius: 4
+                axis_primary_y:
+                  min_value: 0
+                  max_value: 100
+                series:
+                  - id: faded_series
+                    color: 0x00BFFF
+                    points: [20, 35, 28, 45, 40, 55, 48, 65, 58, 72, 65, 78, 70, 82, 75, 85, 78, 88, 82, 90]
