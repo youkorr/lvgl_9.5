@@ -7,6 +7,8 @@ The chart widget displays data visualization with support for:
 - SCATTER charts: Point-based data
 - Multiple series per chart
 - Configurable axes and division lines
+- Axis ticks and labels
+- Cursors for point selection
 """
 
 from esphome import automation
@@ -19,6 +21,7 @@ from esphome.const import (
     CONF_MODE,
     CONF_TYPE,
     CONF_VALUE,
+    CONF_DIRECTION,
 )
 from esphome.core import Lambda
 from esphome.cpp_generator import RawStatement
@@ -62,6 +65,20 @@ lv_chart_t = LvType(
 )
 # Chart series type - use pointer type since lv_chart_series_t is forward-declared in LVGL
 lv_chart_series_t_ptr = cg.global_ns.struct("lv_chart_series_t").operator("ptr")
+# Chart cursor type - use pointer type since lv_chart_cursor_t is forward-declared in LVGL
+lv_chart_cursor_t_ptr = cg.global_ns.struct("lv_chart_cursor_t").operator("ptr")
+
+# Cursor directions
+CURSOR_DIRECTIONS = {
+    "NONE": "LV_DIR_NONE",
+    "LEFT": "LV_DIR_LEFT",
+    "RIGHT": "LV_DIR_RIGHT",
+    "TOP": "LV_DIR_TOP",
+    "BOTTOM": "LV_DIR_BOTTOM",
+    "HOR": "LV_DIR_HOR",
+    "VER": "LV_DIR_VER",
+    "ALL": "LV_DIR_ALL",
+}
 
 # Chart types
 CHART_TYPE_NONE = "NONE"
@@ -103,12 +120,40 @@ CONF_POINT_INDEX = "point_index"
 CONF_X_VALUE = "x_value"
 CONF_Y_VALUE = "y_value"
 
-# Axis configuration
+# Axis tick configuration keys
+CONF_MAJOR_TICK_LENGTH = "major_tick_length"
+CONF_MINOR_TICK_LENGTH = "minor_tick_length"
+CONF_MAJOR_TICK_COUNT = "major_tick_count"
+CONF_MINOR_TICK_COUNT = "minor_tick_count"
+CONF_LABEL_ENABLED = "label_enabled"
+CONF_DRAW_SIZE = "draw_size"
+
+# Cursor configuration keys
+CONF_CURSORS = "cursors"
+CONF_CURSOR_ID = "cursor_id"
+
+# Axis configuration with tick support
 AXIS_SCHEMA = cv.Schema(
     {
         cv.Optional(CONF_MIN_VALUE): lv_int,
         cv.Optional(CONF_MAX_VALUE): lv_int,
         cv.Optional(CONF_DIV_LINE_COUNT): cv.positive_int,
+        # Tick configuration
+        cv.Optional(CONF_MAJOR_TICK_LENGTH, default=0): cv.positive_int,
+        cv.Optional(CONF_MINOR_TICK_LENGTH, default=0): cv.positive_int,
+        cv.Optional(CONF_MAJOR_TICK_COUNT, default=5): cv.positive_int,
+        cv.Optional(CONF_MINOR_TICK_COUNT, default=2): cv.positive_int,
+        cv.Optional(CONF_LABEL_ENABLED, default=False): cv.boolean,
+        cv.Optional(CONF_DRAW_SIZE, default=50): cv.positive_int,
+    }
+)
+
+# Cursor configuration
+CURSOR_SCHEMA = cv.Schema(
+    {
+        cv.Required(CONF_ID): cv.declare_id(lv_chart_cursor_t_ptr),
+        cv.Optional(CONF_COLOR, default=0xFF0000): lv_color,
+        cv.Optional(CONF_DIRECTION, default="ALL"): cv.enum(CURSOR_DIRECTIONS, upper=True),
     }
 )
 
@@ -140,6 +185,8 @@ CHART_SCHEMA = cv.Schema(
         cv.Optional(CONF_AXIS_SECONDARY_Y): AXIS_SCHEMA,
         cv.Optional(CONF_AXIS_PRIMARY_X): AXIS_SCHEMA,
         cv.Optional(CONF_AXIS_SECONDARY_X): AXIS_SCHEMA,
+        # Cursors for point selection
+        cv.Optional(CONF_CURSORS): cv.ensure_list(CURSOR_SCHEMA),
     }
 )
 
@@ -194,8 +241,13 @@ class ChartType(WidgetType):
             for series in series_list:
                 await self._add_series(w, series)
 
+        # Add cursors
+        if cursor_list := config.get(CONF_CURSORS):
+            for cursor in cursor_list:
+                await self._add_cursor(w, cursor)
+
     async def _configure_axis(self, w: Widget, config, axis_key, axis_const):
-        """Configure a specific axis range"""
+        """Configure a specific axis range and ticks"""
         if axis_config := config.get(axis_key):
             axis_literal = literal(axis_const)
 
@@ -204,6 +256,25 @@ class ChartType(WidgetType):
                 min_val = await lv_int.process(axis_config[CONF_MIN_VALUE])
                 max_val = await lv_int.process(axis_config[CONF_MAX_VALUE])
                 lv.chart_set_range(w.obj, axis_literal, min_val, max_val)
+
+            # Set axis ticks if major_tick_length > 0
+            major_len = axis_config.get(CONF_MAJOR_TICK_LENGTH, 0)
+            if major_len > 0:
+                minor_len = axis_config.get(CONF_MINOR_TICK_LENGTH, 0)
+                major_cnt = axis_config.get(CONF_MAJOR_TICK_COUNT, 5)
+                minor_cnt = axis_config.get(CONF_MINOR_TICK_COUNT, 2)
+                label_en = axis_config.get(CONF_LABEL_ENABLED, False)
+                draw_size = axis_config.get(CONF_DRAW_SIZE, 50)
+                lv.chart_set_axis_tick(
+                    w.obj,
+                    axis_literal,
+                    major_len,
+                    minor_len,
+                    major_cnt,
+                    minor_cnt,
+                    label_en,
+                    draw_size,
+                )
 
     async def _add_series(self, w: Widget, series_config):
         """Add a data series to the chart"""
@@ -242,6 +313,22 @@ class ChartType(WidgetType):
             for point_value in points:
                 point = await lv_int.process(point_value)
                 lv.chart_set_next_value(w.obj, series_var, point)
+
+    async def _add_cursor(self, w: Widget, cursor_config):
+        """Add a cursor to the chart for point selection"""
+        # Get cursor color
+        color = await lv_color.process(cursor_config[CONF_COLOR])
+
+        # Get cursor direction
+        direction = CURSOR_DIRECTIONS[cursor_config[CONF_DIRECTION]]
+
+        # Declare cursor pointer variable and add cursor to chart
+        cursor_id = cursor_config[CONF_ID]
+        cursor_var = lv_Pvariable(cg.global_ns.struct("lv_chart_cursor_t"), cursor_id)
+        lv_assign(
+            cursor_var,
+            lv_expr.chart_add_cursor(w.obj, color, literal(direction)),
+        )
 
     def get_uses(self):
         """Chart widget uses label for axis labels"""
@@ -430,3 +517,39 @@ async def chart_set_series_color(config, action_id, template_arg, args):
         lv.chart_refresh(w.obj)
 
     return await action_to_code(widgets, do_set_color, action_id, template_arg, args)
+
+
+# Schema for set_cursor_point action (move cursor to a point)
+CHART_SET_CURSOR_POINT_SCHEMA = cv.Schema(
+    {
+        cv.Required(CONF_ID): cv.use_id(lv_chart_t),
+        cv.Required(CONF_CURSOR_ID): cv.use_id(lv_chart_cursor_t_ptr),
+        cv.Required(CONF_SERIES_ID): cv.use_id(lv_chart_series_t_ptr),
+        cv.Required(CONF_POINT_INDEX): cv.templatable(cv.int_),
+    }
+)
+
+
+@automation.register_action(
+    "lvgl.chart.set_cursor_point",
+    ObjUpdateAction,
+    CHART_SET_CURSOR_POINT_SCHEMA,
+)
+async def chart_set_cursor_point(config, action_id, template_arg, args):
+    """Move a cursor to a specific point on a series"""
+    widgets = await get_widgets(config)
+    cursor = await cg.get_variable(config[CONF_CURSOR_ID])
+    series = await cg.get_variable(config[CONF_SERIES_ID])
+    point_index = config[CONF_POINT_INDEX]
+
+    async def do_set_cursor(w: Widget):
+        if isinstance(point_index, Lambda):
+            idx = await cg.process_lambda(point_index, [], return_type=cg.int32)
+            idx_val = call_lambda(idx)
+        else:
+            idx_val = point_index
+
+        lv.chart_set_cursor_point(w.obj, cursor, series, idx_val)
+        lv.chart_refresh(w.obj)
+
+    return await action_to_code(widgets, do_set_cursor, action_id, template_arg, args)

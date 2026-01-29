@@ -11,13 +11,13 @@
 #   - lvgl.chart.set_value_by_id: Set specific point by index
 #   - lvgl.chart.set_value_by_id2: Set X/Y for scatter charts
 #   - lvgl.chart.set_series_color: Change series color dynamically
+#   - lvgl.chart.set_cursor_point: Move cursor to a point
 #   - lvgl.chart.refresh: Refresh chart display
 # =============================================================================
 
 # =============================================================================
 # EXAMPLE 1: Simple Weather Chart with Home Assistant
 # =============================================================================
-# This is the simplest example - temperature and humidity on one chart
 
 sensor:
   - platform: homeassistant
@@ -58,30 +58,27 @@ lvgl:
     - display_id: my_display
       pages:
         # =====================================================================
-        # PAGE 1: Weather Chart (LINE) - Most Common Use Case
+        # PAGE 1: Weather Chart (LINE) with Labels
         # =====================================================================
         - id: weather_page
           bg_color: 0x000000
           widgets:
-            # Current temperature label
             - label:
-                id: temp_label           # Must match sensor on_value!
+                id: temp_label
                 x: 20
                 y: 10
                 width: 100
-                text: "--.-°C"           # Initial placeholder
+                text: "--.-°C"
                 text_color: 0xFF0000
 
-            # Current humidity label
             - label:
-                id: humidity_label       # Must match sensor on_value!
+                id: humidity_label
                 x: 130
                 y: 10
                 width: 100
-                text: "--%"              # Initial placeholder
+                text: "--%"
                 text_color: 0x0000FF
 
-            # Weather line chart
             - chart:
                 id: weather_chart
                 x: 20
@@ -89,8 +86,8 @@ lvgl:
                 width: 400
                 height: 180
                 type: LINE
-                point_count: 24          # 24 data points
-                update_mode: SHIFT       # New points push old ones left
+                point_count: 24
+                update_mode: SHIFT
                 bg_color: 0x1a1a2e
                 border_width: 1
                 border_color: 0x333333
@@ -108,14 +105,130 @@ lvgl:
                   max_value: 100
                 series:
                   - id: temp_series
-                    color: 0xFF0000      # Red for temperature
+                    color: 0xFF0000
                     axis: PRIMARY_Y
                   - id: humidity_series
-                    color: 0x0000FF      # Blue for humidity
+                    color: 0x0000FF
                     axis: SECONDARY_Y
 
         # =====================================================================
-        # PAGE 2: Scatter Chart - STATIC (no animation)
+        # PAGE 2: Chart with Axis Ticks and Labels
+        # =====================================================================
+        - id: ticks_page
+          bg_color: 0x1a1a2e
+          widgets:
+            - label:
+                x: 20
+                y: 10
+                text: "Chart with Axis Ticks"
+                text_color: 0xFFFFFF
+
+            - chart:
+                id: ticks_chart
+                x: 60
+                y: 50
+                width: 350
+                height: 200
+                type: LINE
+                point_count: 12
+                bg_color: 0x0a0a14
+                border_width: 1
+                border_color: 0x333333
+                div_line_count_hor: 5
+                div_line_count_ver: 6
+                items:
+                  line_width: 2
+                indicator:
+                  radius: 4
+                # Axis with ticks and labels
+                axis_primary_y:
+                  min_value: 0
+                  max_value: 100
+                  major_tick_length: 10     # Length of major ticks in pixels
+                  minor_tick_length: 5      # Length of minor ticks
+                  major_tick_count: 6       # Number of major ticks (0, 20, 40, 60, 80, 100)
+                  minor_tick_count: 4       # Minor ticks between each major tick
+                  label_enabled: true       # Show numeric labels
+                  draw_size: 50             # Space for labels
+                axis_primary_x:
+                  min_value: 0
+                  max_value: 12
+                  major_tick_length: 8
+                  minor_tick_length: 4
+                  major_tick_count: 7
+                  minor_tick_count: 1
+                  label_enabled: true
+                  draw_size: 30
+                series:
+                  - id: ticks_series
+                    color: 0x00FF00
+                    points: [10, 25, 45, 30, 55, 70, 60, 85, 75, 90, 80, 95]
+
+        # =====================================================================
+        # PAGE 3: Chart with Cursor (click to show cursor)
+        # =====================================================================
+        - id: cursor_page
+          bg_color: 0x1a1a2e
+          widgets:
+            - label:
+                x: 20
+                y: 10
+                text: "Click chart to show cursor"
+                text_color: 0xFFFFFF
+
+            - label:
+                id: cursor_value_label
+                x: 20
+                y: 35
+                text: "Point: --"
+                text_color: 0xFFCC00
+
+            - chart:
+                id: cursor_chart
+                x: 20
+                y: 70
+                width: 400
+                height: 200
+                type: LINE
+                point_count: 12
+                clickable: true              # Enable click detection
+                bg_color: 0x0a0a14
+                border_width: 1
+                border_color: 0x333333
+                div_line_count_hor: 5
+                div_line_count_ver: 12
+                items:
+                  line_width: 2
+                indicator:
+                  radius: 4
+                axis_primary_y:
+                  min_value: 0
+                  max_value: 100
+                series:
+                  - id: cursor_series
+                    color: 0x2196F3
+                    points: [20, 35, 50, 45, 60, 75, 65, 80, 70, 85, 90, 95]
+                # Add a cursor to the chart
+                cursors:
+                  - id: my_cursor
+                    color: 0xFF0000          # Red cursor line
+                    direction: ALL           # Show both horizontal and vertical lines
+                # When a point is clicked, move cursor to that point
+                on_value:
+                  then:
+                    - lvgl.chart.set_cursor_point:
+                        id: cursor_chart
+                        cursor_id: my_cursor
+                        series_id: cursor_series
+                        point_index: !lambda 'return point_index;'
+                    - lvgl.label.update:
+                        id: cursor_value_label
+                        text:
+                          format: "Point: %d"
+                          args: [point_index]
+
+        # =====================================================================
+        # PAGE 4: Scatter Chart (Static)
         # =====================================================================
         - id: scatter_page
           bg_color: 0x1a1a2e
@@ -123,10 +236,9 @@ lvgl:
             - label:
                 x: 20
                 y: 10
-                text: "Scatter Chart (Static)"
+                text: "Scatter Chart"
                 text_color: 0xFFFFFF
 
-            # Scatter chart - static points defined in x_points/y_points
             - chart:
                 id: scatter_chart
                 x: 50
@@ -141,10 +253,10 @@ lvgl:
                 div_line_count_hor: 5
                 div_line_count_ver: 5
                 items:
-                  line_width: 0          # No lines between points
+                  line_width: 0
                 indicator:
                   bg_color: 0xFF6600
-                  radius: 6              # Point size
+                  radius: 6
                 axis_primary_y:
                   min_value: 0
                   max_value: 100
@@ -154,12 +266,11 @@ lvgl:
                 series:
                   - id: scatter_series
                     color: 0xFF6600
-                    # Static X/Y coordinates
                     x_points: [10, 20, 30, 40, 50, 60, 70, 80, 90, 95]
                     y_points: [15, 35, 25, 55, 45, 75, 65, 85, 70, 90]
 
         # =====================================================================
-        # PAGE 3: Bar Chart with Initial Data
+        # PAGE 5: Bar Chart
         # =====================================================================
         - id: bar_page
           bg_color: 0x1a1a2e
@@ -167,7 +278,7 @@ lvgl:
             - label:
                 x: 20
                 y: 10
-                text: "Monthly Data (BAR)"
+                text: "Monthly Sales (BAR)"
                 text_color: 0xFFFFFF
 
             - chart:
@@ -191,31 +302,7 @@ lvgl:
                 series:
                   - id: bar_series
                     color: 0x4CAF50
-                    # Initial bar values
                     points: [120, 180, 240, 200, 280, 350, 420, 380, 320, 290, 250, 200]
-
-# =============================================================================
-# OPTIONAL: Animations (uncomment to enable)
-# =============================================================================
-# If you want to animate the scatter chart, uncomment this interval:
-#
-# globals:
-#   - id: scatter_angle
-#     type: float
-#     initial_value: "0"
-#
-# interval:
-#   - interval: 50ms
-#     then:
-#       - lambda: |-
-#           id(scatter_angle) += 0.1;
-#           if (id(scatter_angle) > 6.28) id(scatter_angle) = 0;
-#       - lvgl.chart.set_value_by_id2:
-#           id: scatter_chart
-#           series_id: scatter_series
-#           point_index: 0
-#           x_value: !lambda 'return 50 + (int)(40 * cos(id(scatter_angle)));'
-#           y_value: !lambda 'return 50 + (int)(40 * sin(id(scatter_angle)));'
 
 # =============================================================================
 # TROUBLESHOOTING
@@ -227,11 +314,17 @@ lvgl:
 #   - Make sure label ID in on_value matches label ID in widgets
 #   - Check ESPHome logs for sensor values
 #
+# Axis ticks not showing:
+#   - Set major_tick_length > 0 to enable ticks
+#   - Set draw_size large enough for labels (50+ recommended)
+#   - Make sure min_value and max_value are set
+#
+# Cursor not showing:
+#   - Make sure clickable: true is set on the chart
+#   - Define cursors section with at least one cursor
+#   - Use lvgl.chart.set_cursor_point action to position cursor
+#
 # Chart doesn't update:
 #   - Make sure series_id matches the series defined in the chart
 #   - Check that the chart ID is correct
 #   - Verify sensor is receiving data (check logs)
-#
-# Scatter animation not working:
-#   - Make sure globals and interval sections are uncommented
-#   - Verify point_index is within range (0 to point_count-1)
