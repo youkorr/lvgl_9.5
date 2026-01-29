@@ -1134,11 +1134,11 @@ lvgl:
                     width: 3
                   - id: nfs_rpm_high
                     range_from: 6
-                    range_to: 7.5
+                    range_to: 8
                     color: 0xFF6600
                     width: 3
                   - id: nfs_rpm_redline
-                    range_from: 7.5
+                    range_from: 8
                     range_to: 9
                     color: 0xFF0000
                     width: 4
