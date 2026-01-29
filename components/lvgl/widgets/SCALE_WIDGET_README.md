@@ -176,14 +176,16 @@ lvgl:
             max_value: 200
             value: 0
             rotation: 135        # Same as scale
-            bg_start_angle: 0
-            bg_end_angle: 270    # Same as scale angle_range
+            start_angle: 0
+            end_angle: 270       # Same as scale angle_range
             mode: NORMAL
-            arc_width: 20
+            adjustable: false
             indicator:
               arc_color: 0x00FF00
               arc_width: 20
-            bg_arc_color: 0x1a1a2e
+            main:
+              arc_color: 0x1a1a2e
+              arc_width: 20
 
         # Value display
         - label:
@@ -204,7 +206,7 @@ lvgl:
 ### Key Points for Scale + Arc Alignment
 
 1. **Same rotation**: Arc and Scale must have the same `rotation` value
-2. **Same angle range**: Arc's `bg_end_angle` should match Scale's `angle_range`
+2. **Same angle range**: Arc's `end_angle` should match Scale's `angle_range`
 3. **Same min/max**: Use identical `min_value` and `max_value`
 4. **Arc smaller**: Arc should be slightly smaller than Scale to fit inside
 5. **Same alignment**: Use `align: CENTER` for both (or matching x/y coordinates)
@@ -323,14 +325,16 @@ lvgl:
             max_value: 40
             value: 20
             rotation: 135
-            bg_start_angle: 0
-            bg_end_angle: 270
+            start_angle: 0
+            end_angle: 270
             mode: NORMAL
-            arc_width: 12
+            adjustable: false
             indicator:
               arc_color: 0x00FF00
               arc_width: 12
-            bg_arc_color: 0x1a1a2e
+            main:
+              arc_color: 0x1a1a2e
+              arc_width: 12
 
         - label:
             id: temp_label
@@ -511,7 +515,7 @@ The scale widget implementation uses these LVGL v9.4 API functions:
 
 ### Arc Not Aligned with Scale
 - Arc and Scale must have same `rotation` value
-- Arc's `bg_end_angle` should match Scale's `angle_range`
+- Arc's `end_angle` should match Scale's `angle_range`
 - Use same `min_value` and `max_value` for both
 - Arc should be smaller than Scale (to fit inside)
 

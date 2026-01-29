@@ -333,14 +333,16 @@ lvgl:
                 max_value: 200
                 value: 0
                 rotation: 135
-                bg_start_angle: 0
-                bg_end_angle: 270
+                start_angle: 0
+                end_angle: 270
                 mode: NORMAL
-                arc_width: 20
+                adjustable: false
                 indicator:
                   arc_color: 0x00FF00
                   arc_width: 20
-                bg_arc_color: 0x1a1a2e
+                main:
+                  arc_color: 0x1a1a2e
+                  arc_width: 20
 
             # Speed value display
             - label:
@@ -422,14 +424,16 @@ lvgl:
                 max_value: 50
                 value: 20
                 rotation: 135
-                bg_start_angle: 0
-                bg_end_angle: 270
+                start_angle: 0
+                end_angle: 270
                 mode: NORMAL
-                arc_width: 12
+                adjustable: false
                 indicator:
                   arc_color: 0x00FF00
                   arc_width: 12
-                bg_arc_color: 0x1a1a2e
+                main:
+                  arc_color: 0x1a1a2e
+                  arc_width: 12
 
             - label:
                 id: demo_temp_value_label
@@ -492,14 +496,16 @@ lvgl:
                 max_value: 100
                 value: 50
                 rotation: 135
-                bg_start_angle: 0
-                bg_end_angle: 270
+                start_angle: 0
+                end_angle: 270
                 mode: NORMAL
-                arc_width: 12
+                adjustable: false
                 indicator:
                   arc_color: 0x00FF00
                   arc_width: 12
-                bg_arc_color: 0x1a1a2e
+                main:
+                  arc_color: 0x1a1a2e
+                  arc_width: 12
 
             - label:
                 id: humidity_value_label
@@ -766,14 +772,16 @@ lvgl:
                 max_value: 10
                 value: 5
                 rotation: 135
-                bg_start_angle: 0
-                bg_end_angle: 270
+                start_angle: 0
+                end_angle: 270
                 mode: NORMAL
-                arc_width: 10
+                adjustable: false
                 indicator:
                   arc_color: 0xFFFF00
                   arc_width: 10
-                bg_arc_color: 0x1a1a2e
+                main:
+                  arc_color: 0x1a1a2e
+                  arc_width: 10
 
             - label:
                 id: pressure_value_label
@@ -848,14 +856,16 @@ lvgl:
                 max_value: 40
                 value: 20
                 rotation: 135
-                bg_start_angle: 0
-                bg_end_angle: 270
+                start_angle: 0
+                end_angle: 270
                 mode: NORMAL
-                arc_width: 12
+                adjustable: false
                 indicator:
                   arc_color: 0x00FF00
                   arc_width: 12
-                bg_arc_color: 0x1a1a2e
+                main:
+                  arc_color: 0x1a1a2e
+                  arc_width: 12
 
             - label:
                 id: temp_value_label
@@ -925,14 +935,16 @@ lvgl:
                 max_value: 100
                 value: 50
                 rotation: 135
-                bg_start_angle: 0
-                bg_end_angle: 270
+                start_angle: 0
+                end_angle: 270
                 mode: NORMAL
-                arc_width: 12
+                adjustable: false
                 indicator:
                   arc_color: 0x00FF00
                   arc_width: 12
-                bg_arc_color: 0x1a1a2e
+                main:
+                  arc_color: 0x1a1a2e
+                  arc_width: 12
 
             - label:
                 id: humid_value_label
@@ -970,15 +982,17 @@ lvgl:
                 max_value: 320
                 value: 320
                 rotation: 135
-                bg_start_angle: 0
-                bg_end_angle: 270
+                start_angle: 0
+                end_angle: 270
                 mode: NORMAL
-                arc_width: 4
+                adjustable: false
                 indicator:
                   arc_color: 0x00FFFF
                   arc_width: 4
                   arc_opa: 40%
-                bg_arc_color: 0x001a1a
+                main:
+                  arc_color: 0x001a1a
+                  arc_width: 4
 
             # Speed Scale - Racing style
             - scale:
@@ -1032,15 +1046,17 @@ lvgl:
                 max_value: 320
                 value: 0
                 rotation: 135
-                bg_start_angle: 0
-                bg_end_angle: 270
+                start_angle: 0
+                end_angle: 270
                 mode: NORMAL
-                arc_width: 25
+                adjustable: false
                 indicator:
                   arc_color: 0x00FFFF
                   arc_width: 25
                   arc_opa: 90%
-                bg_arc_color: 0x0a0a0a
+                main:
+                  arc_color: 0x0a0a0a
+                  arc_width: 25
 
             # Digital Speed Display
             - label:
@@ -1074,15 +1090,17 @@ lvgl:
                 max_value: 9000
                 value: 9000
                 rotation: 135
-                bg_start_angle: 0
-                bg_end_angle: 270
+                start_angle: 0
+                end_angle: 270
                 mode: NORMAL
-                arc_width: 4
+                adjustable: false
                 indicator:
                   arc_color: 0x00FFFF
                   arc_width: 4
                   arc_opa: 40%
-                bg_arc_color: 0x001a1a
+                main:
+                  arc_color: 0x001a1a
+                  arc_width: 4
 
             # RPM Scale
             - scale:
@@ -1136,15 +1154,17 @@ lvgl:
                 max_value: 9000
                 value: 800
                 rotation: 135
-                bg_start_angle: 0
-                bg_end_angle: 270
+                start_angle: 0
+                end_angle: 270
                 mode: NORMAL
-                arc_width: 25
+                adjustable: false
                 indicator:
                   arc_color: 0x00FFFF
                   arc_width: 25
                   arc_opa: 90%
-                bg_arc_color: 0x0a0a0a
+                main:
+                  arc_color: 0x0a0a0a
+                  arc_width: 25
 
             # Digital RPM Display
             - label:
