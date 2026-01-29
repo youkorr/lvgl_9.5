@@ -90,6 +90,11 @@ CHART_AXES = {
 # Additional configuration keys
 CONF_DIV_LINE_COUNT_HOR = "div_line_count_hor"
 CONF_DIV_LINE_COUNT_VER = "div_line_count_ver"
+CONF_X_POINTS = "x_points"
+CONF_Y_POINTS = "y_points"
+CONF_POINT_INDEX = "point_index"
+CONF_X_VALUE = "x_value"
+CONF_Y_VALUE = "y_value"
 
 # Axis configuration
 AXIS_SCHEMA = cv.Schema(
@@ -106,7 +111,9 @@ SERIES_SCHEMA = cv.Schema(
         cv.Required(CONF_ID): cv.declare_id(lv_chart_series_t_ptr),
         cv.Optional(CONF_COLOR): lv_color,
         cv.Optional(CONF_AXIS, default="PRIMARY_Y"): cv.enum(CHART_AXES, upper=True),
-        cv.Optional(CONF_POINTS): cv.ensure_list(lv_int),
+        cv.Optional(CONF_POINTS): cv.ensure_list(lv_int),  # Y points (or both for LINE/BAR)
+        cv.Optional(CONF_X_POINTS): cv.ensure_list(lv_int),  # X points for SCATTER
+        cv.Optional(CONF_Y_POINTS): cv.ensure_list(lv_int),  # Y points for SCATTER
     }
 )
 
@@ -210,8 +217,18 @@ class ChartType(WidgetType):
             lv_expr.chart_add_series(w.obj, color, literal(axis)),
         )
 
-        # Set initial points if provided
-        if points := series_config.get(CONF_POINTS):
+        # Set initial points - for SCATTER charts use x_points/y_points
+        x_points = series_config.get(CONF_X_POINTS)
+        y_points = series_config.get(CONF_Y_POINTS)
+
+        if x_points and y_points:
+            # Scatter chart with X/Y coordinates
+            for i, (x_val, y_val) in enumerate(zip(x_points, y_points)):
+                x = await lv_int.process(x_val)
+                y = await lv_int.process(y_val)
+                lv.chart_set_value_by_id2(w.obj, series_var, i, x, y)
+        elif points := series_config.get(CONF_POINTS):
+            # LINE/BAR chart with Y values only
             for point_value in points:
                 point = await lv_int.process(point_value)
                 lv.chart_set_next_value(w.obj, series_var, point)
@@ -275,3 +292,95 @@ async def chart_refresh(config, action_id, template_arg, args):
         lv.chart_refresh(w.obj)
 
     return await action_to_code(widgets, do_refresh, action_id, template_arg, args)
+
+
+# Schema for set_value_by_id action (for scatter charts and animations)
+CHART_SET_VALUE_BY_ID_SCHEMA = cv.Schema(
+    {
+        cv.Required(CONF_ID): cv.use_id(lv_chart_t),
+        cv.Required(CONF_SERIES_ID): cv.use_id(lv_chart_series_t_ptr),
+        cv.Required(CONF_POINT_INDEX): cv.templatable(cv.int_),
+        cv.Required(CONF_VALUE): cv.templatable(cv.int_),
+    }
+)
+
+
+@automation.register_action(
+    "lvgl.chart.set_value_by_id",
+    ObjUpdateAction,
+    CHART_SET_VALUE_BY_ID_SCHEMA,
+)
+async def chart_set_value_by_id(config, action_id, template_arg, args):
+    """Set a specific point value by index (useful for animations)"""
+    widgets = await get_widgets(config)
+    series = await cg.get_variable(config[CONF_SERIES_ID])
+    point_index = config[CONF_POINT_INDEX]
+    value = config[CONF_VALUE]
+
+    async def do_set_value(w: Widget):
+        if isinstance(point_index, Lambda):
+            idx = await cg.process_lambda(point_index, [], return_type=cg.int32)
+            idx_val = call_lambda(idx)
+        else:
+            idx_val = point_index
+
+        if isinstance(value, Lambda):
+            val = await cg.process_lambda(value, [], return_type=cg.int32)
+            val_val = call_lambda(val)
+        else:
+            val_val = value
+
+        lv.chart_set_value_by_id(w.obj, series, idx_val, val_val)
+        lv.chart_refresh(w.obj)
+
+    return await action_to_code(widgets, do_set_value, action_id, template_arg, args)
+
+
+# Schema for scatter chart set_value_by_id2 action (X and Y values)
+CHART_SET_VALUE_BY_ID2_SCHEMA = cv.Schema(
+    {
+        cv.Required(CONF_ID): cv.use_id(lv_chart_t),
+        cv.Required(CONF_SERIES_ID): cv.use_id(lv_chart_series_t_ptr),
+        cv.Required(CONF_POINT_INDEX): cv.templatable(cv.int_),
+        cv.Required(CONF_X_VALUE): cv.templatable(cv.int_),
+        cv.Required(CONF_Y_VALUE): cv.templatable(cv.int_),
+    }
+)
+
+
+@automation.register_action(
+    "lvgl.chart.set_value_by_id2",
+    ObjUpdateAction,
+    CHART_SET_VALUE_BY_ID2_SCHEMA,
+)
+async def chart_set_value_by_id2(config, action_id, template_arg, args):
+    """Set X and Y values for scatter chart point by index"""
+    widgets = await get_widgets(config)
+    series = await cg.get_variable(config[CONF_SERIES_ID])
+    point_index = config[CONF_POINT_INDEX]
+    x_value = config[CONF_X_VALUE]
+    y_value = config[CONF_Y_VALUE]
+
+    async def do_set_value2(w: Widget):
+        if isinstance(point_index, Lambda):
+            idx = await cg.process_lambda(point_index, [], return_type=cg.int32)
+            idx_val = call_lambda(idx)
+        else:
+            idx_val = point_index
+
+        if isinstance(x_value, Lambda):
+            xv = await cg.process_lambda(x_value, [], return_type=cg.int32)
+            x_val = call_lambda(xv)
+        else:
+            x_val = x_value
+
+        if isinstance(y_value, Lambda):
+            yv = await cg.process_lambda(y_value, [], return_type=cg.int32)
+            y_val = call_lambda(yv)
+        else:
+            y_val = y_value
+
+        lv.chart_set_value_by_id2(w.obj, series, idx_val, x_val, y_val)
+        lv.chart_refresh(w.obj)
+
+    return await action_to_code(widgets, do_set_value2, action_id, template_arg, args)
