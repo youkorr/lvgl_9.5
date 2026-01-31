@@ -184,57 +184,124 @@ class LottieType(WidgetType):
         # NOTE: We DON'T use lv_lottie_set_src_file() because it loads the file
         # on the stack, causing stack overflow on ESP32. Instead, we manually
         # load the file to heap memory and use lv_lottie_set_src_data().
+        # Additionally, we run the loading in a dedicated FreeRTOS task with
+        # a large stack (64KB) because ThorVG parsing requires significant stack space.
         if src := config.get(CONF_SRC):
-            # Use lv_add with RawStatement to generate the file loading code
-            # NOTE: We load the JSON file to heap instead of letting lv_lottie_set_src_file
-            # use the stack, which causes stack overflow on ESP32 with ThorVG
             from ..lvcode import lv_add
-            # Add required includes for file I/O and heap allocation
+            # Add required includes for file I/O, heap allocation, and FreeRTOS
             cg.add_global(cg.RawExpression('#include <stdio.h>'))
             cg.add_global(cg.RawExpression('#include "esp_heap_caps.h"'))
+            cg.add_global(cg.RawExpression('#include "freertos/FreeRTOS.h"'))
+            cg.add_global(cg.RawExpression('#include "freertos/task.h"'))
+            cg.add_global(cg.RawExpression('#include "freertos/semphr.h"'))
 
             load_code = f'''
-// Load Lottie JSON file to heap to avoid stack overflow
-do {{
-    FILE *f = fopen("{src}", "rb");
-    if (f == NULL) {{
-        ESP_LOGE("lottie", "Failed to open Lottie file: {src}");
-        break;
-    }}
-    fseek(f, 0, SEEK_END);
-    long fsize = ftell(f);
-    fseek(f, 0, SEEK_SET);
+// Load Lottie JSON in a dedicated task with large stack to avoid stack overflow
+// ThorVG parsing requires significant stack space (>32KB)
+{{
+    typedef struct {{
+        lv_obj_t *obj;
+        const char *path;
+        char *json_buf;
+        size_t json_size;
+        bool success;
+        SemaphoreHandle_t done_sem;
+    }} lottie_load_params_t;
 
-    // Allocate in heap (PSRAM if available) + 1 for null terminator
-    char *json_buf = (char *)heap_caps_malloc(fsize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (json_buf == NULL) {{
-        // Fallback to regular heap if PSRAM not available
-        json_buf = (char *)malloc(fsize + 1);
-    }}
+    static void lottie_load_task(void *arg) {{
+        lottie_load_params_t *params = (lottie_load_params_t *)arg;
 
-    if (json_buf == NULL) {{
+        FILE *f = fopen(params->path, "rb");
+        if (f == NULL) {{
+            ESP_LOGE("lottie", "Failed to open Lottie file: %s", params->path);
+            params->success = false;
+            xSemaphoreGive(params->done_sem);
+            vTaskDelete(NULL);
+            return;
+        }}
+
+        fseek(f, 0, SEEK_END);
+        long fsize = ftell(f);
+        fseek(f, 0, SEEK_SET);
+
+        // Allocate in PSRAM if available, +1 for null terminator
+        params->json_buf = (char *)heap_caps_malloc(fsize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (params->json_buf == NULL) {{
+            params->json_buf = (char *)malloc(fsize + 1);
+        }}
+
+        if (params->json_buf == NULL) {{
+            fclose(f);
+            ESP_LOGE("lottie", "Failed to allocate %ld bytes for Lottie JSON", fsize);
+            params->success = false;
+            xSemaphoreGive(params->done_sem);
+            vTaskDelete(NULL);
+            return;
+        }}
+
+        size_t read_size = fread(params->json_buf, 1, fsize, f);
         fclose(f);
-        ESP_LOGE("lottie", "Failed to allocate %ld bytes for Lottie JSON", fsize);
-        break;
+
+        if (read_size != (size_t)fsize) {{
+            free(params->json_buf);
+            params->json_buf = NULL;
+            ESP_LOGE("lottie", "Failed to read Lottie file completely");
+            params->success = false;
+            xSemaphoreGive(params->done_sem);
+            vTaskDelete(NULL);
+            return;
+        }}
+
+        params->json_buf[fsize] = '\\0';  // Null terminate for ThorVG
+        params->json_size = fsize;
+
+        // Parse Lottie JSON - this is what requires the large stack!
+        lv_lottie_set_src_data(params->obj, params->json_buf, fsize);
+        ESP_LOGI("lottie", "Loaded Lottie from %s (%ld bytes) in dedicated task", params->path, fsize);
+
+        params->success = true;
+        xSemaphoreGive(params->done_sem);
+        vTaskDelete(NULL);
     }}
 
-    size_t read_size = fread(json_buf, 1, fsize, f);
-    fclose(f);
+    // Create parameters struct
+    static lottie_load_params_t load_params;
+    load_params.obj = {w.obj};
+    load_params.path = "{src}";
+    load_params.json_buf = NULL;
+    load_params.json_size = 0;
+    load_params.success = false;
+    load_params.done_sem = xSemaphoreCreateBinary();
 
-    if (read_size != (size_t)fsize) {{
-        free(json_buf);
-        ESP_LOGE("lottie", "Failed to read Lottie file completely");
-        break;
+    // Create task with 64KB stack for ThorVG parsing
+    TaskHandle_t load_task;
+    BaseType_t ret = xTaskCreatePinnedToCore(
+        lottie_load_task,
+        "lottie_load",
+        64 * 1024,  // 64KB stack - ThorVG needs this much!
+        &load_params,
+        5,  // Priority
+        &load_task,
+        1   // Core 1
+    );
+
+    if (ret == pdPASS) {{
+        // Wait for task to complete (max 30 seconds)
+        if (xSemaphoreTake(load_params.done_sem, pdMS_TO_TICKS(30000)) == pdTRUE) {{
+            if (load_params.success) {{
+                ESP_LOGI("lottie", "Lottie animation loaded successfully");
+            }} else {{
+                ESP_LOGE("lottie", "Lottie loading failed");
+            }}
+        }} else {{
+            ESP_LOGE("lottie", "Lottie loading timed out");
+        }}
+    }} else {{
+        ESP_LOGE("lottie", "Failed to create Lottie loading task");
     }}
 
-    json_buf[fsize] = '\\0';  // Null terminate for ThorVG parser
-
-    // Load from heap buffer instead of file (avoids stack overflow)
-    lv_lottie_set_src_data({w.obj}, json_buf, fsize);
-    ESP_LOGI("lottie", "Loaded Lottie animation from {src} (%ld bytes)", fsize);
-
-    // Note: Buffer stays allocated - LVGL needs it for animation playback
-}} while(0)'''
+    vSemaphoreDelete(load_params.done_sem);
+}}'''
             lv_add(cg.RawStatement(load_code))
 
         # Load animation - Method 2: From embedded data
