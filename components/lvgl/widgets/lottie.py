@@ -245,7 +245,7 @@ static bool lottie_load_from_file(lv_obj_t *obj, const char *path) {
             cg.add_global(cg.RawExpression(helper_code))
 
             # Call the loader function
-            load_call = f'lottie_load_from_file({w.obj}, "{src}")'
+            load_call = f'lottie_load_from_file({w.obj}, "{src}");'
             lv_add(cg.RawStatement(load_call))
 
         # Load animation - Method 2: From embedded data
@@ -376,7 +376,7 @@ static bool lottie_load_with_psram_stack(lv_obj_t *obj, const void *data, size_t
 
             # Call the loader function with PSRAM stack
             json_size = len(json_data)
-            load_call = f'lottie_load_with_psram_stack({w.obj}, {prog_arr}, {json_size})'
+            load_call = f'lottie_load_with_psram_stack({w.obj}, {prog_arr}, {json_size});'
             lv_add(cg.RawStatement(load_call))
 
         # Set looping (requires accessing the internal animation)
