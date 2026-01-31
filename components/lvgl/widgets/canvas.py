@@ -282,7 +282,6 @@ async def canvas_set_pixel(config, action_id, template_arg, args):
 
     async def do_set_pixels(w: Widget):
         # LVGL 9.4: lv_canvas_set_px combines color and opacity
-        # Could optimize this for lambda values
         for point in points:
             x, y = point
             lv.canvas_set_px(w.obj, x, y, color, opa)
@@ -290,6 +289,54 @@ async def canvas_set_pixel(config, action_id, template_arg, args):
     return await action_to_code(
         widget, do_set_pixels, action_id, template_arg, args, config
     )
+
+
+CONF_INDEX = "index"
+CONF_PALETTE_COLOR = "palette_color"
+
+
+@automation.register_action(
+    "lvgl.canvas.set_palette",
+    ObjUpdateAction,
+    cv.Schema(
+        {
+            cv.GenerateID(CONF_ID): cv.use_id(lv_canvas_t),
+            cv.Required(CONF_INDEX): cv.int_range(0, 255),
+            cv.Required(CONF_COLOR): lv_color,
+        },
+    ),
+)
+async def canvas_set_palette(config, action_id, template_arg, args):
+    """Set palette color for indexed color formats (I1, I2, I4, I8)."""
+    widget = await get_widgets(config)
+    index = config[CONF_INDEX]
+    color = await lv_color.process(config[CONF_COLOR])
+
+    async def do_set_palette(w: Widget):
+        lv.canvas_set_palette(w.obj, index, color)
+
+    return await action_to_code(widget, do_set_palette, action_id, template_arg, args, config)
+
+
+@automation.register_action(
+    "lvgl.canvas.get_image",
+    ObjUpdateAction,
+    cv.Schema(
+        {
+            cv.GenerateID(CONF_ID): cv.use_id(lv_canvas_t),
+        },
+    ),
+)
+async def canvas_get_image(config, action_id, template_arg, args):
+    """Get the canvas as an image descriptor (for use with other widgets)."""
+    widget = await get_widgets(config)
+
+    async def do_get_image(w: Widget):
+        # Returns lv_image_dsc_t* that can be used with lv_image_set_src
+        from ..lvcode import lv_add
+        lv_add(cg.RawStatement(f"/* Canvas image: lv_canvas_get_image({w.obj}) */;"))
+
+    return await action_to_code(widget, do_get_image, action_id, template_arg, args, config)
 
 
 DRAW_SCHEMA = {
