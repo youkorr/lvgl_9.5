@@ -8,8 +8,6 @@
 #include "esp_log.h"
 #include <lvgl.h>
 
-#include "esphome/components/image/image.h"
-#endif  // USE_LVGL_IMAGE
 
 namespace esphome {
 namespace lvgl {
@@ -25,7 +23,7 @@ struct LottieLoadParams {
 };
 
 // Stack size for ThorVG parsing (48KB to be safe)
-static constexpr size_t LOTTIE_TASK_STACK_SIZE = 48 * 1024;
+static constexpr size_t LOTTIE_TASK_STACK_SIZE = 64 * 1024;
 
 // Task function that loads lottie data with large PSRAM stack
 inline void lottie_load_task(void *param) {
