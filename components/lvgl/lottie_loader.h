@@ -36,10 +36,27 @@ inline void lottie_load_task(void *param) {
     // Load source data or file (ThorVG parsing happens here - needs large stack)
     if (p->data != nullptr) {
         lv_lottie_set_src_data(p->obj, p->data, p->data_size);
-        ESP_LOGI(LOTTIE_TAG, "Lottie data loaded from embedded source");
+        ESP_LOGI(LOTTIE_TAG, "Lottie data loaded from embedded source (size: %d bytes)", p->data_size);
     } else if (p->file_path != nullptr) {
         lv_lottie_set_src_file(p->obj, p->file_path);
         ESP_LOGI(LOTTIE_TAG, "Lottie data loaded from file: %s", p->file_path);
+    }
+
+    // Diagnostic: Check if animation was parsed correctly
+    lv_anim_t *anim = lv_lottie_get_anim(p->obj);
+    if (anim != nullptr) {
+        ESP_LOGI(LOTTIE_TAG, "Animation VALID - ready to play");
+        ESP_LOGI(LOTTIE_TAG, "  Animation duration: %d ms", lv_anim_get_time(anim));
+    } else {
+        ESP_LOGE(LOTTIE_TAG, "Animation INVALID - parsing may have failed!");
+    }
+
+    // Check buffer
+    lv_image_dsc_t *img = lv_canvas_get_image(p->obj);
+    if (img != nullptr) {
+        ESP_LOGI(LOTTIE_TAG, "  Canvas buffer: %dx%d, data=%p", img->header.w, img->header.h, img->data);
+    } else {
+        ESP_LOGW(LOTTIE_TAG, "  Canvas buffer: NOT SET");
     }
 
     // Free the params struct
