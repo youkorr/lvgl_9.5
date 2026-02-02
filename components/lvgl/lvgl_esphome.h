@@ -165,6 +165,17 @@ class LvglComponent : public PollingComponent {
   void dump_config() override;
   lv_disp_t *get_disp() { return this->disp_; }
   lv_obj_t *get_screen_active() { return lv_display_get_screen_active(this->disp_); }
+
+  /**
+   * Force an immediate refresh of the display.
+   * Call this after updating a canvas to avoid waiting for the next timer cycle.
+   * This bypasses LV_DEF_REFR_PERIOD and renders immediately.
+   */
+  void refresh_now() {
+    if (!this->is_paused()) {
+      lv_refr_now(this->disp_);
+    }
+  }
   // Pause or resume the display.
   // @param paused If true, pause the display. If false, resume the display.
   // @param show_snow If true, show the snow effect when paused.

@@ -278,6 +278,25 @@ async def resume_action_to_code(config, action_id, template_arg, args):
     return var
 
 
+@automation.register_action(
+    "lvgl.refresh_now",
+    LvglAction,
+    LVGL_SCHEMA,
+)
+async def refresh_now_action_to_code(config, action_id, template_arg, args):
+    """Force an immediate display refresh, bypassing LV_DEF_REFR_PERIOD.
+
+    Use this after updating a canvas with camera/video frames to achieve
+    maximum frame rate without waiting for the timer cycle.
+    """
+    lv_comp = await cg.get_variable(config[CONF_LVGL_ID])
+    async with LambdaContext(LVGL_COMP_ARG, where=action_id) as context:
+        lv_add(lvgl_comp.refresh_now())
+    var = cg.new_Pvariable(action_id, template_arg, await context.get_lambda())
+    await cg.register_parented(var, lv_comp)
+    return var
+
+
 @automation.register_action("lvgl.widget.disable", ObjUpdateAction, LIST_ACTION_SCHEMA)
 async def obj_disable_to_code(config, action_id, template_arg, args):
     async def do_disable(widget: Widget):
