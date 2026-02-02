@@ -176,6 +176,25 @@ class LvglComponent : public PollingComponent {
       lv_refr_now(this->disp_);
     }
   }
+
+  /**
+   * Write pixels directly to the display, bypassing LVGL rendering pipeline.
+   * Use this for high-performance camera/video streaming where LVGL overhead
+   * is unacceptable. The pixels are written directly to the display driver.
+   *
+   * @param x X coordinate of the top-left corner
+   * @param y Y coordinate of the top-left corner
+   * @param width Width of the pixel area
+   * @param height Height of the pixel area
+   * @param data Pointer to RGB565 pixel data (must be width*height*2 bytes)
+   */
+  void draw_pixels_direct(int x, int y, int width, int height, const uint8_t *data) {
+    if (this->is_paused() || this->displays_.empty())
+      return;
+    for (auto *display : this->displays_) {
+      display->draw_pixels_at(x, y, width, height, data, display::COLOR_ORDER_RGB, LV_BITNESS, this->big_endian_);
+    }
+  }
   // Pause or resume the display.
   // @param paused If true, pause the display. If false, resume the display.
   // @param show_snow If true, show the snow effect when paused.
@@ -241,6 +260,7 @@ class LvglComponent : public PollingComponent {
   bool update_when_display_idle_{};
 
   uint8_t *draw_buf_{};
+  uint8_t *draw_buf2_{};  // Second buffer for double buffering (nullptr if not used)
   lv_display_t *disp_{};
   uint16_t width_{};
   uint16_t height_{};

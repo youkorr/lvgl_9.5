@@ -546,14 +546,26 @@ void LvglComponent::setup() {
     frac = 1;
   auto buf_bytes = width * height / frac * LV_COLOR_DEPTH / 8;
   void *buffer = nullptr;
+  void *buffer2 = nullptr;
   // CRITICAL: Always use lv_malloc_core() which guarantees 64-byte alignment
   // Don't use malloc() as it may not be aligned correctly for LVGL 9.4
   buffer = lv_malloc_core(buf_bytes);  // NOLINT
+  // Try to allocate second buffer for double buffering (improves performance)
+  if (buffer != nullptr) {
+    buffer2 = lv_malloc_core(buf_bytes);  // NOLINT
+    if (buffer2 != nullptr) {
+      ESP_LOGI(TAG, "Double buffering enabled (%zu bytes x 2)", buf_bytes);
+    }
+  }
   // if specific buffer size not set and can't get 100%, try for a smaller one
   if (buffer == nullptr && this->buffer_frac_ == 0) {
     frac = MIN_BUFFER_FRAC;
     buf_bytes /= MIN_BUFFER_FRAC;
     buffer = lv_malloc_core(buf_bytes);  // NOLINT
+    // Try double buffering with smaller buffers too
+    if (buffer != nullptr) {
+      buffer2 = lv_malloc_core(buf_bytes);  // NOLINT
+    }
   }
   this->buffer_frac_ = frac;
   if (buffer == nullptr) {
@@ -562,6 +574,7 @@ void LvglComponent::setup() {
     return;
   }
   this->draw_buf_ = static_cast<uint8_t *>(buffer);
+  this->draw_buf2_ = static_cast<uint8_t *>(buffer2);
   lv_display_set_resolution(this->disp_, this->width_, this->height_);
   lv_display_set_color_format(this->disp_, LV_COLOR_FORMAT_RGB565);
   // CRITICAL: Set user_data BEFORE flush_cb, as flush_cb uses user_data
@@ -607,8 +620,19 @@ void LvglComponent::setup() {
 
   // CRITICAL: Configure buffers at the VERY END of setup()
   // This avoids deadlock while ensuring buffers are ready before any callbacks execute
-  lv_display_set_buffers(this->disp_, this->draw_buf_, nullptr, this->buf_bytes_,
-                         this->full_refresh_ ? LV_DISPLAY_RENDER_MODE_FULL : LV_DISPLAY_RENDER_MODE_PARTIAL);
+  // Use double buffering if second buffer was allocated (improves performance)
+  // Use DIRECT mode with full-size buffers for best camera/video performance
+  lv_display_render_mode_t render_mode;
+  if (this->full_refresh_) {
+    render_mode = LV_DISPLAY_RENDER_MODE_FULL;
+  } else if (this->draw_buf2_ != nullptr && this->buffer_frac_ == 1) {
+    // Full-size double buffers: use DIRECT mode for best performance
+    render_mode = LV_DISPLAY_RENDER_MODE_DIRECT;
+    ESP_LOGI(TAG, "Using DIRECT render mode with double buffering");
+  } else {
+    render_mode = LV_DISPLAY_RENDER_MODE_PARTIAL;
+  }
+  lv_display_set_buffers(this->disp_, this->draw_buf_, this->draw_buf2_, this->buf_bytes_, render_mode);
   this->buffers_configured_ = true;
 }
 
