@@ -457,4 +457,14 @@ class LvCalendarType : public LvCompound {
   }
 };
 #endif  // USE_LVGL_CALENDAR
+
+#ifdef USE_LVGL_ARCLABEL
+// Arc Label Widget - displays text along a curved arc path
+lv_obj_t *lv_arclabel_create(lv_obj_t *parent);
+void lv_arclabel_set_text(lv_obj_t *obj, const char *text);
+void lv_arclabel_set_radius(lv_obj_t *obj, int16_t radius);
+void lv_arclabel_set_angles(lv_obj_t *obj, int16_t start_angle, int16_t end_angle);
+void lv_arclabel_set_rotation(lv_obj_t *obj, int16_t rotation);
+#endif  // USE_LVGL_ARCLABEL
+
 }  // namespace esphome::lvgl

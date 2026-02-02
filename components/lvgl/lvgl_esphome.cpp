@@ -693,6 +693,197 @@ lv_obj_t *lv_container_create(lv_obj_t *parent) {
   lv_obj_class_init_obj(obj);
   return obj;
 }
+
+#ifdef USE_LVGL_ARCLABEL
+// Arc Label Widget Implementation
+// Displays text along a curved arc path
+
+// Structure to store arc label data
+typedef struct {
+  lv_obj_t obj;       // Must be first member
+  char *text;         // Text to display
+  int16_t radius;     // Arc radius in pixels
+  int16_t start_angle;  // Start angle (0-360 degrees)
+  int16_t end_angle;    // End angle (0-360 degrees)
+  int16_t rotation;   // Rotation offset in degrees
+} lv_arclabel_t;
+
+// Forward declarations
+static void lv_arclabel_constructor(const lv_obj_class_t *class_p, lv_obj_t *obj);
+static void lv_arclabel_destructor(const lv_obj_class_t *class_p, lv_obj_t *obj);
+static void lv_arclabel_event(const lv_obj_class_t *class_p, lv_event_t *e);
+
+// Arc label class definition
+const lv_obj_class_t LV_ARCLABEL_CLASS = {
+    .base_class = &lv_obj_class,
+    .constructor_cb = lv_arclabel_constructor,
+    .destructor_cb = lv_arclabel_destructor,
+    .event_cb = lv_arclabel_event,
+    .width_def = LV_SIZE_CONTENT,
+    .height_def = LV_SIZE_CONTENT,
+    .instance_size = sizeof(lv_arclabel_t),
+    .name = "lv_arclabel",
+};
+
+// Constructor
+static void lv_arclabel_constructor(const lv_obj_class_t *class_p, lv_obj_t *obj) {
+  LV_TRACE_OBJ_CREATE("begin");
+  LV_UNUSED(class_p);
+
+  auto *arclabel = reinterpret_cast<lv_arclabel_t *>(obj);
+  arclabel->text = nullptr;
+  arclabel->radius = 100;
+  arclabel->start_angle = 0;
+  arclabel->end_angle = 360;
+  arclabel->rotation = 0;
+
+  // Make widget transparent by default
+  lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_opa(obj, LV_OPA_TRANSP, 0);
+}
+
+// Destructor
+static void lv_arclabel_destructor(const lv_obj_class_t *class_p, lv_obj_t *obj) {
+  LV_UNUSED(class_p);
+  auto *arclabel = reinterpret_cast<lv_arclabel_t *>(obj);
+
+  // Free allocated text memory
+  if (arclabel->text != nullptr) {
+    lv_free(arclabel->text);
+    arclabel->text = nullptr;
+  }
+}
+
+// Event handler for drawing
+static void lv_arclabel_event(const lv_obj_class_t *class_p, lv_event_t *e) {
+  LV_UNUSED(class_p);
+
+  lv_event_code_t code = lv_event_get_code(e);
+  lv_obj_t *obj = lv_event_get_target(e);
+  auto *arclabel = reinterpret_cast<lv_arclabel_t *>(obj);
+
+  if (code == LV_EVENT_DRAW_MAIN) {
+    // Only draw if we have text
+    if (arclabel->text == nullptr || arclabel->text[0] == '\0') {
+      return;
+    }
+
+    lv_draw_task_t *draw_task = lv_event_get_draw_task(e);
+    lv_layer_t *layer = lv_event_get_layer(e);
+
+    lv_draw_label_dsc_t label_dsc;
+    lv_draw_label_dsc_init(&label_dsc);
+
+    // Get text style from object
+    label_dsc.color = lv_obj_get_style_text_color(obj, LV_PART_MAIN);
+    label_dsc.font = lv_obj_get_style_text_font(obj, LV_PART_MAIN);
+    label_dsc.opa = lv_obj_get_style_text_opa(obj, LV_PART_MAIN);
+    label_dsc.align = LV_TEXT_ALIGN_CENTER;
+
+    // Calculate center point of the arc
+    lv_area_t coords;
+    lv_obj_get_coords(obj, &coords);
+    int32_t center_x = (coords.x1 + coords.x2) / 2;
+    int32_t center_y = (coords.y1 + coords.y2) / 2;
+
+    // Calculate text positions along the arc
+    size_t text_len = strlen(arclabel->text);
+    if (text_len == 0)
+      return;
+
+    // Calculate angle step for each character
+    int16_t angle_range = arclabel->end_angle - arclabel->start_angle;
+    float angle_step = static_cast<float>(angle_range) / (text_len > 1 ? text_len - 1 : 1);
+
+    // Draw each character along the arc
+    for (size_t i = 0; i < text_len; i++) {
+      // Calculate angle for this character (with rotation offset)
+      float angle = arclabel->start_angle + (angle_step * i) + arclabel->rotation;
+
+      // Convert to radians (LVGL uses 0 degrees at 3 o'clock position)
+      float angle_rad = (angle - 90.0f) * LV_PI / 180.0f;
+
+      // Calculate position on the arc
+      int32_t x = center_x + static_cast<int32_t>(arclabel->radius * cosf(angle_rad));
+      int32_t y = center_y + static_cast<int32_t>(arclabel->radius * sinf(angle_rad));
+
+      // Create single character string
+      char ch[2] = {arclabel->text[i], '\0'};
+
+      // Draw the character
+      lv_area_t txt_area;
+      lv_point_t size;
+      lv_text_get_size(&size, ch, label_dsc.font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+
+      txt_area.x1 = x - size.x / 2;
+      txt_area.y1 = y - size.y / 2;
+      txt_area.x2 = txt_area.x1 + size.x;
+      txt_area.y2 = txt_area.y1 + size.y;
+
+      lv_draw_label(layer, &label_dsc, &txt_area, ch, nullptr);
+    }
+  }
+}
+
+// Create arc label widget
+lv_obj_t *lv_arclabel_create(lv_obj_t *parent) {
+  lv_obj_t *obj = lv_obj_class_create_obj(&LV_ARCLABEL_CLASS, parent);
+  lv_obj_class_init_obj(obj);
+  return obj;
+}
+
+// Set text to display
+void lv_arclabel_set_text(lv_obj_t *obj, const char *text) {
+  LV_ASSERT_OBJ(obj, &LV_ARCLABEL_CLASS);
+  auto *arclabel = reinterpret_cast<lv_arclabel_t *>(obj);
+
+  // Free old text if exists
+  if (arclabel->text != nullptr) {
+    lv_free(arclabel->text);
+  }
+
+  // Allocate and copy new text
+  if (text != nullptr) {
+    arclabel->text = static_cast<char *>(lv_malloc(strlen(text) + 1));
+    if (arclabel->text != nullptr) {
+      strcpy(arclabel->text, text);
+    }
+  } else {
+    arclabel->text = nullptr;
+  }
+
+  lv_obj_invalidate(obj);
+}
+
+// Set arc radius
+void lv_arclabel_set_radius(lv_obj_t *obj, int16_t radius) {
+  LV_ASSERT_OBJ(obj, &LV_ARCLABEL_CLASS);
+  auto *arclabel = reinterpret_cast<lv_arclabel_t *>(obj);
+
+  arclabel->radius = radius;
+  lv_obj_invalidate(obj);
+}
+
+// Set start and end angles
+void lv_arclabel_set_angles(lv_obj_t *obj, int16_t start_angle, int16_t end_angle) {
+  LV_ASSERT_OBJ(obj, &LV_ARCLABEL_CLASS);
+  auto *arclabel = reinterpret_cast<lv_arclabel_t *>(obj);
+
+  arclabel->start_angle = start_angle;
+  arclabel->end_angle = end_angle;
+  lv_obj_invalidate(obj);
+}
+
+// Set rotation offset
+void lv_arclabel_set_rotation(lv_obj_t *obj, int16_t rotation) {
+  LV_ASSERT_OBJ(obj, &LV_ARCLABEL_CLASS);
+  auto *arclabel = reinterpret_cast<lv_arclabel_t *>(obj);
+
+  arclabel->rotation = rotation;
+  lv_obj_invalidate(obj);
+}
+#endif  // USE_LVGL_ARCLABEL
+
 }  // namespace esphome::lvgl
 
 lv_result_t lv_mem_test_core() { return LV_RESULT_OK; }
