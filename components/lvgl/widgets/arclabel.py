@@ -1,15 +1,21 @@
 """
-LVGL v9.4 Arc Label Widget Implementation for ESPHome
+LVGL ArcLabel Widget for ESPHome 2026+
 
-This widget displays text along a curved path (arc).
-Supports dynamic updates, font selection, text color, direction,
-alignment, offset, and recolor.
+Supports:
+- text
+- radius
+- start/end angles
+- rotation
+- direction (clockwise/counter_clockwise)
+- vertical/horizontal align
+- recolor
+- offset
+- text_color
+- text_font
 """
 
 import esphome.config_validation as cv
 from esphome.const import CONF_ROTATION, CONF_TEXT
-
-from ..defines import CONF_MAIN
 from ..helpers import lvgl_components_required
 from ..lv_validation import lv_angle_degrees, lv_text, pixels
 from ..lvcode import lv
@@ -54,7 +60,7 @@ ARCLABEL_SCHEMA = cv.Schema({
     cv.Optional(CONF_START_ANGLE, default=0): SIGNED_ANGLE,
     cv.Optional(CONF_END_ANGLE, default=360): SIGNED_ANGLE,
     cv.Optional(CONF_ROTATION, default=0): SIGNED_ANGLE,
-    cv.Optional(CONF_TEXT_COLOR, default="white"): cv.color,
+    cv.Optional(CONF_TEXT_COLOR, default=0xFFFFFF): cv.color_hex,
     cv.Optional(CONF_TEXT_FONT, default=None): cv.maybe(cv.font),
     cv.Optional(CONF_DIRECTION, default="clockwise"): DIRECTION,
     cv.Optional(CONF_TEXT_VERTICAL_ALIGN, default="center"): TEXT_ALIGN,
@@ -80,7 +86,7 @@ class ArcLabelType(WidgetType):
         """Generate C++ code for arc label widget configuration"""
         lvgl_components_required.add(CONF_ARCLABEL)
 
-        # Set text
+        # Text
         text = await lv_text.process(config[CONF_TEXT])
         lv.arclabel_set_text(w.obj, text)
 
@@ -92,23 +98,22 @@ class ArcLabelType(WidgetType):
         start_angle = config.get(CONF_START_ANGLE, 0)
         end_angle = config.get(CONF_END_ANGLE, 360)
         rotation = config.get(CONF_ROTATION, 0)
-        angle_size = end_angle - start_angle
-        lv.arclabel_set_angle_size(w.obj, angle_size)
+        lv.arclabel_set_angle_size(w.obj, end_angle - start_angle)
 
         # Widget size
-        widget_size = radius * 2 + 50  # padding
-        lv.obj_set_size(w.obj, widget_size, widget_size)
+        lv.obj_set_size(w.obj, radius * 2 + 50, radius * 2 + 50)
 
         # Total rotation
-        total_rotation = start_angle + rotation
-        lv.obj_set_style_transform_rotation(w.obj, total_rotation * 10, 0)
+        lv.obj_set_style_transform_rotation(w.obj, (start_angle + rotation) * 10, 0)
 
         # Direction
         lv.arclabel_set_dir(w.obj, lv.const(config.get(CONF_DIRECTION, lv.LV_ARCLABEL_DIR_CLOCKWISE)))
 
-        # Alignment
-        lv.arclabel_set_text_vertical_align(w.obj, lv.const(config.get(CONF_TEXT_VERTICAL_ALIGN, lv.LV_ARCLABEL_TEXT_ALIGN_CENTER)))
-        lv.arclabel_set_text_horizontal_align(w.obj, lv.const(config.get(CONF_TEXT_HORIZONTAL_ALIGN, lv.LV_ARCLABEL_TEXT_ALIGN_CENTER)))
+        # Alignments
+        lv.arclabel_set_text_vertical_align(
+            w.obj, lv.const(config.get(CONF_TEXT_VERTICAL_ALIGN, lv.LV_ARCLABEL_TEXT_ALIGN_CENTER)))
+        lv.arclabel_set_text_horizontal_align(
+            w.obj, lv.const(config.get(CONF_TEXT_HORIZONTAL_ALIGN, lv.LV_ARCLABEL_TEXT_ALIGN_CENTER)))
 
         # Recolor
         lv.arclabel_set_recolor(w.obj, config.get(CONF_RECOLOR, False))
@@ -133,6 +138,7 @@ class ArcLabelType(WidgetType):
 # Register widget
 # -------------------------------------------------------------------
 arclabel_spec = ArcLabelType()
+
 
 
 
