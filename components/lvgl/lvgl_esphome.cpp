@@ -694,6 +694,84 @@ lv_obj_t *lv_container_create(lv_obj_t *parent) {
   return obj;
 }
 
+#ifdef USE_LVGL_ARCLABEL
+// Arc Label Widget - Wrapper around label with custom positioning
+// Note: This is a custom ESPHome widget, not part of standard LVGL
+
+// Structure to store arc label settings
+typedef struct {
+  char *text;
+  uint32_t radius;
+  int32_t start_angle;
+  int32_t angle_size;
+  int32_t rotation;
+} lv_arclabel_ext_t;
+
+static lv_arclabel_ext_t *lv_arclabel_get_ext(lv_obj_t *obj) {
+  return static_cast<lv_arclabel_ext_t *>(lv_obj_get_user_data(obj));
+}
+
+lv_obj_t *lv_arclabel_create(lv_obj_t *parent) {
+  lv_obj_t *obj = lv_label_create(parent);
+  auto *ext = static_cast<lv_arclabel_ext_t *>(lv_malloc(sizeof(lv_arclabel_ext_t)));
+  if (ext != nullptr) {
+    ext->text = nullptr;
+    ext->radius = 100;
+    ext->start_angle = 0;
+    ext->angle_size = 360;
+    ext->rotation = 0;
+    lv_obj_set_user_data(obj, ext);
+  }
+  return obj;
+}
+
+void lv_arclabel_set_text(lv_obj_t *obj, const char *text) {
+  lv_arclabel_ext_t *ext = lv_arclabel_get_ext(obj);
+  if (ext != nullptr) {
+    if (ext->text != nullptr) {
+      lv_free(ext->text);
+    }
+    if (text != nullptr) {
+      ext->text = static_cast<char *>(lv_malloc(strlen(text) + 1));
+      if (ext->text != nullptr) {
+        strcpy(ext->text, text);
+      }
+    } else {
+      ext->text = nullptr;
+    }
+  }
+  lv_label_set_text(obj, text);
+}
+
+void lv_arclabel_set_radius(lv_obj_t *obj, uint32_t radius) {
+  lv_arclabel_ext_t *ext = lv_arclabel_get_ext(obj);
+  if (ext != nullptr) {
+    ext->radius = radius;
+  }
+}
+
+void lv_arclabel_set_start_angle(lv_obj_t *obj, int32_t angle) {
+  lv_arclabel_ext_t *ext = lv_arclabel_get_ext(obj);
+  if (ext != nullptr) {
+    ext->start_angle = angle;
+  }
+}
+
+void lv_arclabel_set_angle_size(lv_obj_t *obj, int32_t angle_size) {
+  lv_arclabel_ext_t *ext = lv_arclabel_get_ext(obj);
+  if (ext != nullptr) {
+    ext->angle_size = angle_size;
+  }
+}
+
+void lv_arclabel_set_rotation(lv_obj_t *obj, int32_t rotation) {
+  lv_arclabel_ext_t *ext = lv_arclabel_get_ext(obj);
+  if (ext != nullptr) {
+    ext->rotation = rotation;
+  }
+}
+#endif  // USE_LVGL_ARCLABEL
+
 }  // namespace esphome::lvgl
 
 lv_result_t lv_mem_test_core() { return LV_RESULT_OK; }

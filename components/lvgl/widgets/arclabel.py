@@ -58,18 +58,18 @@ class ArcLabelType(WidgetType):
         radius = await pixels.process(config[CONF_RADIUS])
         lv.arclabel_set_radius(w.obj, radius)
 
-        # Set start angle and angle size
+        # Set start angle
         start_angle = await lv_angle_degrees.process(config[CONF_START_ANGLE])
-        end_angle = await lv_angle_degrees.process(config[CONF_END_ANGLE])
-
         lv.arclabel_set_start_angle(w.obj, start_angle)
 
-        # Calculate angle size (end_angle - start_angle)
-        lv.arclabel_set_angle_size(w.obj, end_angle - start_angle)
+        # Set angle size (end_angle - start_angle)
+        start_angle_val = await lv_angle_degrees.process(config[CONF_START_ANGLE])
+        end_angle_val = await lv_angle_degrees.process(config[CONF_END_ANGLE])
+        lv.arclabel_set_angle_size(w.obj, end_angle_val - start_angle_val)
 
         # Set rotation
         rotation = await lv_angle_degrees.process(config[CONF_ROTATION])
-        lv.obj_set_style_transform_rotation(w.obj, rotation * 10, 0)  # LVGL uses 0.1 degree units
+        lv.arclabel_set_rotation(w.obj, rotation)
 
     def get_uses(self):
         """Arc label uses label component"""

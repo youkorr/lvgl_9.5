@@ -457,4 +457,15 @@ class LvCalendarType : public LvCompound {
   }
 };
 #endif  // USE_LVGL_CALENDAR
+
+#ifdef USE_LVGL_ARCLABEL
+// Arc Label Widget - Custom ESPHome widget for curved text
+lv_obj_t *lv_arclabel_create(lv_obj_t *parent);
+void lv_arclabel_set_text(lv_obj_t *obj, const char *text);
+void lv_arclabel_set_radius(lv_obj_t *obj, uint32_t radius);
+void lv_arclabel_set_start_angle(lv_obj_t *obj, int32_t angle);
+void lv_arclabel_set_angle_size(lv_obj_t *obj, int32_t angle_size);
+void lv_arclabel_set_rotation(lv_obj_t *obj, int32_t rotation);
+#endif  // USE_LVGL_ARCLABEL
+
 }  // namespace esphome::lvgl
