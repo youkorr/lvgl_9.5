@@ -87,7 +87,9 @@ class ArcLabelType(WidgetType):
         """Generate C++ code for arc label widget configuration"""
         lvgl_components_required.add(CONF_ARCLABEL)
 
-        # Text
+        # -------------------------
+        # Set text
+        # -------------------------
         text = await lv_text.process(config[CONF_TEXT])
         lv.arclabel_set_text(w.obj, text)
 
@@ -134,6 +136,7 @@ class ArcLabelType(WidgetType):
 # Register widget
 # -------------------------------------------------------------------
 arclabel_spec = ArcLabelType()
+
 
 
 
