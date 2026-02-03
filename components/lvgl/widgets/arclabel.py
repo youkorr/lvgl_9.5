@@ -48,7 +48,9 @@ class ArcLabelType(WidgetType):
             lv_arclabel_t,
             (CONF_MAIN,),
             ARCLABEL_SCHEMA,
-            modify_schema={},
+            modify_schema={
+                CONF_TEXT: lv_text,  # permet lvgl.arclabel.update avec text
+            },
         )
 
     async def to_code(self, w: Widget, config):
@@ -80,10 +82,17 @@ class ArcLabelType(WidgetType):
         total_rotation = start_angle + rotation
         lv.obj_set_style_transform_rotation(w.obj, total_rotation * 10, 0)
 
+    async def to_code_update(self, w: Widget, config):
+        """Allow updating text dynamically via lvgl.arclabel.update"""
+        if CONF_TEXT in config:
+            text = await lv_text.process(config[CONF_TEXT])
+            lv.arclabel_set_text(w.obj, text)
+
     def get_uses(self):
         """Arc label uses label component"""
         return ("label",)
 
 
 arclabel_spec = ArcLabelType()
+
 
