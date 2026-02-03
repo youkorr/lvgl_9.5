@@ -29,9 +29,9 @@ ARCLABEL_SCHEMA = cv.Schema(
     {
         cv.Required(CONF_TEXT): lv_text,
         cv.Optional(CONF_RADIUS, default=100): pixels,
-        cv.Optional(CONF_START_ANGLE, default=0): lv_angle_degrees,
-        cv.Optional(CONF_END_ANGLE, default=360): lv_angle_degrees,
-        cv.Optional(CONF_ROTATION, default=0): lv_angle_degrees,
+        cv.Optional(CONF_START_ANGLE, default=0): lv_signed_angle_degrees,
+        cv.Optional(CONF_END_ANGLE, default=360): lv_signed_angle_degrees,
+        cv.Optional(CONF_ROTATION, default=0): lv_signed_angle_degrees,
     }
 )
 
