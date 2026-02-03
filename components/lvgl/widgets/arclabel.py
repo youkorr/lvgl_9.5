@@ -20,7 +20,6 @@ from ..lv_validation import lv_angle_degrees, lv_text, pixels
 from ..lvcode import lv
 from ..types import LvType
 from . import Widget, WidgetType
-from esphome.components import color
 
 # -------------------------------------------------------------------
 # Constants
@@ -63,7 +62,7 @@ ARCLABEL_SCHEMA = cv.Schema({
     cv.Optional(CONF_START_ANGLE, default=0): SIGNED_ANGLE,
     cv.Optional(CONF_END_ANGLE, default=360): SIGNED_ANGLE,
     cv.Optional(CONF_ROTATION, default=0): SIGNED_ANGLE,
-    cv.Optional(CONF_TEXT_COLOR, default=0xFFFFFF): color.Color,
+    cv.Optional(CONF_TEXT_COLOR, default=0xFFFFFF): cv.color,  # <- correct for ESPHome 2026
     cv.Optional(CONF_DIRECTION, default="clockwise"): DIRECTION,
     cv.Optional(CONF_TEXT_VERTICAL_ALIGN, default="center"): TEXT_ALIGN,
     cv.Optional(CONF_TEXT_HORIZONTAL_ALIGN, default="center"): TEXT_ALIGN,
