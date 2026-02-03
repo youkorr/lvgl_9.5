@@ -24,7 +24,7 @@ CONF_ARCLABEL = "arclabel"
 
 lv_arclabel_t = LvType("lv_arclabel_t")
 
-SIGNED_ANGLE = cv.int_range(min=-360, max=360)
+
 
 # Arc label schema
 ARCLABEL_SCHEMA = cv.Schema(
