@@ -15,7 +15,7 @@ from ..defines import (
     CONF_START_ANGLE,
 )
 from ..helpers import lvgl_components_required
-from ..lv_validation import lv_angle_degrees, lv_int, lv_text, pixels
+from ..lv_validation import lv_angle_degrees, lv_signed_angle_degrees, lv_int, lv_text, pixels
 from ..lvcode import lv
 from ..types import LvType
 from . import Widget, WidgetType
@@ -23,6 +23,8 @@ from . import Widget, WidgetType
 CONF_ARCLABEL = "arclabel"
 
 lv_arclabel_t = LvType("lv_arclabel_t")
+
+SIGNED_ANGLE = cv.int_range(min=-360, max=360)
 
 # Arc label schema
 ARCLABEL_SCHEMA = cv.Schema(
