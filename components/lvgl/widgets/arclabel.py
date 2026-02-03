@@ -7,7 +7,7 @@ Supports:
 - Radial offset
 - Vertical / horizontal alignment
 - Recolor
-- Font size
+- Custom font support via YAML
 """
 
 import esphome.config_validation as cv
@@ -20,13 +20,14 @@ from ..lvcode import lv
 from ..types import LvType
 from . import Widget, WidgetType
 
+# Constants
 CONF_ARCLABEL = "arclabel"
 CONF_DIRECTION = "direction"
 CONF_OFFSET = "offset"
 CONF_TEXT_VERTICAL_ALIGN = "text_vertical_align"
 CONF_TEXT_HORIZONTAL_ALIGN = "text_horizontal_align"
 CONF_RECOLOR = "recolor"
-CONF_FONT_SIZE = "font_size"
+CONF_FONT = "font"
 
 lv_arclabel_t = LvType("lv_arclabel_t")
 
@@ -48,21 +49,19 @@ HORIZ_ALIGN = cv.enum({
 })
 
 # Schema
-ARCLABEL_SCHEMA = cv.Schema(
-    {
-        cv.Required(CONF_TEXT): lv_text,
-        cv.Optional(CONF_RADIUS, default=100): pixels,
-        cv.Optional(CONF_START_ANGLE, default=0): SIGNED_ANGLE,
-        cv.Optional(CONF_END_ANGLE, default=360): SIGNED_ANGLE,
-        cv.Optional(CONF_ROTATION, default=0): SIGNED_ANGLE,
-        cv.Optional(CONF_DIRECTION, default="clockwise"): DIRECTION,
-        cv.Optional(CONF_OFFSET, default=0): pixels,
-        cv.Optional(CONF_TEXT_VERTICAL_ALIGN, default="center"): VERT_ALIGN,
-        cv.Optional(CONF_TEXT_HORIZONTAL_ALIGN, default="center"): HORIZ_ALIGN,
-        cv.Optional(CONF_RECOLOR, default=False): cv.boolean,
-        cv.Optional(CONF_FONT_SIZE, default=18): lv_int,
-    }
-)
+ARCLABEL_SCHEMA = cv.Schema({
+    cv.Required(CONF_TEXT): lv_text,
+    cv.Optional(CONF_RADIUS, default=100): pixels,
+    cv.Optional(CONF_START_ANGLE, default=0): SIGNED_ANGLE,
+    cv.Optional(CONF_END_ANGLE, default=360): SIGNED_ANGLE,
+    cv.Optional(CONF_ROTATION, default=0): SIGNED_ANGLE,
+    cv.Optional(CONF_DIRECTION, default="clockwise"): DIRECTION,
+    cv.Optional(CONF_OFFSET, default=0): pixels,
+    cv.Optional(CONF_TEXT_VERTICAL_ALIGN, default="center"): VERT_ALIGN,
+    cv.Optional(CONF_TEXT_HORIZONTAL_ALIGN, default="center"): HORIZ_ALIGN,
+    cv.Optional(CONF_RECOLOR, default=False): cv.boolean,
+    cv.Optional(CONF_FONT): cv.string,  # font name as string
+})
 
 
 class ArcLabelType(WidgetType):
@@ -76,7 +75,6 @@ class ArcLabelType(WidgetType):
         )
 
     async def to_code(self, w: Widget, config):
-        """Generate C++ code for arc label widget configuration"""
         lvgl_components_required.add(CONF_ARCLABEL)
 
         # --- Text ---
@@ -97,48 +95,47 @@ class ArcLabelType(WidgetType):
         # --- Direction ---
         direction = config.get(CONF_DIRECTION, "clockwise")
         if direction == "clockwise":
-            lv.arclabel_set_dir(w.obj, lv.LV_ARCLABEL_DIR_CLOCKWISE)
+            lv.arclabel_set_dir(w.obj, lv.const("LV_ARCLABEL_DIR_CLOCKWISE"))
         else:
-            lv.arclabel_set_dir(w.obj, lv.LV_ARCLABEL_DIR_COUNTER_CLOCKWISE)
+            lv.arclabel_set_dir(w.obj, lv.const("LV_ARCLABEL_DIR_COUNTER_CLOCKWISE"))
 
         # --- Offset ---
         offset = await pixels.process(config.get(CONF_OFFSET, 0))
         lv.arclabel_set_offset(w.obj, offset)
 
-        # --- Alignment ---
+        # --- Vertical Align ---
         vert_align = config.get(CONF_TEXT_VERTICAL_ALIGN, "center")
-        horiz_align = config.get(CONF_TEXT_HORIZONTAL_ALIGN, "center")
-
         lv.arclabel_set_text_vertical_align(
             w.obj,
             {
-                "leading": lv.LV_ARCLABEL_TEXT_ALIGN_LEADING,
-                "trailing": lv.LV_ARCLABEL_TEXT_ALIGN_TRAILING,
-                "center": lv.LV_ARCLABEL_TEXT_ALIGN_CENTER,
-            }[vert_align],
+                "leading": lv.const("LV_ARCLABEL_TEXT_ALIGN_LEADING"),
+                "trailing": lv.const("LV_ARCLABEL_TEXT_ALIGN_TRAILING"),
+                "center": lv.const("LV_ARCLABEL_TEXT_ALIGN_CENTER"),
+            }[vert_align]
         )
 
+        # --- Horizontal Align ---
+        horiz_align = config.get(CONF_TEXT_HORIZONTAL_ALIGN, "center")
         lv.arclabel_set_text_horizontal_align(
             w.obj,
             {
-                "left": lv.LV_ARCLABEL_TEXT_ALIGN_LEFT,
-                "right": lv.LV_ARCLABEL_TEXT_ALIGN_RIGHT,
-                "center": lv.LV_ARCLABEL_TEXT_ALIGN_CENTER,
-            }[horiz_align],
+                "left": lv.const("LV_ARCLABEL_TEXT_ALIGN_LEFT"),
+                "right": lv.const("LV_ARCLABEL_TEXT_ALIGN_RIGHT"),
+                "center": lv.const("LV_ARCLABEL_TEXT_ALIGN_CENTER"),
+            }[horiz_align]
         )
 
         # --- Recolor ---
         recolor = config.get(CONF_RECOLOR, False)
         lv.arclabel_set_recolor(w.obj, recolor)
 
-        # --- Font size ---
-        font_size = config.get(CONF_FONT_SIZE, 18)
-        if font_size == 18:
-            lv.obj_set_style_text_font(w.obj, lv.font_montserrat_18, lv.LV_PART_MAIN)
-        elif font_size == 24:
-            lv.obj_set_style_text_font(w.obj, lv.font_montserrat_24, lv.LV_PART_MAIN)
-        elif font_size == 32:
-            lv.obj_set_style_text_font(w.obj, lv.font_montserrat_32, lv.LV_PART_MAIN)
+        # --- Font (custom from YAML) ---
+        font_name = config.get(CONF_FONT)
+        if font_name:
+            # Expecting font imported in Python as `lv.font_myfont`
+            font_expr = getattr(lv, font_name, None)
+            if font_expr:
+                lv.obj_set_style_text_font(w.obj, font_expr, lv.LV_PART_MAIN)
 
         # --- Widget size ---
         widget_size = radius * 2 + 50
@@ -160,6 +157,7 @@ class ArcLabelType(WidgetType):
 
 # Global instance
 arclabel_spec = ArcLabelType()
+
 
 
 
