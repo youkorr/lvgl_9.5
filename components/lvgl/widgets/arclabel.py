@@ -13,7 +13,7 @@ Supports:
 import esphome.config_validation as cv
 from esphome.const import CONF_ROTATION, CONF_TEXT, CONF_ID
 from ..helpers import lvgl_components_required
-from ..lv_validation import lv_angle_degrees, lv_text, pixels, lv_opacity
+from ..lv_validation import lv_angle_degrees, lv_text, pixels  # Removed lv_opacity
 from ..lvcode import lv
 from ..types import LvType
 from . import Widget, WidgetType
@@ -31,8 +31,15 @@ CONF_TEXT_HORIZONTAL_ALIGN = "text_horizontal_align"
 CONF_RECOLOR = "recolor"
 CONF_TEXT_COLOR = "text_color"
 CONF_OFFSET = "offset"
-CONF_TEXT_OPA = "text_opa"  # Valid for dynamic updates
+CONF_TEXT_OPA = "text_opa"  # Valid for dynamic updates - uses opacity type
 CONF_TEXT_FONT = "text_font"  # Valid for dynamic updates
+
+# Opacity validator - matches ESPHome LVGL pattern
+# Opacity can be: TRANSP (0), COVER (255), or 0-255 integer
+OPACITY_TYPE = cv.Any(
+    cv.one_of("TRANSP", "COVER", upper=True),
+    cv.int_range(min=0, max=255)
+)
 
 lv_arclabel_t = LvType("lv_arclabel_t")
 
@@ -68,7 +75,7 @@ ARCLABEL_SCHEMA = cv.Schema({
     cv.Optional(CONF_RECOLOR, default=False): cv.boolean,
     cv.Optional(CONF_OFFSET, default=0): cv.int_,
     # Style properties that CAN be updated dynamically:
-    cv.Optional(CONF_TEXT_OPA): lv_opacity,
+    cv.Optional(CONF_TEXT_OPA): OPACITY_TYPE,
     cv.Optional(CONF_TEXT_FONT): cv.use_id(cv.Font),
 })
 
@@ -84,7 +91,7 @@ ARCLABEL_MODIFY_SCHEMA = cv.Schema({
     cv.Optional(CONF_TEXT_HORIZONTAL_ALIGN): TEXT_ALIGN,
     cv.Optional(CONF_RECOLOR): cv.boolean,
     cv.Optional(CONF_OFFSET): cv.int_,
-    cv.Optional(CONF_TEXT_OPA): lv_opacity,  # Dynamic opacity updates
+    cv.Optional(CONF_TEXT_OPA): OPACITY_TYPE,  # Dynamic opacity updates
     cv.Optional(CONF_TEXT_FONT): cv.use_id(cv.Font),  # Dynamic font updates
 })
 
@@ -143,9 +150,15 @@ class ArcLabelType(WidgetType):
         # Text color (style)
         lv.obj_set_style_text_color(w.obj, config.get(CONF_TEXT_COLOR), 0)
         
-        # Text opacity (if specified)
+        # Text opacity (if specified) - convert string constants to LVGL values
         if CONF_TEXT_OPA in config:
-            lv.obj_set_style_text_opa(w.obj, config[CONF_TEXT_OPA], 0)
+            opa = config[CONF_TEXT_OPA]
+            if isinstance(opa, str):
+                # Convert string constants to LVGL values
+                opa_val = "lv.LV_OPA_" + opa.upper()
+            else:
+                opa_val = opa
+            lv.obj_set_style_text_opa(w.obj, opa_val, 0)
             
         # Text font (if specified)
         if CONF_TEXT_FONT in config:
@@ -160,7 +173,6 @@ class ArcLabelType(WidgetType):
 # Register widget
 # -------------------------------------------------------------------
 arclabel_spec = ArcLabelType()
-
 
 
 
