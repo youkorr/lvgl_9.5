@@ -7,6 +7,7 @@ alignment, recolor, offset, and text color support.
 
 import esphome.config_validation as cv
 from esphome.const import CONF_ROTATION, CONF_TEXT
+from esphome.components import color  # <-- import correct
 
 from ..defines import (
     CONF_END_ANGLE,
@@ -61,7 +62,7 @@ ARCLABEL_SCHEMA = cv.Schema(
         cv.Optional(CONF_TEXT_HORIZONTAL_ALIGN, default="center"): TEXT_ALIGN,
         cv.Optional(CONF_RECOLOR, default=False): cv.boolean,
         cv.Optional(CONF_OFFSET, default=0): cv.int_,
-        cv.Optional(CONF_TEXT_COLOR, default=0xFFFFFF): cv.color,
+        cv.Optional(CONF_TEXT_COLOR, default="white"): color.color,  # <-- valide les noms de couleur
     }
 )
 
@@ -130,6 +131,8 @@ class ArcLabelType(WidgetType):
 
 # Global instance
 arclabel_spec = ArcLabelType()
+
+
 
 
 
