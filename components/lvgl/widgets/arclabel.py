@@ -1,17 +1,17 @@
 """
-LVGL Arc Label Widget Implementation
+LVGL Arc Label Widget
 ESPHome compatible – LVGL 9.4
-Rotation via object transform (no screen displacement)
+Native arclabel API (angle_start / angle_size / offset)
 """
 
 import esphome.config_validation as cv
 from esphome.const import CONF_ROTATION, CONF_TEXT
 
 from ..defines import (
-    CONF_END_ANGLE,
-    CONF_MAIN,
-    CONF_RADIUS,
     CONF_START_ANGLE,
+    CONF_END_ANGLE,
+    CONF_RADIUS,
+    CONF_MAIN,
 )
 from ..helpers import lvgl_components_required
 from ..lv_validation import lv_angle_degrees, lv_text, pixels
@@ -23,7 +23,9 @@ CONF_ARCLABEL = "arclabel"
 
 lv_arclabel_t = LvType("lv_arclabel_t")
 
-# Arc label schema
+# -------------------------------------------------
+# Schema
+# -------------------------------------------------
 ARCLABEL_SCHEMA = cv.Schema(
     {
         cv.Required(CONF_TEXT): lv_text,
@@ -49,42 +51,45 @@ class ArcLabelType(WidgetType):
     async def to_code(self, w: Widget, config):
         lvgl_components_required.add(CONF_ARCLABEL)
 
+        # ----------------------------
         # Text
+        # ----------------------------
         text = await lv_text.process(config[CONF_TEXT])
         lv.arclabel_set_text(w.obj, text)
 
+        # ----------------------------
         # Radius
+        # ----------------------------
         radius = await pixels.process(config.get(CONF_RADIUS, 100))
         lv.arclabel_set_radius(w.obj, radius)
 
-        # Arc angle size (arclabel has no start-angle API)
+        # ----------------------------
+        # Start angle
+        # ----------------------------
         start_angle = config.get(CONF_START_ANGLE, 0)
-        end_angle = config.get(CONF_END_ANGLE, 360)
+        lv.arclabel_set_angle_start(w.obj, start_angle)
 
+        # ----------------------------
+        # Arc size
+        # ----------------------------
+        end_angle = config.get(CONF_END_ANGLE, 360)
         angle_size = end_angle - start_angle
         if angle_size <= 0:
             angle_size += 360
 
         lv.arclabel_set_angle_size(w.obj, angle_size)
 
-        # -------------------------------------------------
-        # IMPORTANT: size BEFORE transform
-        # -------------------------------------------------
-        size = radius * 2 + 50
-        lv.obj_set_size(w.obj, size, size)
-
-        # Pivot EXACTLY at center
-        pivot = size // 2
-        lv.obj_set_style_transform_pivot_x(w.obj, pivot, 0)
-        lv.obj_set_style_transform_pivot_y(w.obj, pivot, 0)
-
-        # Rotation (0.1° units)
+        # ----------------------------
+        # Rotation / offset
+        # ----------------------------
         rotation = config.get(CONF_ROTATION, 0)
-        lv.obj_set_style_transform_angle(
-            w.obj,
-            int(rotation * 10),
-            0,  # LV_PART_MAIN (ESPHome-safe)
-        )
+        lv.arclabel_set_offset(w.obj, rotation)
+
+        # ----------------------------
+        # Object size (important)
+        # ----------------------------
+        size = radius * 2 + 40
+        lv.obj_set_size(w.obj, size, size)
 
     async def to_code_update(self, w: Widget, config):
         if CONF_TEXT in config:
@@ -97,6 +102,7 @@ class ArcLabelType(WidgetType):
 
 # Global instance
 arclabel_spec = ArcLabelType()
+
 
 
 
