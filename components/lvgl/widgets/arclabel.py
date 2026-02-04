@@ -1,8 +1,13 @@
 """
-LVGL v9.4 Arc Label Widget Implementation
+LVGL v9.4 Arc Label Widget Implementation for ESPHome 2026+
 
-The arc label widget displays text along a curved path (arc).
-This is an advanced widget for circular/curved text displays.
+Displays text along a curved path (arc).
+Supports:
+- rotation
+- direction (clockwise/counter_clockwise)
+- vertical/horizontal alignment
+- offset
+- dynamic text updates
 """
 
 import esphome.config_validation as cv
@@ -16,36 +21,38 @@ from ..defines import (
 )
 from ..helpers import lvgl_components_required
 from ..lv_validation import lv_angle_degrees, lv_int, lv_text, pixels
-from ..lvcode import lv, lv_expr
+from ..lvcode import lv
 from ..types import LvType
 from . import Widget, WidgetType
 
 # -------------------------------------------------------------------
-# Constants
+# Configuration constants
 # -------------------------------------------------------------------
 CONF_ARCLABEL = "arclabel"
 CONF_DIRECTION = "direction"
 CONF_TEXT_VERTICAL_ALIGN = "text_vertical_align"
 CONF_TEXT_HORIZONTAL_ALIGN = "text_horizontal_align"
-CONF_RECOLOR = "recolor"
 CONF_OFFSET = "offset"
 
+# -------------------------------------------------------------------
+# LVGL type
+# -------------------------------------------------------------------
 lv_arclabel_t = LvType("lv_arclabel_t")
 
 # -------------------------------------------------------------------
-# Local validators
+# Validators
 # -------------------------------------------------------------------
 SIGNED_ANGLE = cv.int_range(min=-360, max=360)
 
 DIRECTION = cv.enum({
-    "clockwise": "LV_ARCLABEL_DIR_CLOCKWISE",
-    "counter_clockwise": "LV_ARCLABEL_DIR_COUNTERCLOCKWISE"
+    "clockwise": lv.LV_ARCLABEL_DIR_CLOCKWISE,
+    "counter_clockwise": lv.LV_ARCLABEL_DIR_COUNTER_CLOCKWISE
 })
 
 TEXT_ALIGN = cv.enum({
-    "leading": "LV_ARCLABEL_TEXT_ALIGN_LEADING",
-    "center": "LV_ARCLABEL_TEXT_ALIGN_CENTER",
-    "trailing": "LV_ARCLABEL_TEXT_ALIGN_TRAILING"
+    "leading": lv.LV_ARCLABEL_TEXT_ALIGN_LEADING,
+    "center": lv.LV_ARCLABEL_TEXT_ALIGN_CENTER,
+    "trailing": lv.LV_ARCLABEL_TEXT_ALIGN_TRAILING
 })
 
 # -------------------------------------------------------------------
@@ -60,12 +67,11 @@ ARCLABEL_SCHEMA = cv.Schema({
     cv.Optional(CONF_DIRECTION, default="clockwise"): DIRECTION,
     cv.Optional(CONF_TEXT_VERTICAL_ALIGN, default="center"): TEXT_ALIGN,
     cv.Optional(CONF_TEXT_HORIZONTAL_ALIGN, default="center"): TEXT_ALIGN,
-    cv.Optional(CONF_RECOLOR, default=False): cv.boolean,
     cv.Optional(CONF_OFFSET, default=0): cv.int_,
 })
 
 # -------------------------------------------------------------------
-# WidgetType
+# ArcLabel WidgetType
 # -------------------------------------------------------------------
 class ArcLabelType(WidgetType):
     def __init__(self):
@@ -74,12 +80,10 @@ class ArcLabelType(WidgetType):
             lv_arclabel_t,
             (CONF_MAIN,),
             ARCLABEL_SCHEMA,
-            modify_schema={
-                cv.Optional(CONF_TEXT): lv_text,
-            },
         )
 
     async def to_code(self, w: Widget, config):
+        """Generate C++ code for arc label widget configuration"""
         lvgl_components_required.add(CONF_ARCLABEL)
 
         # Set text
@@ -90,46 +94,40 @@ class ArcLabelType(WidgetType):
         radius = await pixels.process(config.get(CONF_RADIUS, 100))
         lv.arclabel_set_radius(w.obj, radius)
 
-        # Set angles
+        # Set angles and rotation
         start_angle = config.get(CONF_START_ANGLE, 0)
         end_angle = config.get(CONF_END_ANGLE, 360)
         rotation = config.get(CONF_ROTATION, 0)
         lv.arclabel_set_angle_size(w.obj, end_angle - start_angle)
 
         # Widget size
-        lv.obj_set_size(w.obj, radius * 2 + 50, radius * 2 + 50)
+        widget_size = radius * 2 + 50
+        lv.obj_set_size(w.obj, widget_size, widget_size)
 
-        # Rotation
+        # Total rotation
         lv.obj_set_style_transform_rotation(w.obj, (start_angle + rotation) * 10, 0)
 
         # Direction
-        lv.arclabel_set_dir(w.obj, lv_expr(config.get(CONF_DIRECTION, "LV_ARCLABEL_DIR_CLOCKWISE")))
+        lv.arclabel_set_dir(w.obj, lv.const(config.get(CONF_DIRECTION, lv.LV_ARCLABEL_DIR_CLOCKWISE)))
 
-        # Text alignments
+        # Text alignment
         lv.arclabel_set_text_vertical_align(
-            w.obj,
-            lv_expr(config.get(CONF_TEXT_VERTICAL_ALIGN, "LV_ARCLABEL_TEXT_ALIGN_CENTER"))
-        )
+            w.obj, lv.const(config.get(CONF_TEXT_VERTICAL_ALIGN, lv.LV_ARCLABEL_TEXT_ALIGN_CENTER)))
         lv.arclabel_set_text_horizontal_align(
-            w.obj,
-            lv_expr(config.get(CONF_TEXT_HORIZONTAL_ALIGN, "LV_ARCLABEL_TEXT_ALIGN_CENTER"))
-        )
-
-        # Recolor
-        lv.arclabel_set_recolor(w.obj, config.get(CONF_RECOLOR, False))
+            w.obj, lv.const(config.get(CONF_TEXT_HORIZONTAL_ALIGN, lv.LV_ARCLABEL_TEXT_ALIGN_CENTER)))
 
         # Offset
         lv.arclabel_set_offset(w.obj, config.get(CONF_OFFSET, 0))
 
     async def to_code_update(self, w: Widget, config):
-        """Dynamic text update"""
+        """Allow updating text dynamically"""
         if CONF_TEXT in config:
             text = await lv_text.process(config[CONF_TEXT])
             lv.arclabel_set_text(w.obj, text)
 
     def get_uses(self):
+        """Arc label uses label component"""
         return ("label",)
-
 
 # -------------------------------------------------------------------
 # Global instance
