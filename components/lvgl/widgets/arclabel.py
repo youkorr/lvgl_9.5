@@ -24,12 +24,7 @@ CONF_ARCLABEL = "arclabel"
 
 lv_arclabel_t = LvType("lv_arclabel_t")
 
-# -------------------------------------------------------------------
-# Local validator: allow signed angles (do NOT touch lv_angle_degrees)
-# -------------------------------------------------------------------
 
-
-# Arc label schema
 # Arc label schema
 ARCLABEL_SCHEMA = cv.Schema(
     {
@@ -39,6 +34,7 @@ ARCLABEL_SCHEMA = cv.Schema(
         cv.Optional(CONF_END_ANGLE, default=360): lv_angle_degrees,
         cv.Optional(CONF_ROTATION, default=0): lv_angle_degrees,
     }
+)
 
 
 
