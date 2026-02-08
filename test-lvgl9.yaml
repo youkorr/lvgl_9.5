@@ -119,23 +119,27 @@ image:
 
 
 external_components:
-  - source: github://pr#11886
+  - source: github://pr#13608
     components: [mipi_dsi]
     refresh: always
+    
+  - source: github://pr#12312
+    components: [font]
+    refresh: 1h    
     
   - source:
       type: git
       url: https://github.com/youkorr/lvgl_9.4
-      ref: claude/fix-lvgl-alignment-warning-PbjVB
-    components: [lvgl, image, font]
+      ref: main 
+    components: [lvgl, image]
     refresh: always   
 
   - source:
       type: git
       url: https://github.com/youkorr/test2_esp_video_esphome
-      ref: main   
-    components: [esp_video, esp_cam_sensor, sd_mmc_card, webdavbox3, storage, lvgl_camera_display, simple_video_player]
-    refresh: always   
+      ref: main
+    components: [esp_video, esp_cam_sensor, sd_mmc_card, webdavbox3, storage, lvgl_camera_display, simple_video_player, network_camera, face_detection]
+    refresh: always 
 
 psram:
   mode: hex
@@ -153,7 +157,6 @@ esp_video:
   i2c_id: bsp_bus
   xclk_pin: GPIO36
   xclk_freq: 24000000
-  enable_h264: true
   enable_jpeg: true
   enable_isp: true
   use_heap_allocator: true
