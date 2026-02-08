@@ -111,11 +111,25 @@ static int32_t ppa_evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * t)
             return 1;
         }
 
-        /* TODO: Image blending via PPA_OPERATION_BLEND - enable after fill is verified
         case LV_DRAW_TASK_TYPE_IMAGE: {
-            ...
+            const lv_draw_image_dsc_t * dsc = (const lv_draw_image_dsc_t *)t->draw_dsc;
+            if(dsc->rotation != 0) return 0;
+            if(dsc->skew_x != 0 || dsc->skew_y != 0) return 0;
+            if(dsc->scale_x != LV_SCALE_NONE || dsc->scale_y != LV_SCALE_NONE) return 0;
+            if(dsc->opa < (lv_opa_t)LV_OPA_MAX) return 0;
+            if(dsc->blend_mode != LV_BLEND_MODE_NORMAL) return 0;
+            if(!ppa_src_cf_supported((lv_color_format_t)dsc->header.cf)) return 0;
+
+            lv_draw_buf_t * dest_buf = t->target_layer->draw_buf;
+            if(!ppa_buf_usable(dest_buf)) return 0;
+            if(!ppa_dest_cf_supported((lv_color_format_t)dest_buf->header.cf)) return 0;
+
+            if(t->preference_score > 70) {
+                t->preference_score = 70;
+                t->preferred_draw_unit_id = draw_unit->idx;
+            }
+            return 1;
         }
-        */
 
         default:
             break;
@@ -153,25 +167,22 @@ static int32_t ppa_dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
     lv_draw_buf_t * buf = target ? target->draw_buf : NULL;
 
     if(buf != NULL && buf->data != NULL) {
-        lv_area_t area;
-        if(lv_area_intersect(&area, &t->area, &t->clip_area)) {
-            /* Flush CPU cache before PPA reads the buffer (DMA) */
-            lv_draw_ppa_cache_sync(buf);
+        /* Flush CPU cache before PPA reads the buffer (DMA) */
+        lv_draw_ppa_cache_sync(buf);
 
-            switch(t->type) {
-                case LV_DRAW_TASK_TYPE_FILL:
-                    lv_draw_ppa_fill(t, (lv_draw_fill_dsc_t *)t->draw_dsc, &area);
-                    break;
-                case LV_DRAW_TASK_TYPE_IMAGE:
-                    lv_draw_ppa_img(t, (lv_draw_image_dsc_t *)t->draw_dsc, &area);
-                    break;
-                default:
-                    break;
-            }
-
-            /* Invalidate cache after PPA wrote to the buffer */
-            lv_draw_ppa_cache_sync(buf);
+        switch(t->type) {
+            case LV_DRAW_TASK_TYPE_FILL:
+                lv_draw_ppa_fill(t, (lv_draw_fill_dsc_t *)t->draw_dsc, &t->area);
+                break;
+            case LV_DRAW_TASK_TYPE_IMAGE:
+                lv_draw_ppa_img(t, (lv_draw_image_dsc_t *)t->draw_dsc, &t->area);
+                break;
+            default:
+                break;
         }
+
+        /* Invalidate cache after PPA wrote to the buffer */
+        lv_draw_ppa_cache_sync(buf);
     }
 
     u->task_act->state = LV_DRAW_TASK_STATE_FINISHED;
