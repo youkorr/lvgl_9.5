@@ -61,11 +61,11 @@ void lv_draw_ppa_init(void)
         ESP_LOGE(TAG, "Failed to register SRM client: %d", res);
     }
 
-    /* Register Fill client - 64-byte burst to reduce CPU/SPIRAM contention (PR #9612) */
+    /* Register Fill client - 128-byte burst for max throughput on small fills */
     lv_memzero(&cfg, sizeof(cfg));
     cfg.oper_type = PPA_OPERATION_FILL;
     cfg.max_pending_trans_num = 1;
-    cfg.data_burst_length = PPA_DATA_BURST_LENGTH_64;
+    cfg.data_burst_length = PPA_DATA_BURST_LENGTH_128;
 
     res = ppa_register_client(&cfg, &draw_ppa_unit->fill_client);
     if(res != ESP_OK) {
@@ -147,49 +147,64 @@ static int32_t ppa_dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
         return LV_DRAW_UNIT_IDLE;
     }
 
-    /* Find a task claimed by this unit */
-    lv_draw_task_t * t = lv_draw_get_available_task(layer, NULL, draw_unit->idx);
-    if(!t || t->preferred_draw_unit_id != draw_unit->idx) {
-        return LV_DRAW_UNIT_IDLE;
-    }
-
-    /* Allocate layer buffer if needed */
+    /* Allocate layer buffer once for all tasks in this batch */
     if(lv_draw_layer_alloc_buf(layer) == NULL) {
         return LV_DRAW_UNIT_IDLE;
     }
 
-    t->state = LV_DRAW_TASK_STATE_IN_PROGRESS;
-    t->draw_unit = draw_unit;  /* CRITICAL: PPA fill/img read draw_unit from the task */
-    u->task_act = t;
+    lv_layer_t * target = NULL;
+    lv_draw_buf_t * buf = NULL;
+    bool cache_synced = false;
+    int32_t task_count = 0;
 
-    /* Execute drawing */
-    lv_layer_t * target = t->target_layer;
-    lv_draw_buf_t * buf = target ? target->draw_buf : NULL;
+    /* Process all available PPA tasks in one dispatch call */
+    lv_draw_task_t * t = lv_draw_get_available_task(layer, NULL, draw_unit->idx);
+    while(t && t->preferred_draw_unit_id == draw_unit->idx) {
 
-    if(buf != NULL && buf->data != NULL) {
-        /* Flush CPU cache before PPA reads the buffer (DMA) */
-        lv_draw_ppa_cache_sync(buf);
+        t->state = LV_DRAW_TASK_STATE_IN_PROGRESS;
+        t->draw_unit = draw_unit;
+        u->task_act = t;
 
-        switch(t->type) {
-            case LV_DRAW_TASK_TYPE_FILL:
-                lv_draw_ppa_fill(t, (lv_draw_fill_dsc_t *)t->draw_dsc, &t->area);
-                break;
-            case LV_DRAW_TASK_TYPE_IMAGE:
-                lv_draw_ppa_img(t, (lv_draw_image_dsc_t *)t->draw_dsc, &t->area);
-                break;
-            default:
-                break;
+        target = t->target_layer;
+        buf = (target) ? target->draw_buf : NULL;
+
+        if(buf != NULL && buf->data != NULL) {
+            /* Flush CPU cache once before first PPA operation */
+            if(!cache_synced) {
+                lv_draw_ppa_cache_sync(buf);
+                cache_synced = true;
+            }
+
+            switch(t->type) {
+                case LV_DRAW_TASK_TYPE_FILL:
+                    lv_draw_ppa_fill(t, (lv_draw_fill_dsc_t *)t->draw_dsc, &t->area);
+                    break;
+                case LV_DRAW_TASK_TYPE_IMAGE:
+                    lv_draw_ppa_img(t, (lv_draw_image_dsc_t *)t->draw_dsc, &t->area);
+                    break;
+                default:
+                    break;
+            }
         }
 
-        /* Invalidate cache after PPA wrote to the buffer */
-        lv_draw_ppa_cache_sync(buf);
+        t->state = LV_DRAW_TASK_STATE_FINISHED;
+        u->task_act = NULL;
+        task_count++;
+
+        /* Get next available task */
+        t = lv_draw_get_available_task(layer, NULL, draw_unit->idx);
     }
 
-    u->task_act->state = LV_DRAW_TASK_STATE_FINISHED;
-    u->task_act = NULL;
-    lv_draw_dispatch_request();
+    if(task_count > 0) {
+        /* Single cache invalidate after all PPA operations */
+        if(cache_synced && buf != NULL) {
+            lv_draw_ppa_cache_sync(buf);
+        }
+        lv_draw_dispatch_request();
+        return 1;
+    }
 
-    return 1;
+    return LV_DRAW_UNIT_IDLE;
 }
 
 static int32_t ppa_delete(lv_draw_unit_t * draw_unit)
