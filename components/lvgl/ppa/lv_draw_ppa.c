@@ -2,13 +2,7 @@
  * @file lv_draw_ppa.c
  * Fixed PPA draw unit for LVGL 9.4 on ESP32-P4
  * Backported from https://github.com/lvgl/lvgl/pull/9162
- *
- * Key fixes:
- * - Removed non-blocking ISR/thread code (blocking mode only)
- * - Fixed dispatch logic (run to completion)
- * - Cache invalidation before AND after PPA operations
- * - max_pending_trans_num = 1
- * - Blend client uses PPA_DATA_BURST_LENGTH_128
+ * Adapted for C++ compilation (ESPHome build system)
  */
 
 #include "sdkconfig.h"
@@ -37,12 +31,13 @@ static void  ppa_execute_drawing(lv_draw_ppa_unit_t * u);
 void lv_draw_ppa_init(void)
 {
     esp_err_t res;
-    ppa_client_config_t cfg = {0};
+    ppa_client_config_t cfg;
+    lv_memzero(&cfg, sizeof(cfg));
 
     /* Create draw unit */
     lv_draw_buf_ppa_init_handlers();
 
-    lv_draw_ppa_unit_t * draw_ppa_unit = lv_draw_create_unit(sizeof(lv_draw_ppa_unit_t));
+    lv_draw_ppa_unit_t * draw_ppa_unit = (lv_draw_ppa_unit_t *)lv_draw_create_unit(sizeof(lv_draw_ppa_unit_t));
     draw_ppa_unit->base_unit.evaluate_cb = ppa_evaluate;
     draw_ppa_unit->base_unit.dispatch_cb = ppa_dispatch;
     draw_ppa_unit->base_unit.delete_cb = ppa_delete;
@@ -83,13 +78,13 @@ static int32_t ppa_evaluate(lv_draw_unit_t * u, lv_draw_task_t * t)
 
     switch(t->type) {
         case LV_DRAW_TASK_TYPE_FILL: {
-            const lv_draw_fill_dsc_t * dsc = t->draw_dsc;
+            const lv_draw_fill_dsc_t * dsc = (const lv_draw_fill_dsc_t *)t->draw_dsc;
             if(dsc->radius != 0) return 0;
             if(dsc->grad.dir != LV_GRAD_DIR_NONE) return 0;
             if(dsc->opa < (lv_opa_t)LV_OPA_MAX) return 0;
 
             lv_draw_buf_t * draw_buf = t->target_layer->draw_buf;
-            if(!ppa_dest_cf_supported(draw_buf->header.cf)) return 0;
+            if(!ppa_dest_cf_supported((lv_color_format_t)draw_buf->header.cf)) return 0;
 
             if(t->preference_score > 70) {
                 t->preference_score = 70;
@@ -99,16 +94,16 @@ static int32_t ppa_evaluate(lv_draw_unit_t * u, lv_draw_task_t * t)
         }
 
         case LV_DRAW_TASK_TYPE_IMAGE: {
-            const lv_draw_image_dsc_t * dsc = t->draw_dsc;
+            const lv_draw_image_dsc_t * dsc = (const lv_draw_image_dsc_t *)t->draw_dsc;
             if(dsc->rotation != 0) return 0;
             if(dsc->skew_x != 0 || dsc->skew_y != 0) return 0;
             if(dsc->scale_x != LV_SCALE_NONE || dsc->scale_y != LV_SCALE_NONE) return 0;
             if(dsc->opa < (lv_opa_t)LV_OPA_MAX) return 0;
             if(dsc->blend_mode != LV_BLEND_MODE_NORMAL) return 0;
-            if(!ppa_src_cf_supported(dsc->header.cf)) return 0;
+            if(!ppa_src_cf_supported((lv_color_format_t)dsc->header.cf)) return 0;
 
             lv_draw_buf_t * dest_buf = t->target_layer->draw_buf;
-            if(!ppa_dest_cf_supported(dest_buf->header.cf)) return 0;
+            if(!ppa_dest_cf_supported((lv_color_format_t)dest_buf->header.cf)) return 0;
 
             if(t->preference_score > 70) {
                 t->preference_score = 70;
@@ -137,7 +132,6 @@ static int32_t ppa_dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
 
     t->state = LV_DRAW_TASK_STATE_IN_PROGRESS;
     u->task_act = t;
-    u->base_unit.target_layer = layer;
 
     ppa_execute_drawing(u);
 

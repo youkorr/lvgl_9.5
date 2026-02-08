@@ -2,13 +2,7 @@
  * @file lv_draw_ppa_img.c
  * Fixed PPA image blending for LVGL 9.4 on ESP32-P4
  * Backported from https://github.com/lvgl/lvgl/pull/9162
- *
- * Key fixes:
- * - Uses lv_draw_image_normal_helper for proper image decoding pipeline
- * - Correct src/dest area offset calculations
- * - Proper background/foreground buffer assignments
- * - PPA_TRANS_MODE_BLOCKING instead of NON_BLOCKING
- * - Fixed alpha update modes (PPA_ALPHA_FIX_VALUE)
+ * Adapted for C++ compilation (ESPHome build system)
  */
 
 #include "sdkconfig.h"
@@ -60,58 +54,58 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
     lv_area_move(&dest_area, -t->target_layer->buf_area.x1, -t->target_layer->buf_area.y1);
 
     const uint8_t * src_buf = decoded->data;
-    lv_color_format_t src_cf = draw_dsc->header.cf;
-    lv_color_format_t dest_cf = draw_buf->header.cf;
+    lv_color_format_t src_cf = (lv_color_format_t)draw_dsc->header.cf;
+    lv_color_format_t dest_cf = (lv_color_format_t)draw_buf->header.cf;
     uint8_t * dest_buf = draw_buf->data;
 
-    ppa_blend_oper_config_t cfg = {
-        .in_bg = {
-            .buffer          = (void *)src_buf,
-            .pic_w           = draw_dsc->header.w,
-            .pic_h           = draw_dsc->header.h,
-            .block_w         = lv_area_get_width(clipped_img_area),
-            .block_h         = lv_area_get_height(clipped_img_area),
-            .block_offset_x  = src_area.x1,
-            .block_offset_y  = src_area.y1,
-            .blend_cm        = lv_color_format_to_ppa_blend(src_cf),
-        },
-        .bg_rgb_swap           = false,
-        .bg_byte_swap          = false,
-        .bg_alpha_update_mode  = PPA_ALPHA_FIX_VALUE,
-        .bg_alpha_fix_val      = 0xFF,
-        .bg_ck_en              = false,
-        .in_fg = {
-            .buffer          = (void *)dest_buf,
-            .pic_w           = draw_dsc->header.w,
-            .pic_h           = draw_dsc->header.h,
-            .block_w         = lv_area_get_width(clipped_img_area),
-            .block_h         = lv_area_get_height(clipped_img_area),
-            .block_offset_x  = src_area.x1,
-            .block_offset_y  = src_area.y1,
-            .blend_cm        = PPA_BLEND_COLOR_MODE_A8,
-        },
-        .fg_fix_rgb_val = {
-            .r = 0,
-            .g = 0,
-            .b = 0,
-        },
-        .fg_rgb_swap           = false,
-        .fg_byte_swap          = false,
-        .fg_alpha_update_mode  = PPA_ALPHA_FIX_VALUE,
-        .fg_alpha_fix_val      = 0,
-        .fg_ck_en              = false,
-        .out = {
-            .buffer          = dest_buf,
-            .buffer_size     = draw_buf->data_size,
-            .pic_w           = draw_buf->header.w,
-            .pic_h           = draw_buf->header.h,
-            .block_offset_x  = dest_area.x1,
-            .block_offset_y  = dest_area.y1,
-            .blend_cm        = lv_color_format_to_ppa_blend(dest_cf),
-        },
-        .mode            = PPA_TRANS_MODE_BLOCKING,
-        .user_data       = u,
-    };
+    /* Use field-by-field assignment for C++ compatibility
+     * (C++ designated initializers must be in declaration order) */
+    ppa_blend_oper_config_t cfg;
+    lv_memzero(&cfg, sizeof(cfg));
+
+    /* Background input (source image) */
+    cfg.in_bg.buffer         = (void *)src_buf;
+    cfg.in_bg.pic_w          = draw_dsc->header.w;
+    cfg.in_bg.pic_h          = draw_dsc->header.h;
+    cfg.in_bg.block_w        = (uint32_t)lv_area_get_width(clipped_img_area);
+    cfg.in_bg.block_h        = (uint32_t)lv_area_get_height(clipped_img_area);
+    cfg.in_bg.block_offset_x = (uint32_t)src_area.x1;
+    cfg.in_bg.block_offset_y = (uint32_t)src_area.y1;
+    cfg.in_bg.blend_cm       = lv_color_format_to_ppa_blend(src_cf);
+
+    cfg.bg_rgb_swap          = false;
+    cfg.bg_byte_swap         = false;
+    cfg.bg_alpha_update_mode = PPA_ALPHA_FIX_VALUE;
+    cfg.bg_alpha_fix_val     = 0xFF;
+    cfg.bg_ck_en             = false;
+
+    /* Foreground input */
+    cfg.in_fg.buffer         = (void *)dest_buf;
+    cfg.in_fg.pic_w          = draw_dsc->header.w;
+    cfg.in_fg.pic_h          = draw_dsc->header.h;
+    cfg.in_fg.block_w        = (uint32_t)lv_area_get_width(clipped_img_area);
+    cfg.in_fg.block_h        = (uint32_t)lv_area_get_height(clipped_img_area);
+    cfg.in_fg.block_offset_x = (uint32_t)src_area.x1;
+    cfg.in_fg.block_offset_y = (uint32_t)src_area.y1;
+    cfg.in_fg.blend_cm       = PPA_BLEND_COLOR_MODE_A8;
+
+    cfg.fg_rgb_swap          = false;
+    cfg.fg_byte_swap         = false;
+    cfg.fg_alpha_update_mode = PPA_ALPHA_FIX_VALUE;
+    cfg.fg_alpha_fix_val     = 0;
+    cfg.fg_ck_en             = false;
+
+    /* Output */
+    cfg.out.buffer           = dest_buf;
+    cfg.out.buffer_size      = draw_buf->data_size;
+    cfg.out.pic_w            = draw_buf->header.w;
+    cfg.out.pic_h            = draw_buf->header.h;
+    cfg.out.block_offset_x   = (uint32_t)dest_area.x1;
+    cfg.out.block_offset_y   = (uint32_t)dest_area.y1;
+    cfg.out.blend_cm         = lv_color_format_to_ppa_blend(dest_cf);
+
+    cfg.mode                 = PPA_TRANS_MODE_BLOCKING;
+    cfg.user_data            = u;
 
     esp_err_t ret = ppa_do_blend(u->blend_client, &cfg);
     if(ret != ESP_OK) {

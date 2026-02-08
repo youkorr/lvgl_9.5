@@ -2,11 +2,7 @@
  * @file lv_draw_ppa_buf.c
  * Fixed PPA buffer cache handling for LVGL 9.4 on ESP32-P4
  * Backported from https://github.com/lvgl/lvgl/pull/9162
- *
- * Key fixes:
- * - Simplified cache invalidation (no manual pointer alignment)
- * - Uses draw_buf->data and draw_buf->data_size directly
- * - Removed separate image handler registration
+ * Adapted for C++ compilation (ESPHome build system)
  */
 
 #include "sdkconfig.h"
@@ -36,7 +32,8 @@ void lv_draw_buf_ppa_init_handlers(void)
 static void invalidate_cache(const lv_draw_buf_t * draw_buf, const lv_area_t * area)
 {
     LV_UNUSED(area);
-    esp_cache_msync(draw_buf->data, draw_buf->data_size, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
+    esp_cache_msync(draw_buf->data, draw_buf->data_size,
+                    ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
 }
 
 #endif /* CONFIG_SOC_PPA_SUPPORTED */
