@@ -244,8 +244,14 @@ async def to_code(configs):
     df.add_define("LV_USE_MATRIX", "1")
     # Enable vector graphics support (required for SVG/Lottie)
     df.add_define("LV_USE_VECTOR_GRAPHIC", "1")
-    # Enable ThorVG vector graphics engine (built-in to LVGL v9)
-    df.add_define("LV_USE_THORVG_INTERNAL", "1")
+    # Use EXTERNAL ThorVG from components/thorvg/ (NOT the LVGL built-in one).
+    # Having both internal and external ThorVG causes duplicate symbols and
+    # inconsistent singleton state, leading to crashes when rendering Lottie.
+    df.add_define("LV_USE_THORVG_INTERNAL", "0")
+    df.add_define("LV_USE_THORVG_EXTERNAL", "1")
+    # Add include path so LVGL can find <thorvg_capi.h> from the external component
+    thorvg_capi_dir = Path(__file__).parent.parent / "thorvg" / "thorvg" / "src" / "bindings" / "capi"
+    cg.add_build_flag(f"-I{thorvg_capi_dir}")
     # ThorVG optimizations for ESP32
     df.add_define("LV_VG_LITE_THORVG_16PIXELS_ALIGN", "1")  # Optimize for 16-pixel alignment
     # Enable FreeRTOS threading for LVGL draw operations

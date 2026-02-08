@@ -8,7 +8,7 @@ using the Bodymovin plugin and rendering them natively.
 
 Requirements:
 - LV_USE_LOTTIE must be enabled
-- LV_USE_THORVG_INTERNAL must be enabled
+- LV_USE_THORVG_EXTERNAL must be enabled (external ThorVG from components/thorvg/)
 - LV_USE_VECTOR_GRAPHIC must be enabled
 
 Usage in ESPHome YAML:
@@ -157,13 +157,13 @@ class LottieType(WidgetType):
         )
 
     def get_uses(self):
-        return ("LOTTIE", "THORVG_INTERNAL", "VECTOR_GRAPHIC")
+        return ("LOTTIE", "THORVG_EXTERNAL", "VECTOR_GRAPHIC")
 
     async def to_code(self, w: Widget, config):
         global _lottie_include_added
 
         add_lv_use("LOTTIE")
-        add_lv_use("THORVG_INTERNAL")
+        add_lv_use("THORVG_EXTERNAL")
         add_lv_use("VECTOR_GRAPHIC")
 
         from ..lvcode import lv_obj, lv_add
