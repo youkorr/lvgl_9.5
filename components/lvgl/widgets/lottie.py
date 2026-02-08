@@ -8,7 +8,7 @@ using the Bodymovin plugin and rendering them natively.
 
 Requirements:
 - LV_USE_LOTTIE must be enabled
-- LV_USE_THORVG_EXTERNAL must be enabled (external ThorVG from components/thorvg/)
+- LV_USE_THORVG_INTERNAL must be enabled
 - LV_USE_VECTOR_GRAPHIC must be enabled
 
 Usage in ESPHome YAML:
@@ -157,13 +157,13 @@ class LottieType(WidgetType):
         )
 
     def get_uses(self):
-        return ("LOTTIE", "THORVG_EXTERNAL", "VECTOR_GRAPHIC")
+        return ("LOTTIE", "THORVG_INTERNAL", "VECTOR_GRAPHIC")
 
     async def to_code(self, w: Widget, config):
         global _lottie_include_added
 
         add_lv_use("LOTTIE")
-        add_lv_use("THORVG_EXTERNAL")
+        add_lv_use("THORVG_INTERNAL")
         add_lv_use("VECTOR_GRAPHIC")
 
         from ..lvcode import lv_obj, lv_add
@@ -199,6 +199,10 @@ class LottieType(WidgetType):
         buf_size = width * height * 4
         cg.add_global(cg.RawExpression(f"static uint8_t *{buf_name} = nullptr"))
 
+        # Get loop and auto_start config
+        do_loop = "true" if config.get(CONF_LOOP, True) else "false"
+        do_auto_start = "true" if config.get(CONF_AUTO_START, True) else "false"
+
         # Allocate buffer in PSRAM and set it FIRST (before data loading)
         # This ensures LVGL has a valid buffer even before animation data is loaded
         if src := config.get(CONF_SRC):
@@ -207,7 +211,7 @@ class LottieType(WidgetType):
     {buf_name} = (uint8_t *)heap_caps_malloc({buf_size}, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if ({buf_name} != nullptr) {{
         lv_lottie_set_buffer({w.obj}, {width}, {height}, {buf_name});
-        esphome::lvgl::lottie_load_async({w.obj}, nullptr, 0, "{src}");
+        esphome::lvgl::lottie_load_async({w.obj}, nullptr, 0, "{src}", {do_loop}, {do_auto_start});
     }} else {{
         ESP_LOGE("lottie", "Failed to allocate lottie buffer in PSRAM");
     }}"""))
@@ -226,7 +230,7 @@ class LottieType(WidgetType):
     {buf_name} = (uint8_t *)heap_caps_malloc({buf_size}, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if ({buf_name} != nullptr) {{
         lv_lottie_set_buffer({w.obj}, {width}, {height}, {buf_name});
-        esphome::lvgl::lottie_load_async({w.obj}, {prog_arr}, {len(json_data)}, nullptr);
+        esphome::lvgl::lottie_load_async({w.obj}, {prog_arr}, {len(json_data)}, nullptr, {do_loop}, {do_auto_start});
     }} else {{
         ESP_LOGE("lottie", "Failed to allocate lottie buffer in PSRAM");
     }}"""))
