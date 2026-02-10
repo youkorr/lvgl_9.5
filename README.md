@@ -545,12 +545,13 @@ lvgl:
           - id: temp_series
             color: 0xFF0000
             width: 2
-     
-
-https://github.com/user-attachments/assets/eae845be-39b5-4720-99c1-8dc9ea450325
 
        
 ```
+
+
+https://github.com/user-attachments/assets/eb605047-a967-4733-9d66-9e9e5ef51b8f
+
 
 **Types de graphiques**:
 - `LINE`: Courbe linéaire
@@ -632,15 +633,15 @@ lvgl:
         width: 200
         height: 200       
 
-
-https://github.com/user-attachments/assets/dd3a0b52-e08e-43e7-96a6-0832b0d8e7b6
-
-
-
-https://github.com/user-attachments/assets/bb6d13d2-5ff4-4955-af02-e9d759e63f2f
-
-
 ```
+
+
+https://github.com/user-attachments/assets/3680ca67-fdab-4294-bc66-06f6fff5f434
+
+
+
+https://github.com/user-attachments/assets/fb464595-5995-4599-ab06-7c6819a0c7b8
+
 
 **Avantages**:
 - Animations 60 FPS ultra fluides
