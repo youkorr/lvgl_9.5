@@ -79,27 +79,33 @@ lvgl:
 
 ---
 
-### 3. Image (Image)
+### 3. THORVG 
 
-Affiche des images PNG, BMP, JPEG, GIF ou SVG.
+Affiche  LOTTIE ou SVG.
 
 ```yaml
 lvgl:
   widgets:
-    - image:
+    - svg:
         id: my_image
-        src: "S:/icons/home.svg"  # Fichier SVG sur carte SD
+        src: "/sdcard/icons/home.svg"  # Fichier SVG sur carte SD
         # ou
-        src: my_image_id  # Image définie dans esphome
+        file: "icons/home.svg"# Image définie dans esphome
         x: 50
         y: 50
-        width: 64   # Redimensionne (SVG uniquement)
+        width: 64   
         height: 64
-        angle: 45   # Rotation en degrés (0-360)
-        zoom: 256   # Zoom (256 = 100%, 512 = 200%)
-        pivot_x: 50%  # Point de rotation X
-        pivot_y: 50%  # Point de rotation Y
-        antialias: true  # Lissage
+
+    - lottie:
+        id: my_image
+        file: "icons/home.json"  # Fichier SVG sur carte SD
+        # ou
+        src: "/sdcard/icons/home.json" # Image définie dans esphome
+        x: 50
+        y: 50
+        width: 64   
+        height: 64        
+
 ```
 
 **Formats supportés**:
