@@ -225,7 +225,7 @@ void LvglComponent::draw_buffer_(const lv_area_t *area,
      * 4️⃣  Traitement selon la rotation demandée
      * -------------------------------------------------------------- */
     if (this->rotation == display::DISPLAY_ROTATION_0_DEGREES) {
-        /* Pas de rotation – on transmet le buffer tel quel */
+        /* Aucun traitement – on transmet le buffer tel quel */
         dst = ptr;
     }
     /* -------------------- 90° -------------------- */
@@ -238,8 +238,8 @@ void LvglComponent::draw_buffer_(const lv_area_t *area,
         }
 
         /* Nouvelles coordonnées du coin supérieur‑gauche */
-        int new_x1 = area->y1;                              // ancien Y devient X
-        int new_y1 = this->height_ - area->x1 - width;      // basé sur la hauteur brute
+        int new_x1 = area->y1;                                 // ancien Y devient X
+        int new_y1 = this->height_ - area->x1 - width;         // hauteur brute
         x1 = new_x1;
         y1 = new_y1;
 
@@ -647,7 +647,6 @@ void LvglComponent::setup() {
   // CRITICAL FIX: Do NOT call lv_display_set_buffers() here!
   // It can trigger immediate rendering which deadlocks because loop() hasn't started yet.
   // Store buf_bytes for delayed configuration in loop()
-  this->buf_bytes_ = buf_bytes;
   this->rotation = display->get_rotation();
   if (this->rotation != display::DISPLAY_ROTATION_0_DEGREES) {
     this->rotate_buf_ = static_cast<lv_color_t *>(lv_malloc_core(buf_bytes));  // NOLINT
