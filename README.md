@@ -11,6 +11,8 @@ Ce guide documente **tous les 35 widgets** disponibles dans l'implémentation LV
 - [Widgets Avancés](#widgets-avancés)
 
 ---
+https://github.com/user-attachments/assets/f0c77033-1ffc-4adc-8356-ef7a395cf937
+
 
 ## Widgets de Base
 
@@ -1225,16 +1227,4 @@ Consultez les README spécifiques pour plus de détails:
 
 ```
 
-
-
-https://github.com/user-attachments/assets/6787cd1f-ee36-4cc4-836f-5805008d07ae
-
-
-
-
-https://github.com/user-attachments/assets/37b924ab-ba2f-4925-a49b-93fccd4cf848
-
-
-
-https://github.com/user-attachments/assets/f0c77033-1ffc-4adc-8356-ef7a395cf937
 
