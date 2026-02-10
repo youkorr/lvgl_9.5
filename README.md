@@ -1,4 +1,5 @@
-# Guide Complet des Widgets LVGL 9.4 pour ESPHome
+# Guide Complet des Widgets LVGL 9.4 pour ESPHome CERTAIN nouveaux widgets de lvgl 9.4 ne sont pas fonctionnel pour l'instant,
+mais bientot avec des mise jour pour qu'il soit compatible avec esphome les test effectuer sont des esp32P4 
 
 Ce guide documente **tous les 35 widgets** disponibles dans l'implémentation LVGL 9.4 pour ESPHome.
 
