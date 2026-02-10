@@ -29,7 +29,7 @@ lvgl:
         height: 64
 
   
-**Documentation**: [Image - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/image.html)        
+**Documentation**: [Image - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/index.html)        
 
 ```
 
