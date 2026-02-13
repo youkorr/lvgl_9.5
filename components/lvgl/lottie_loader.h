@@ -18,7 +18,7 @@ namespace esphome {
 namespace lvgl {
 
 static const char *const LOTTIE_TAG = "lottie";
-static constexpr size_t LOTTIE_TASK_STACK_SIZE = 16 * 1024;
+static constexpr size_t LOTTIE_TASK_STACK_SIZE = 32 * 1024;
 
 // Persistent context for each Lottie widget – tracks all PSRAM allocations,
 // the render task, and cached animation parameters for safe re-load.
