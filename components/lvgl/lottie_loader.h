@@ -14,7 +14,7 @@ namespace esphome {
 namespace lvgl {
 
 static const char *const LOTTIE_TAG = "lottie";
-static constexpr size_t LOTTIE_TASK_STACK_SIZE = 64 * 1024;
+static constexpr size_t LOTTIE_TASK_STACK_SIZE = 128 * 1024;
 
 struct LottieContext {
     lv_obj_t *obj;
