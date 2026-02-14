@@ -269,7 +269,12 @@ inline void lottie_screen_loaded_cb(lv_event_t *e) {
     LottieContext *ctx =
         (LottieContext *)lv_event_get_user_data(e);
 
-    if (ctx->pixel_buffer == nullptr) {
+    // Only reload if widget is VISIBLE (not hidden)
+    // This prevents weather widgets from all loading when screen reloads
+    bool is_hidden = lv_obj_has_flag(ctx->obj, LV_OBJ_FLAG_HIDDEN);
+
+    if (ctx->pixel_buffer == nullptr && !is_hidden) {
+        ESP_LOGI(LOTTIE_TAG, "Screen loaded, launching visible widget");
         lottie_launch(ctx);
     }
 }
