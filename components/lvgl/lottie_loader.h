@@ -53,11 +53,21 @@ inline bool lottie_launch(LottieContext *ctx);
 static void lottie_deferred_launch_timer(TimerHandle_t xTimer) {
     LottieContext *ctx = (LottieContext *)pvTimerGetTimerID(xTimer);
 
-    ESP_LOGI(LOTTIE_TAG, "Deferred launch executing (timer context)");
-
-    // Launch the Lottie safely outside of LVGL rendering cycle
     lv_lock();
-    lottie_launch(ctx);
+
+    // Safety check: Only launch if widget is CURRENTLY visible
+    // Widget may have been hidden again before timer expired (e.g., screen changed)
+    bool is_visible = !lv_obj_has_flag(ctx->obj, LV_OBJ_FLAG_HIDDEN);
+
+    if (is_visible && ctx->pixel_buffer == nullptr) {
+        ESP_LOGI(LOTTIE_TAG, "Deferred launch: widget still visible, launching now");
+        lottie_launch(ctx);
+    } else {
+        ESP_LOGI(LOTTIE_TAG, "Deferred launch: widget no longer visible (is_visible=%d, has_buffer=%d), skipping",
+                 is_visible, ctx->pixel_buffer != nullptr);
+    }
+
+    ctx->pending_lazy_launch = false;  // Clear flag regardless
     lv_unlock();
 
     // Timer is one-shot, will be automatically deleted by FreeRTOS
