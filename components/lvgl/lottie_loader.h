@@ -15,7 +15,7 @@ namespace esphome {
 namespace lvgl {
 
 static const char *const LOTTIE_TAG = "lottie";
-static constexpr size_t LOTTIE_TASK_STACK_SIZE = 128 * 1024;  // Increased to 128KB - Lottie needs more stack during init/pause cycle
+static constexpr size_t LOTTIE_TASK_STACK_SIZE = 256 * 1024;  // 256KB - rlottie JSON parser uses deep recursion during loadFromData()
 
 struct LottieContext {
     lv_obj_t *obj;
