@@ -29,6 +29,7 @@ struct SvgContext {
     const char *file_path;      // string literal (filesystem) or nullptr
     uint32_t width;
     uint32_t height;
+    bool user_wants_hidden;     // True if user explicitly set hidden: true in YAML
 
     // --- Runtime state (freed on screen unload) ---
     uint32_t *pixel_buffer;     // PSRAM – width*height*4 bytes
@@ -122,9 +123,11 @@ inline void svg_render_task(void *param) {
         ESP_LOGI(SVG_TAG, "SVG rendered OK");
     }
 
-    // Show canvas
+    // Show canvas (only if user didn't explicitly request hidden: true)
     lv_lock();
-    lv_obj_remove_flag(ctx->canvas_obj, LV_OBJ_FLAG_HIDDEN);
+    if (!ctx->user_wants_hidden) {
+        lv_obj_remove_flag(ctx->canvas_obj, LV_OBJ_FLAG_HIDDEN);
+    }
     lv_obj_invalidate(ctx->canvas_obj);
     lv_unlock();
 
@@ -266,18 +269,20 @@ inline void svg_screen_loaded_cb(lv_event_t *e) {
 // --------------------------------------------------------------------------
 inline bool svg_setup_and_render(lv_obj_t *canvas_obj,
                                   const char *svg_data, size_t svg_data_size,
-                                  uint32_t width, uint32_t height) {
+                                  uint32_t width, uint32_t height,
+                                  bool user_wants_hidden) {
     SvgContext *ctx = (SvgContext *)heap_caps_malloc(
         sizeof(SvgContext), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (!ctx) return false;
     memset(ctx, 0, sizeof(SvgContext));
 
-    ctx->canvas_obj    = canvas_obj;
-    ctx->svg_data      = svg_data;
-    ctx->svg_data_size = svg_data_size;
-    ctx->file_path     = nullptr;
-    ctx->width         = width;
-    ctx->height        = height;
+    ctx->canvas_obj        = canvas_obj;
+    ctx->svg_data          = svg_data;
+    ctx->svg_data_size     = svg_data_size;
+    ctx->file_path         = nullptr;
+    ctx->width             = width;
+    ctx->height            = height;
+    ctx->user_wants_hidden = user_wants_hidden;
 
     // Register screen events for PSRAM lifecycle
     lv_obj_t *screen = lv_obj_get_screen(canvas_obj);
@@ -296,18 +301,20 @@ inline bool svg_setup_and_render(lv_obj_t *canvas_obj,
 // --------------------------------------------------------------------------
 inline bool svg_setup_and_render_file(lv_obj_t *canvas_obj,
                                        const char *file_path,
-                                       uint32_t width, uint32_t height) {
+                                       uint32_t width, uint32_t height,
+                                       bool user_wants_hidden) {
     SvgContext *ctx = (SvgContext *)heap_caps_malloc(
         sizeof(SvgContext), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (!ctx) return false;
     memset(ctx, 0, sizeof(SvgContext));
 
-    ctx->canvas_obj    = canvas_obj;
-    ctx->svg_data      = nullptr;
-    ctx->svg_data_size = 0;
-    ctx->file_path     = file_path;
-    ctx->width         = width;
-    ctx->height        = height;
+    ctx->canvas_obj        = canvas_obj;
+    ctx->svg_data          = nullptr;
+    ctx->svg_data_size     = 0;
+    ctx->file_path         = file_path;
+    ctx->width             = width;
+    ctx->height            = height;
+    ctx->user_wants_hidden = user_wants_hidden;
 
     lv_obj_t *screen = lv_obj_get_screen(canvas_obj);
     lv_obj_add_event_cb(screen, svg_screen_unload_start_cb,

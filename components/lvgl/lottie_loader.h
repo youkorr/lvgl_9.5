@@ -23,6 +23,7 @@ struct LottieContext {
     const char *file_path;
     bool loop;
     bool auto_start;
+    bool user_wants_hidden;  // True if user explicitly set hidden: true in YAML
     uint32_t width;
     uint32_t height;
 
@@ -90,7 +91,10 @@ inline void lottie_load_task(void *param) {
         lv_lottie_set_buffer(ctx->obj, ctx->width, ctx->height, ctx->pixel_buffer);
     }
 
-    lv_obj_remove_flag(ctx->obj, LV_OBJ_FLAG_HIDDEN);
+    // Only show the widget automatically if user didn't explicitly request hidden: true
+    if (!ctx->user_wants_hidden) {
+        lv_obj_remove_flag(ctx->obj, LV_OBJ_FLAG_HIDDEN);
+    }
 
     lv_unlock();
 
@@ -282,7 +286,8 @@ inline bool lottie_init(lv_obj_t *obj,
                         uint32_t width,
                         uint32_t height,
                         bool loop,
-                        bool auto_start) {
+                        bool auto_start,
+                        bool user_wants_hidden) {
 
     LottieContext *ctx =
         (LottieContext *)heap_caps_malloc(
@@ -294,14 +299,15 @@ inline bool lottie_init(lv_obj_t *obj,
 
     memset(ctx, 0, sizeof(LottieContext));
 
-    ctx->obj        = obj;
-    ctx->data       = data;
-    ctx->data_size  = data_size;
-    ctx->file_path  = file_path;
-    ctx->loop       = loop;
-    ctx->auto_start = auto_start;
-    ctx->width      = width;
-    ctx->height     = height;
+    ctx->obj               = obj;
+    ctx->data              = data;
+    ctx->data_size         = data_size;
+    ctx->file_path         = file_path;
+    ctx->loop              = loop;
+    ctx->auto_start        = auto_start;
+    ctx->user_wants_hidden = user_wants_hidden;
+    ctx->width             = width;
+    ctx->height            = height;
 
     lv_obj_t *screen = lv_obj_get_screen(obj);
 

@@ -213,9 +213,6 @@ class SvgType(WidgetType):
         # Set widget size
         lv_obj.set_size(w.obj, width, height)
 
-        # Hide until rendering completes (async task will unhide).
-        lv_obj.add_flag(w.obj, literal("LV_OBJ_FLAG_HIDDEN"))
-
         # Add include once
         if not _svg_include_added:
             _svg_include_added = True
@@ -223,12 +220,15 @@ class SvgType(WidgetType):
                 cg.RawStatement('#include "esphome/components/lvgl/svg_loader.h"')
             )
 
+        # Check if user explicitly wants the widget hidden
+        user_wants_hidden = "true" if config.get("hidden", False) else "false"
+
         if src := config.get(CONF_SRC):
             # ------- Filesystem SVG -------
             # The file is read inside the async render task (on the large
             # PSRAM stack).  We only pass the path string here.
             lv_add(cg.RawStatement(f"""
-    esphome::lvgl::svg_setup_and_render_file({w.obj}, "{src}", {width}, {height});"""))
+    esphome::lvgl::svg_setup_and_render_file({w.obj}, "{src}", {width}, {height}, {user_wants_hidden});"""))
 
         elif file_path := config.get(CONF_FILE):
             # ------- Embedded SVG -------
@@ -242,7 +242,7 @@ class SvgType(WidgetType):
             prog_arr = cg.progmem_array(raw_data_id, list(svg_data_with_null))
 
             lv_add(cg.RawStatement(f"""
-    esphome::lvgl::svg_setup_and_render({w.obj}, (const char *){prog_arr}, {len(svg_data)}, {width}, {height});"""))
+    esphome::lvgl::svg_setup_and_render({w.obj}, (const char *){prog_arr}, {len(svg_data)}, {width}, {height}, {user_wants_hidden});"""))
 
 
 svg_spec = SvgType()

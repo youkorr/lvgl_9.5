@@ -193,9 +193,6 @@ class LottieType(WidgetType):
         # Set widget size
         lv_obj.set_size(w.obj, width, height)
 
-        # CRITICAL: Hide widget until data is loaded.
-        lv_obj.add_flag(w.obj, literal("LV_OBJ_FLAG_HIDDEN"))
-
         # Add include for lottie loader helper (once)
         if not _lottie_include_added:
             _lottie_include_added = True
@@ -205,11 +202,16 @@ class LottieType(WidgetType):
         do_loop = "true" if config.get(CONF_LOOP, True) else "false"
         do_auto_start = "true" if config.get(CONF_AUTO_START, True) else "false"
 
+        # Check if user explicitly wants the widget hidden
+        # Note: config here contains the full config including flags that will be applied later
+        # by set_obj_properties(), so we need to check if 'hidden' was explicitly set to true
+        user_wants_hidden = "true" if config.get("hidden", False) else "false"
+
         # Use lottie_init() which handles PSRAM allocation, screen events, and task launch
         if src := config.get(CONF_SRC):
             # File from filesystem
             lv_add(cg.RawStatement(f"""
-    esphome::lvgl::lottie_init({w.obj}, nullptr, 0, "{src}", {width}, {height}, {do_loop}, {do_auto_start});"""))
+    esphome::lvgl::lottie_init({w.obj}, nullptr, 0, "{src}", {width}, {height}, {do_loop}, {do_auto_start}, {user_wants_hidden});"""))
         elif file_path := config.get(CONF_FILE):
             # Embedded data
             with open(file_path, "rb") as f:
@@ -222,7 +224,7 @@ class LottieType(WidgetType):
             prog_arr = cg.progmem_array(raw_data_id, list(json_data_with_null))
 
             lv_add(cg.RawStatement(f"""
-    esphome::lvgl::lottie_init({w.obj}, {prog_arr}, {len(json_data)}, nullptr, {width}, {height}, {do_loop}, {do_auto_start});"""))
+    esphome::lvgl::lottie_init({w.obj}, {prog_arr}, {len(json_data)}, nullptr, {width}, {height}, {do_loop}, {do_auto_start}, {user_wants_hidden});"""))
 
 
 lottie_spec = LottieType()
