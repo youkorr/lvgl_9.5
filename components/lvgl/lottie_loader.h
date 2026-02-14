@@ -293,6 +293,17 @@ inline void lottie_screen_loaded_cb(lv_event_t *e) {
     }
 }
 
+inline void lottie_widget_unhidden_cb(lv_event_t *e) {
+    LottieContext *ctx = (LottieContext *)lv_event_get_user_data(e);
+
+    // LV_EVENT_DRAW_MAIN_BEGIN is only called when widget is visible (not hidden)
+    // If buffer is null, it means widget needs relaunch after screen reload
+    if (ctx->pixel_buffer == nullptr && ctx->task_handle == nullptr) {
+        ESP_LOGI(LOTTIE_TAG, "Widget became visible after screen reload, relaunching");
+        lottie_launch(ctx);
+    }
+}
+
 // ============================================================
 // INIT
 // ============================================================
@@ -349,6 +360,13 @@ inline bool lottie_init(lv_obj_t *obj,
     lv_obj_add_event_cb(screen,
                         lottie_screen_loaded_cb,
                         LV_EVENT_SCREEN_LOADED,
+                        ctx);
+
+    // Add event listener on widget itself to detect when it becomes visible
+    // This handles weather widgets that are hidden/shown via lambda
+    lv_obj_add_event_cb(obj,
+                        lottie_widget_unhidden_cb,
+                        LV_EVENT_DRAW_MAIN_BEGIN,
                         ctx);
 
     return lottie_launch(ctx);
