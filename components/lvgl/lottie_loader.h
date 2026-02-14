@@ -257,11 +257,8 @@ inline bool lottie_launch(LottieContext *ctx) {
 
     memset(ctx->pixel_buffer, 0, buf_bytes);
 
-    // Save initial hidden state before hiding during load
-    // This allows us to restore the correct visibility after loading
-    ctx->initial_hidden = lv_obj_has_flag(ctx->obj, LV_OBJ_FLAG_HIDDEN);
-
     // Hide widget temporarily during load to prevent displaying empty/glitchy content
+    // initial_hidden was already saved in lottie_init() from YAML config
     lv_obj_add_flag(ctx->obj, LV_OBJ_FLAG_HIDDEN);
 
     ctx->task_stack =
@@ -377,6 +374,10 @@ inline bool lottie_init(lv_obj_t *obj,
     ctx->auto_start = auto_start;
     ctx->width      = width;
     ctx->height     = height;
+
+    // Save initial hidden state from YAML before any modifications
+    // This determines if widget should auto-start (visible) or lazy-load (hidden)
+    ctx->initial_hidden = lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN);
 
     lv_obj_t *screen = lv_obj_get_screen(obj);
 
