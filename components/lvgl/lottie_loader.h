@@ -44,6 +44,20 @@ struct LottieContext {
 
 // Forward declarations
 inline void lottie_free_resources(LottieContext *ctx);
+inline bool lottie_launch(LottieContext *ctx);
+
+// Timer callback for deferred launch (called AFTER rendering)
+inline void lottie_deferred_launch_timer_cb(lv_timer_t *timer) {
+    LottieContext *ctx = (LottieContext *)timer->user_data;
+
+    ESP_LOGI(LOTTIE_TAG, "Deferred launch executing (after rendering)");
+
+    // Launch the Lottie safely outside of rendering cycle
+    lottie_launch(ctx);
+
+    // Delete the one-shot timer
+    lv_timer_del(timer);
+}
 
 
 
@@ -335,8 +349,21 @@ inline void lottie_widget_draw_cb(lv_event_t *e) {
     // If we reach here and buffer is null, it means widget just became visible
     // This handles lazy loading for hidden weather widgets that become visible
     if (ctx->pixel_buffer == nullptr && ctx->task_handle == nullptr) {
-        ESP_LOGI(LOTTIE_TAG, "Widget became visible, lazy loading now");
-        lottie_launch(ctx);
+        ESP_LOGI(LOTTIE_TAG, "Widget became visible, scheduling deferred launch");
+
+        // ⚠️ CRITICAL: Cannot call lottie_launch() directly here!
+        // We're inside LV_EVENT_DRAW_MAIN_BEGIN (rendering in progress)
+        // Modifying objects during rendering causes assertion failures
+        // Solution: Use a one-shot timer to launch AFTER rendering completes
+
+        lv_timer_t *timer = lv_timer_create(
+            lottie_deferred_launch_timer_cb,  // Callback
+            10,                                // 10ms delay (after render)
+            ctx                                // User data
+        );
+
+        // Make it a one-shot timer
+        lv_timer_set_repeat_count(timer, 1);
     }
 }
 
