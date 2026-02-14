@@ -304,8 +304,12 @@ inline void lottie_screen_loaded_cb(lv_event_t *e) {
     LottieContext *ctx =
         (LottieContext *)lv_event_get_user_data(e);
 
-    // Only reload if widget is visible - hidden widgets should stay paused
-    if (ctx->pixel_buffer == nullptr && !lv_obj_has_flag(ctx->obj, LV_OBJ_FLAG_HIDDEN)) {
+    // Only reload if widget was NOT initially hidden in YAML
+    // Use initial_hidden instead of current flag because widget may be temporarily
+    // hidden during loading. This ensures:
+    // - Visible widgets (e.g., screensaver) always reload
+    // - Hidden widgets (e.g., weather) use lazy loading via visibility callback
+    if (ctx->pixel_buffer == nullptr && !ctx->initial_hidden) {
         lottie_launch(ctx);
     }
 }
