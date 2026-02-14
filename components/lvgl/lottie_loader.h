@@ -14,7 +14,7 @@ namespace esphome {
 namespace lvgl {
 
 static const char *const LOTTIE_TAG = "lottie";
-static constexpr size_t LOTTIE_TASK_STACK_SIZE = 64 * 1024;
+static constexpr size_t LOTTIE_TASK_STACK_SIZE = 96 * 1024;  // Increased from 64KB to prevent stack overflow
 
 struct LottieContext {
     lv_obj_t *obj;
@@ -402,7 +402,14 @@ inline bool lottie_init(lv_obj_t *obj,
                         LV_EVENT_DRAW_MAIN_BEGIN,
                         ctx);
 
-    return lottie_launch(ctx);
+    // Only auto-launch if widget is NOT initially hidden
+    // Hidden widgets (e.g., weather) will lazy-load via LV_EVENT_DRAW_MAIN_BEGIN
+    // when they become visible
+    if (!ctx->initial_hidden) {
+        return lottie_launch(ctx);
+    }
+
+    return true;
 }
 
 }  // namespace lvgl
