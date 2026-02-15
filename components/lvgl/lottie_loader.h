@@ -47,6 +47,8 @@ struct LottieContext {
     StaticTask_t *task_tcb;     // internal RAM
     TaskHandle_t task_handle;
     volatile bool stop_requested;
+    volatile bool restart_requested;  // ✅ Flag to restart animation from frame 0
+    TickType_t start_tick;            // ✅ Animation start time (can be reset)
     bool user_wants_hidden;     // Save user's 'hidden' config before forcing hide during load
 };
 
@@ -159,10 +161,17 @@ inline void lottie_load_task(void *param) {
     ESP_LOGI(LOTTIE_TAG, "Render loop: %u ms/frame, loop=%d",
              (unsigned)frame_delay_ms, (int)ctx->loop);
 
-    TickType_t start_tick = xTaskGetTickCount();
+    ctx->start_tick = xTaskGetTickCount();  // ✅ Store in context for restart capability
 
     while (!ctx->stop_requested) {
-        uint32_t elapsed_ms = (uint32_t)((xTaskGetTickCount() - start_tick) * portTICK_PERIOD_MS);
+        // ✅ Check if restart requested
+        if (ctx->restart_requested) {
+            ctx->start_tick = xTaskGetTickCount();
+            ctx->restart_requested = false;
+            ESP_LOGI(LOTTIE_TAG, "Animation restarted from frame 0");
+        }
+
+        uint32_t elapsed_ms = (uint32_t)((xTaskGetTickCount() - ctx->start_tick) * portTICK_PERIOD_MS);
 
         int32_t frame;
         if (ctx->loop) {
@@ -301,6 +310,17 @@ inline void lottie_screen_loaded_cb(lv_event_t *e) {
     LottieContext *ctx = (LottieContext *)lv_event_get_user_data(e);
     if (ctx->pixel_buffer == nullptr) {
         lottie_launch(ctx);
+    }
+}
+
+// --------------------------------------------------------------------------
+// Public API: Restart animation from frame 0 (preserves loop/hidden state)
+// Safe to call at any time – sets a flag checked by the render loop.
+// --------------------------------------------------------------------------
+inline void lottie_restart(LottieContext *ctx) {
+    if (ctx && ctx->task_handle) {
+        ctx->restart_requested = true;
+        ESP_LOGI(LOTTIE_TAG, "Restart requested (will reset on next frame)");
     }
 }
 
