@@ -115,7 +115,7 @@ lvgl:
     - display_id: my_display
       pages:
         - id: current_profile_page
-          bg_color: 0xFFFFFF
+          bg_color: 0x0a0a14
           widgets:
             # ===== TITLE =====
             - label:
@@ -124,7 +124,7 @@ lvgl:
                 width: 300
                 text_align: CENTER
                 text: "Current profile comparison"
-                text_color: 0x333333
+                text_color: 0xFFFFFF
                 text_font: montserrat_20
 
             # ===== LEGEND =====
@@ -142,7 +142,7 @@ lvgl:
                 x: 260
                 y: 36
                 text: "MetaShunt V2"
-                text_color: 0x333333
+                text_color: 0xFFFFFF
                 text_font: montserrat_14
 
             # PPK2 legend (orange square + text)
@@ -159,7 +159,7 @@ lvgl:
                 x: 400
                 y: 36
                 text: "PPK2"
-                text_color: 0x333333
+                text_color: 0xFFFFFF
                 text_font: montserrat_14
 
             # ===== Y-AXIS LABEL =====
@@ -167,7 +167,7 @@ lvgl:
                 x: 5
                 y: 220
                 text: "uA"
-                text_color: 0x666666
+                text_color: 0xFFFFFF
                 text_font: montserrat_14
 
             # ===== Y-AXIS SCALE (left side) =====
@@ -184,12 +184,12 @@ lvgl:
                   count: 17
                   width: 1
                   length: 5
-                  color: 0xCCCCCC
+                  color: 0x555555
                   major:
                     stride: 2
                     width: 1
                     length: 10
-                    color: 0x999999
+                    color: 0xFFFFFF
                     label_show: true
                     label_gap: 5
 
@@ -203,10 +203,10 @@ lvgl:
                 type: LINE
                 point_count: 80
                 update_mode: SHIFT
-                # White background with light gray border
-                bg_color: 0xFAFAFA
+                # Dark background with subtle border
+                bg_color: 0x16213e
                 border_width: 1
-                border_color: 0xDDDDDD
+                border_color: 0x1f4068
                 # Grid lines
                 div_line_count_hor: 8
                 div_line_count_ver: 9
@@ -239,55 +239,55 @@ lvgl:
                 x: 80
                 y: 428
                 text: "0s"
-                text_color: 0x666666
+                text_color: 0xFFFFFF
                 text_font: montserrat_12
             - label:
                 x: 155
                 y: 428
                 text: "0.5s"
-                text_color: 0x666666
+                text_color: 0xFFFFFF
                 text_font: montserrat_12
             - label:
                 x: 230
                 y: 428
                 text: "1.0s"
-                text_color: 0x666666
+                text_color: 0xFFFFFF
                 text_font: montserrat_12
             - label:
                 x: 305
                 y: 428
                 text: "1.5s"
-                text_color: 0x666666
+                text_color: 0xFFFFFF
                 text_font: montserrat_12
             - label:
                 x: 380
                 y: 428
                 text: "2.0s"
-                text_color: 0x666666
+                text_color: 0xFFFFFF
                 text_font: montserrat_12
             - label:
                 x: 455
                 y: 428
                 text: "2.5s"
-                text_color: 0x666666
+                text_color: 0xFFFFFF
                 text_font: montserrat_12
             - label:
                 x: 530
                 y: 428
                 text: "3.0s"
-                text_color: 0x666666
+                text_color: 0xFFFFFF
                 text_font: montserrat_12
             - label:
                 x: 605
                 y: 428
                 text: "3.5s"
-                text_color: 0x666666
+                text_color: 0xFFFFFF
                 text_font: montserrat_12
             - label:
                 x: 680
                 y: 428
                 text: "4.0s"
-                text_color: 0x666666
+                text_color: 0xFFFFFF
                 text_font: montserrat_12
 
             # ===== X-AXIS TITLE =====
@@ -297,5 +297,5 @@ lvgl:
                 width: 100
                 text_align: CENTER
                 text: "Time (s)"
-                text_color: 0x666666
+                text_color: 0xFFFFFF
                 text_font: montserrat_14
