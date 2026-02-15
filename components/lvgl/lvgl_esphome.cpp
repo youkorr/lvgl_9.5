@@ -688,6 +688,53 @@ void lv_scale_draw_event_cb(lv_event_t *e, uint16_t range_start, uint16_t range_
   }
 }
 
+/**
+ * Draw event callback to offset major tick positions on a scale widget.
+ * When used, all ticks are set as major (major_tick_every=1) and this callback
+ * selectively applies minor tick styling to non-major ticks based on offset and stride.
+ * @param e The event data
+ * @param offset Tick index of the first major tick
+ * @param stride Number of ticks between consecutive major ticks
+ */
+void lv_scale_tick_offset_event_cb(lv_event_t *e, uint16_t offset, uint16_t stride) {
+  auto *scale = static_cast<lv_obj_t *>(lv_event_get_target(e));
+  lv_draw_task_t *task = lv_event_get_draw_task(e);
+  auto type = lv_draw_task_get_type(task);
+
+  if (type == LV_DRAW_TASK_TYPE_LINE) {
+    auto *line_dsc = static_cast<lv_draw_line_dsc_t *>(lv_draw_task_get_draw_dsc(task));
+    auto tick_idx = line_dsc->base.id1;
+
+    bool is_major = (tick_idx >= offset) && ((tick_idx - offset) % stride == 0);
+
+    if (!is_major) {
+      // Apply minor tick color and width from ITEMS part styles
+      line_dsc->color = lv_obj_get_style_line_color(scale, LV_PART_ITEMS);
+      line_dsc->width = lv_obj_get_style_line_width(scale, LV_PART_ITEMS);
+
+      // Shorten tick line to minor length using ratio of style lengths
+      int32_t minor_len = lv_obj_get_style_length(scale, LV_PART_ITEMS);
+      int32_t major_len = lv_obj_get_style_length(scale, LV_PART_INDICATOR);
+      if (major_len > 0 && minor_len > 0 && minor_len != major_len) {
+        auto dx = line_dsc->p1.x - line_dsc->p2.x;
+        auto dy = line_dsc->p1.y - line_dsc->p2.y;
+        line_dsc->p1.x = line_dsc->p2.x + dx * minor_len / major_len;
+        line_dsc->p1.y = line_dsc->p2.y + dy * minor_len / major_len;
+      }
+    }
+  } else if (type == LV_DRAW_TASK_TYPE_LABEL) {
+    auto *label_dsc = static_cast<lv_draw_label_dsc_t *>(lv_draw_task_get_draw_dsc(task));
+    auto tick_idx = label_dsc->base.id1;
+
+    bool is_major = (tick_idx >= offset) && ((tick_idx - offset) % stride == 0);
+
+    if (!is_major) {
+      // Hide label for non-major ticks
+      label_dsc->opa = LV_OPA_TRANSP;
+    }
+  }
+}
+
 static void lv_container_constructor(const lv_obj_class_t *class_p, lv_obj_t *obj) {
   LV_TRACE_OBJ_CREATE("begin");
   LV_UNUSED(class_p);

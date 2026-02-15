@@ -60,9 +60,9 @@ from ..lv_validation import (
     opacity,
     size,
 )
-from ..lvcode import lv, lv_add, lv_obj
+from ..lvcode import LambdaContext, lv, lv_add, lv_obj
 from esphome.cpp_generator import RawStatement
-from ..types import LvNumber, ObjUpdateAction
+from ..types import LV_EVENT, LvNumber, ObjUpdateAction, lv_event_t
 from . import NumberType, Widget, get_widgets
 
 # Configuration keys
@@ -77,6 +77,7 @@ CONF_SCALE = "scale"
 CONF_SECTION = "section"
 CONF_SECTIONS = "sections"
 CONF_STRIDE = "stride"
+CONF_OFFSET = "offset"
 CONF_TEXT_SRC = "text_src"
 CONF_POST_FIX = "post_fix"
 CONF_PRE_FIX = "pre_fix"
@@ -107,6 +108,7 @@ TICK_SCHEMA = cv.Schema(
         cv.Optional(CONF_MAJOR): cv.Schema(
             {
                 cv.Optional(CONF_STRIDE, default=3): cv.positive_int,
+                cv.Optional(CONF_OFFSET, default=0): cv.uint16_t,
                 cv.Optional(CONF_WIDTH, default=5): size,
                 cv.Optional(CONF_LENGTH, default="15%"): size,
                 cv.Optional(CONF_COLOR, default=0): lv_color,
@@ -220,8 +222,15 @@ class ScaleType(NumberType):
 
             # Configure major ticks if specified
             if major := ticks.get(CONF_MAJOR):
-                # Set major tick frequency
-                lv.scale_set_major_tick_every(w.obj, major[CONF_STRIDE])
+                tick_offset = major.get(CONF_OFFSET, 0)
+                stride = major[CONF_STRIDE]
+
+                if tick_offset > 0:
+                    # With offset, tell LVGL all ticks are major, then use a
+                    # draw callback to selectively apply minor styling
+                    lv.scale_set_major_tick_every(w.obj, 1)
+                else:
+                    lv.scale_set_major_tick_every(w.obj, stride)
 
                 # Enable or disable labels
                 label_show = major.get(CONF_LABEL_SHOW, True)
@@ -248,6 +257,24 @@ class ScaleType(NumberType):
                 if isinstance(label_gap, int):
                     label_gap -= DEFAULT_LABEL_GAP
                 lv_obj.set_style_pad_radial(w.obj, label_gap, LV_PART.INDICATOR)
+
+                # Register draw callback when offset is used
+                if tick_offset > 0:
+                    async with LambdaContext(
+                        [(lv_event_t.operator("ptr"), "e")]
+                    ) as lambda_:
+                        lv.scale_tick_offset_event_cb(
+                            lambda_.get_parameter(0),
+                            tick_offset,
+                            stride,
+                        )
+                    lv_obj.add_event_cb(
+                        w.obj,
+                        await lambda_.get_lambda(),
+                        LV_EVENT.DRAW_TASK_ADDED,
+                        nullptr,
+                    )
+                    lv.obj_add_flag(w.obj, LV_OBJ_FLAG.SEND_DRAW_TASK_EVENTS)
             else:
                 # No major ticks
                 lv.scale_set_major_tick_every(w.obj, 0)
