@@ -47,7 +47,6 @@ struct LottieContext {
     StaticTask_t *task_tcb;     // internal RAM
     TaskHandle_t task_handle;
     volatile bool stop_requested;
-    volatile bool task_stopped;       // Set by task just before vTaskSuspend – safe to delete
     volatile bool restart_requested;  // ✅ Flag to restart animation from frame 0
     TickType_t start_tick;            // ✅ Animation start time (can be reset)
     bool user_wants_hidden;     // Save user's 'hidden' config from YAML
@@ -71,15 +70,6 @@ inline void lottie_load_task(void *param) {
     // First load needs longer delay (LVGL may still be initialising).
     // Re-load needs only a short delay (LVGL is already running).
     vTaskDelay(pdMS_TO_TICKS(ctx->data_loaded ? 100 : 1000));
-
-    // Check if stop was requested during the initial delay (page navigated away
-    // before we even started).  Exit cleanly so DMA is never touched.
-    if (ctx->stop_requested) {
-        ESP_LOGI(LOTTIE_TAG, "Stop requested during init delay – task exiting");
-        ctx->task_stopped = true;
-        vTaskSuspend(NULL);
-        return;
-    }
 
     lv_lock();
 
@@ -158,13 +148,11 @@ inline void lottie_load_task(void *param) {
     if (!ctx->data_loaded || ctx->exec_cb == nullptr ||
         ctx->duration_ms == 0 || ctx->end_frame <= ctx->start_frame) {
         ESP_LOGW(LOTTIE_TAG, "No valid animation, task suspending");
-        ctx->task_stopped = true;
         vTaskSuspend(NULL);
         return;
     }
     if (!ctx->auto_start) {
         ESP_LOGI(LOTTIE_TAG, "auto_start=false, task suspending");
-        ctx->task_stopped = true;
         vTaskSuspend(NULL);
         return;
     }
@@ -216,9 +204,7 @@ inline void lottie_load_task(void *param) {
         ESP_LOGI(LOTTIE_TAG, "Stop requested – task suspending");
     }
 
-    // Signal that we're done (no more DMA/rendering in flight), then suspend.
-    // The SCREEN_UNLOADED callback checks this flag before deleting the task.
-    ctx->task_stopped = true;
+    // Suspend (NOT delete) – cleanup callback will delete us safely
     vTaskSuspend(NULL);
 }
 
@@ -228,10 +214,6 @@ inline void lottie_load_task(void *param) {
 inline void lottie_free_resources(LottieContext *ctx) {
     ctx->stop_requested = true;
     if (ctx->task_handle) {
-        // Give task a chance to stop gracefully (avoid killing mid-DMA)
-        for (int i = 0; i < 50 && !ctx->task_stopped; i++) {
-            vTaskDelay(pdMS_TO_TICKS(10));  // Wait up to 500ms
-        }
         vTaskDelete(ctx->task_handle);
         ctx->task_handle = nullptr;
     }
@@ -239,7 +221,6 @@ inline void lottie_free_resources(LottieContext *ctx) {
     if (ctx->task_tcb)      { heap_caps_free(ctx->task_tcb);      ctx->task_tcb = nullptr; }
     if (ctx->pixel_buffer)  { heap_caps_free(ctx->pixel_buffer);  ctx->pixel_buffer = nullptr; }
     ctx->stop_requested = false;
-    ctx->task_stopped = false;
 
     ESP_LOGI(LOTTIE_TAG, "Lottie PSRAM freed (%ux%u = %u KB + 64 KB stack)",
              (unsigned)ctx->width, (unsigned)ctx->height,
@@ -283,7 +264,6 @@ inline bool lottie_launch(LottieContext *ctx) {
     }
 
     ctx->stop_requested = false;
-    ctx->task_stopped = false;
     ctx->task_handle = xTaskCreateStatic(
         lottie_load_task, "lottie_anim",
         LOTTIE_TASK_STACK_SIZE / sizeof(StackType_t),
@@ -317,42 +297,27 @@ inline void lottie_screen_unload_start_cb(lv_event_t *e) {
     // show/hide from user scripts (e.g. weather widget selection).
     ctx->runtime_hidden = lv_obj_has_flag(ctx->obj, LV_OBJ_FLAG_HIDDEN);
 
-    // Signal the task to stop – do NOT vTaskDelete here!
-    // The task may be mid-ThorVG render using DMA2D.  Killing it instantly
-    // leaves DMA2D in a corrupted state, which crashes the JPEG decoder
-    // and WiFi SDIO driver later.  Instead, let the task finish its current
-    // frame, see stop_requested, and suspend itself gracefully.
-    // Actual cleanup (vTaskDelete + free) happens in SCREEN_UNLOADED,
-    // after the screen transition animation gives the task time to stop.
+    // Stop the render task immediately
     ctx->stop_requested = true;
+    if (ctx->task_handle) {
+        vTaskDelete(ctx->task_handle);
+        ctx->task_handle = nullptr;
+    }
 
     // Hide widget so LVGL won't try to draw the image during transition
     lv_obj_add_flag(ctx->obj, LV_OBJ_FLAG_HIDDEN);
 
-    ESP_LOGI(LOTTIE_TAG, "Lottie stop signaled, widget hidden (was_hidden=%d)", (int)ctx->runtime_hidden);
+    ESP_LOGI(LOTTIE_TAG, "Lottie task stopped, widget hidden (was_hidden=%d)", (int)ctx->runtime_hidden);
 }
 
 inline void lottie_screen_unloaded_cb(lv_event_t *e) {
     LottieContext *ctx = (LottieContext *)lv_event_get_user_data(e);
 
-    // Delete the render task.  By now the screen transition animation has
-    // completed (typically 300+ ms since UNLOAD_START), giving the task
-    // time to finish any in-flight DMA2D operations and suspend itself.
-    if (ctx->task_handle) {
-        if (!ctx->task_stopped) {
-            ESP_LOGW(LOTTIE_TAG, "Task did not stop in time – force deleting "
-                     "(transition animation may have been very short)");
-        }
-        vTaskDelete(ctx->task_handle);
-        ctx->task_handle = nullptr;
-    }
-
-    // Now safe to free – task is deleted and screen is no longer visible
+    // Now safe to free – screen is no longer visible
     if (ctx->task_stack)    { heap_caps_free(ctx->task_stack);    ctx->task_stack = nullptr; }
     if (ctx->task_tcb)      { heap_caps_free(ctx->task_tcb);      ctx->task_tcb = nullptr; }
     if (ctx->pixel_buffer)  { heap_caps_free(ctx->pixel_buffer);  ctx->pixel_buffer = nullptr; }
     ctx->stop_requested = false;
-    ctx->task_stopped = false;
 
     ESP_LOGI(LOTTIE_TAG, "Lottie FREED (%ux%u = %u KB buf + 64 KB stack) → free PSRAM: %u KB, free SRAM: %u KB",
              (unsigned)ctx->width, (unsigned)ctx->height,
