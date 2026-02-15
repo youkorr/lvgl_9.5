@@ -108,7 +108,7 @@ TICK_SCHEMA = cv.Schema(
         cv.Optional(CONF_MAJOR): cv.Schema(
             {
                 cv.Optional(CONF_STRIDE, default=3): cv.positive_int,
-                cv.Optional(CONF_OFFSET, default=0): cv.uint16_t,
+                cv.Optional(CONF_OFFSET, default=0): cv.int_range(min=0, max=65535),
                 cv.Optional(CONF_WIDTH, default=5): size,
                 cv.Optional(CONF_LENGTH, default="15%"): size,
                 cv.Optional(CONF_COLOR, default=0): lv_color,
