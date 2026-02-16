@@ -172,6 +172,29 @@ button:
 
 ## Integration with ESPHome Time Component
 
+The `today_date` and `showed_date` fields in `lvgl.calendar.update` support `!lambda` expressions,
+allowing dynamic date updates from time sources like `homeassistant_time` or `sntp_time`.
+
+### Using with Home Assistant time
+
+```yaml
+script:
+  - id: update_clock
+    then:
+      - lvgl.calendar.update:
+          id: my_calendar
+          today_date:
+            year: !lambda 'return id(homeassistant_time).now().year;'
+            month: !lambda 'return id(homeassistant_time).now().month;'
+            day: !lambda 'return id(homeassistant_time).now().day_of_month;'
+          showed_date:
+            year: !lambda 'return id(homeassistant_time).now().year;'
+            month: !lambda 'return id(homeassistant_time).now().month;'
+            day: !lambda 'return id(homeassistant_time).now().day_of_month;'
+```
+
+### Using with SNTP time
+
 ```yaml
 time:
   - platform: sntp

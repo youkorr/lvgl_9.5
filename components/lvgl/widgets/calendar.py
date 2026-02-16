@@ -2,9 +2,10 @@ from esphome import automation
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.const import CONF_DATE, CONF_ID, CONF_YEAR
+from esphome.core import Lambda
 
 from ..automation import action_to_code
-from ..defines import CONF_ITEMS, CONF_MAIN, literal
+from ..defines import CONF_ITEMS, CONF_MAIN, call_lambda, literal
 from ..helpers import add_lv_use, lvgl_components_required
 from ..lv_validation import lv_int
 from ..lvcode import lv, lv_add
@@ -56,6 +57,17 @@ def date_schema(required=False):
             cv.Required(CONF_DAY) if required else cv.Optional(CONF_DAY): cv.int_range(
                 min=1, max=31
             ),
+        }
+    )
+
+
+def date_schema_templatable():
+    """Schema for date specification with lambda support (for runtime updates)"""
+    return cv.Schema(
+        {
+            cv.Optional(CONF_YEAR): cv.templatable(cv.int_),
+            cv.Optional(CONF_MONTH): cv.templatable(cv.int_),
+            cv.Optional(CONF_DAY): cv.templatable(cv.int_),
         }
     )
 
@@ -166,8 +178,8 @@ calendar_spec = CalendarType()
     cv.Schema(
         {
             cv.Required(CONF_ID): cv.use_id(lv_calendar_t),
-            cv.Optional(CONF_TODAY_DATE): date_schema(),
-            cv.Optional(CONF_SHOWED_DATE): date_schema(),
+            cv.Optional(CONF_TODAY_DATE): date_schema_templatable(),
+            cv.Optional(CONF_SHOWED_DATE): date_schema_templatable(),
             cv.Optional(CONF_HIGHLIGHTED_DATES): cv.ensure_list(date_schema(required=True)),
         }
     ),
@@ -176,19 +188,27 @@ async def calendar_update_to_code(config, action_id, template_arg, args):
     """Handle calendar update action"""
     widgets = await get_widgets(config)
 
+    async def process_date_field(value, default):
+        """Process a date field that may be a lambda or a static value"""
+        if isinstance(value, Lambda):
+            return call_lambda(
+                await cg.process_lambda(value, [], return_type=cg.int32)
+            )
+        return await lv_int.process(value if value is not None else default)
+
     async def do_calendar_update(w: Widget):
         # Update today's date
         if today := config.get(CONF_TODAY_DATE):
-            year = await lv_int.process(today.get(CONF_YEAR, 2024))
-            month = await lv_int.process(today.get(CONF_MONTH, 1))
-            day = await lv_int.process(today.get(CONF_DAY, 1))
+            year = await process_date_field(today.get(CONF_YEAR), 2024)
+            month = await process_date_field(today.get(CONF_MONTH), 1)
+            day = await process_date_field(today.get(CONF_DAY), 1)
             lv.calendar_set_today_date(w.obj, year, month, day)
 
         # Update showed date
         if showed := config.get(CONF_SHOWED_DATE):
-            year = await lv_int.process(showed.get(CONF_YEAR, 2024))
-            month = await lv_int.process(showed.get(CONF_MONTH, 1))
-            day = await lv_int.process(showed.get(CONF_DAY, 1))
+            year = await process_date_field(showed.get(CONF_YEAR), 2024)
+            month = await process_date_field(showed.get(CONF_MONTH), 1)
+            day = await process_date_field(showed.get(CONF_DAY), 1)
             lv.calendar_set_showed_date(w.obj, year, month, day)
 
         # Update highlighted dates
