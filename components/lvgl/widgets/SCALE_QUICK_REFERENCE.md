@@ -111,6 +111,86 @@ scale:
       stride: 5                  # Labels at 0, 50, 100
 ```
 
+## Needles (NEW)
+
+```yaml
+scale:
+  id: my_gauge
+  mode: ROUND_OUTER
+  needles:
+    - id: my_needle
+      value: 50
+      needle_length: 60          # Line needle length
+      needle_width: 3
+      needle_color: 0xFF0000
+      needle_rounded: true
+    # Image needle (optional):
+    # - id: img_needle
+    #   src: my_image
+    #   value: 50
+    #   pivot_x: 3
+    #   pivot_y: 4
+```
+
+## Custom Text Labels (NEW)
+
+```yaml
+scale:
+  id: my_scale
+  text_src:                      # Replace numeric labels
+    - "Low"
+    - "Med"
+    - "High"
+    - ""                         # Last element empty
+```
+
+## Multi-Part Section Styling (NEW)
+
+```yaml
+sections:
+  - id: my_section
+    range_from: 0
+    range_to: 50
+    color: 0xFF0000              # Default INDICATOR style
+    width: 5
+    indicator:                   # Major ticks override
+      color: 0x00FF00
+      width: 6
+    items:                       # Minor ticks
+      color: 0xFF0000
+      width: 3
+    main:                        # Main line/arc
+      color: 0x0000FF
+      width: 4
+```
+
+## Label Transforms (NEW)
+
+```yaml
+ticks:
+  major:
+    rotate_match_ticks: true     # Labels follow tick angles
+    keep_upright: true           # Keep text readable
+    translate_x: 0               # Fine-tune X position
+    translate_y: -5              # Fine-tune Y position
+```
+
+## Draw Event Callback (NEW)
+
+```yaml
+scale:
+  id: my_scale
+  custom_label_cb: |-
+    lv_draw_task_t *draw_task = lv_event_get_draw_task(e);
+    lv_draw_dsc_base_t *base_dsc = (lv_draw_dsc_base_t *)lv_draw_task_get_draw_dsc(draw_task);
+    if (base_dsc->part == LV_PART_INDICATOR) {
+      lv_draw_label_dsc_t *label_dsc = lv_draw_task_get_label_dsc(draw_task);
+      if (label_dsc) {
+        label_dsc->color = lv_color_hex(0xFF0000);  // Red labels
+      }
+    }
+```
+
 ## Automation Actions
 
 ### Update Scale
@@ -128,6 +208,14 @@ lvgl.scale.section.update:
   range_from: 80
   range_to: 100
   color: 0xFF0000
+```
+
+### Update Needle (NEW)
+```yaml
+lvgl.scale.needle.update:
+  scale_id: my_gauge
+  needle_id: my_needle
+  value: 75
 ```
 
 ## Parts for Styling

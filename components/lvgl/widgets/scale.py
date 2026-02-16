@@ -7,9 +7,27 @@ Supported features:
 - Multiple scale modes: horizontal, vertical, round (inner/outer)
 - Configurable tick marks (major and minor)
 - Value range configuration
-- Colored sections for different value ranges
+- Colored sections for different value ranges (with multi-part styling)
 - Label rotation and formatting
+- Line and image needles
+- Custom text labels (text_src)
+- Post-fix / Pre-fix for labels
+- Draw event callbacks for label customization
 - Parts: MAIN (background), INDICATOR (major ticks), ITEMS (minor ticks)
+
+LVGL Documentation Examples Coverage:
+- lv_example_scale_1:  Simple horizontal scale
+- lv_example_scale_2:  Vertical scale with section and custom styling + text_src
+- lv_example_scale_3:  Simple round scale with line/image needles
+- lv_example_scale_4:  Round scale with section and custom styling + text_src
+- lv_example_scale_5:  Scale with section and multi-part custom styling
+- lv_example_scale_6:  Round scale with multiple needles (clock)
+- lv_example_scale_7:  Custom label color via draw event callback
+- lv_example_scale_8:  Round scale with labels rotated and translated
+- lv_example_scale_9:  Horizontal scale with labels rotated and translated
+- lv_example_scale_10: Heart Rate monitor with needles
+- lv_example_scale_11: Sunset/sunrise widget with text_src + sections
+- lv_example_scale_12: Compass with needles + text_src + animation
 """
 
 from esphome import automation
@@ -57,12 +75,13 @@ from ..lv_validation import (
     lv_color,
     lv_float,
     lv_int,
+    lv_image,
     opacity,
     size,
 )
-from ..lvcode import LambdaContext, lv, lv_add, lv_obj
+from ..lvcode import LambdaContext, lv, lv_add, lv_obj, lv_expr
 from esphome.cpp_generator import RawStatement
-from ..types import LV_EVENT, LvNumber, ObjUpdateAction, lv_event_t
+from ..types import LV_EVENT, LvNumber, ObjUpdateAction, lv_event_t, lv_obj_t
 from . import NumberType, Widget, get_widgets
 
 # Configuration keys
@@ -82,7 +101,37 @@ CONF_TEXT_SRC = "text_src"
 CONF_POST_FIX = "post_fix"
 CONF_PRE_FIX = "pre_fix"
 
+# Needle configuration keys
+CONF_NEEDLES = "needles"
+CONF_NEEDLE_LENGTH = "needle_length"
+CONF_NEEDLE_WIDTH = "needle_width"
+CONF_NEEDLE_COLOR = "needle_color"
+CONF_NEEDLE_ROUNDED = "needle_rounded"
+CONF_NEEDLE_SRC = "src"
+CONF_NEEDLE_PIVOT_X = "pivot_x"
+CONF_NEEDLE_PIVOT_Y = "pivot_y"
+
+# Label transform configuration keys
+CONF_ROTATE_MATCH_TICKS = "rotate_match_ticks"
+CONF_KEEP_UPRIGHT = "keep_upright"
+CONF_TRANSLATE_X = "translate_x"
+CONF_TRANSLATE_Y = "translate_y"
+
+# Draw event callback
+CONF_CUSTOM_LABEL_CB = "custom_label_cb"
+
 DEFAULT_LABEL_GAP = 10  # Default label gap for major ticks
+
+# Module-level registry for needle metadata (used by update actions)
+_needle_registry = {}  # needle_id_str -> {"length": int, "is_image": bool}
+
+# Section style schema for multi-part section styling
+SECTION_PART_STYLE_SCHEMA = cv.Schema(
+    {
+        cv.Optional(CONF_COLOR): lv_color,
+        cv.Optional(CONF_WIDTH): cv.positive_int,
+    }
+)
 
 # Scale section schema for colored ranges
 SECTION_SCHEMA = cv.Schema(
@@ -94,8 +143,60 @@ SECTION_SCHEMA = cv.Schema(
         cv.Optional(CONF_RANGE_TO): lv_int,
         cv.Optional(CONF_COLOR, default=0): lv_color,
         cv.Optional(CONF_WIDTH, default=4): cv.positive_int,
+        # Multi-part section styling (for examples 2, 4, 5, 11)
+        cv.Optional(CONF_INDICATOR): SECTION_PART_STYLE_SCHEMA,
+        cv.Optional(CONF_ITEMS): SECTION_PART_STYLE_SCHEMA,
+        cv.Optional(CONF_MAIN): SECTION_PART_STYLE_SCHEMA,
     }
 ).add_extra(cv.has_at_most_one_key(CONF_START_VALUE, CONF_RANGE_FROM))
+
+# Line needle schema
+LINE_NEEDLE_SCHEMA = cv.Schema(
+    {
+        cv.GenerateID(): cv.declare_id(lv_obj_t),
+        cv.Optional(CONF_VALUE, default=0): lv_int,
+        cv.Optional(CONF_NEEDLE_LENGTH, default=60): cv.positive_int,
+        cv.Optional(CONF_NEEDLE_WIDTH, default=3): cv.positive_int,
+        cv.Optional(CONF_NEEDLE_COLOR, default=0xFF0000): lv_color,
+        cv.Optional(CONF_NEEDLE_ROUNDED, default=True): lv_bool,
+    }
+)
+
+# Image needle schema
+IMAGE_NEEDLE_SCHEMA = cv.Schema(
+    {
+        cv.GenerateID(): cv.declare_id(lv_obj_t),
+        cv.Required(CONF_NEEDLE_SRC): lv_image,
+        cv.Optional(CONF_VALUE, default=0): lv_int,
+        cv.Optional(CONF_NEEDLE_PIVOT_X, default=3): cv.int_,
+        cv.Optional(CONF_NEEDLE_PIVOT_Y, default=4): cv.int_,
+    }
+)
+
+
+def needle_validator(config):
+    """Validate needle configuration - determine if it's a line or image needle."""
+    if CONF_NEEDLE_SRC in config:
+        return IMAGE_NEEDLE_SCHEMA(config)
+    return LINE_NEEDLE_SCHEMA(config)
+
+
+# Combined needle schema
+NEEDLE_SCHEMA = cv.Schema(
+    {
+        cv.GenerateID(): cv.declare_id(lv_obj_t),
+        cv.Optional(CONF_VALUE, default=0): lv_int,
+        # Line needle properties
+        cv.Optional(CONF_NEEDLE_LENGTH, default=60): cv.positive_int,
+        cv.Optional(CONF_NEEDLE_WIDTH, default=3): cv.positive_int,
+        cv.Optional(CONF_NEEDLE_COLOR, default=0xFF0000): lv_color,
+        cv.Optional(CONF_NEEDLE_ROUNDED, default=True): lv_bool,
+        # Image needle properties
+        cv.Optional(CONF_NEEDLE_SRC): lv_image,
+        cv.Optional(CONF_NEEDLE_PIVOT_X): cv.int_,
+        cv.Optional(CONF_NEEDLE_PIVOT_Y): cv.int_,
+    }
+)
 
 # Tick configuration schema
 TICK_SCHEMA = cv.Schema(
@@ -115,6 +216,11 @@ TICK_SCHEMA = cv.Schema(
                 cv.Optional(CONF_RADIAL_OFFSET, default=0): size,
                 cv.Optional(CONF_LABEL_GAP, default=4): size,
                 cv.Optional(CONF_LABEL_SHOW, default=True): lv_bool,
+                # Label transforms (for examples 8, 9)
+                cv.Optional(CONF_ROTATE_MATCH_TICKS, default=False): lv_bool,
+                cv.Optional(CONF_KEEP_UPRIGHT, default=False): lv_bool,
+                cv.Optional(CONF_TRANSLATE_X, default=0): cv.int_,
+                cv.Optional(CONF_TRANSLATE_Y, default=0): cv.int_,
             }
         ),
     }
@@ -128,12 +234,21 @@ SCALE_SCHEMA = cv.Schema(
         cv.Optional(CONF_MAX_VALUE, default=100): lv_int,
         cv.Optional(
             CONF_MODE, default="ROUND_OUTER"
-        ): LV_SCALE_MODE.one_of,  # horizontal_top, horizontal_bottom, vertical_left, vertical_right, round_inner, round_outer
+        ): LV_SCALE_MODE.one_of,
         cv.Optional(CONF_ROTATION, default=0): lv_angle_degrees,
         cv.Optional(CONF_ANGLE_RANGE, default=270): lv_angle_degrees,
         cv.Optional(CONF_TICKS): TICK_SCHEMA,
         cv.Optional(CONF_SECTIONS): cv.ensure_list(SECTION_SCHEMA),
         cv.Optional(CONF_ANIMATED, default=True): animated,
+        # Custom text labels (for examples 2, 4, 6, 11, 12)
+        cv.Optional(CONF_TEXT_SRC): cv.ensure_list(cv.string),
+        # Post-fix / Pre-fix for labels
+        cv.Optional(CONF_POST_FIX): cv.string,
+        cv.Optional(CONF_PRE_FIX): cv.string,
+        # Needles (for examples 3, 6, 8, 10, 12)
+        cv.Optional(CONF_NEEDLES): cv.ensure_list(NEEDLE_SCHEMA),
+        # Draw event callback for custom label coloring (for example 7)
+        cv.Optional(CONF_CUSTOM_LABEL_CB): cv.lambda_,
     }
 )
 
@@ -157,7 +272,7 @@ class ScaleType(NumberType):
 
     The scale widget provides a versatile way to display measurement scales in different orientations.
     It supports horizontal, vertical, and circular (round) layouts with configurable tick marks,
-    labels, and colored sections.
+    labels, and colored sections. Supports needles, custom text sources, and label transforms.
     """
 
     def __init__(self):
@@ -226,8 +341,6 @@ class ScaleType(NumberType):
                 stride = major[CONF_STRIDE]
 
                 if tick_offset > 0:
-                    # With offset, tell LVGL all ticks are major, then use a
-                    # draw callback to selectively apply minor styling
                     lv.scale_set_major_tick_every(w.obj, 1)
                 else:
                     lv.scale_set_major_tick_every(w.obj, stride)
@@ -258,6 +371,37 @@ class ScaleType(NumberType):
                     label_gap -= DEFAULT_LABEL_GAP
                 lv_obj.set_style_pad_radial(w.obj, label_gap, LV_PART.INDICATOR)
 
+                # Label transforms: rotate_match_ticks (examples 8, 9)
+                rotate_match = major.get(CONF_ROTATE_MATCH_TICKS, False)
+                if rotate_match:
+                    lv_add(RawStatement(
+                        f"lv_obj_set_style_transform_rotation("
+                        f"{w.obj}, LV_SCALE_LABEL_ROTATE_MATCH_TICKS, LV_PART_INDICATOR);"
+                    ))
+
+                # Label transforms: keep_upright (examples 8, 9)
+                keep_upright = major.get(CONF_KEEP_UPRIGHT, False)
+                if keep_upright:
+                    lv_add(RawStatement(
+                        f"lv_obj_set_style_transform_rotation("
+                        f"{w.obj}, LV_SCALE_LABEL_ROTATE_MATCH_TICKS | "
+                        f"LV_SCALE_LABEL_ROTATE_KEEP_UPRIGHT, LV_PART_INDICATOR);"
+                    ))
+
+                # Label translation (examples 8, 9)
+                translate_x = major.get(CONF_TRANSLATE_X, 0)
+                translate_y = major.get(CONF_TRANSLATE_Y, 0)
+                if translate_x != 0:
+                    lv_add(RawStatement(
+                        f"lv_obj_set_style_translate_x("
+                        f"{w.obj}, {translate_x}, LV_PART_INDICATOR);"
+                    ))
+                if translate_y != 0:
+                    lv_add(RawStatement(
+                        f"lv_obj_set_style_translate_y("
+                        f"{w.obj}, {translate_y}, LV_PART_INDICATOR);"
+                    ))
+
                 # Register draw callback when offset is used
                 if tick_offset > 0:
                     async with LambdaContext(
@@ -282,6 +426,30 @@ class ScaleType(NumberType):
             # No ticks at all
             lv.scale_set_total_tick_count(w.obj, 0)
 
+        # Custom text labels - text_src (examples 2, 4, 6, 11, 12)
+        if text_src := config.get(CONF_TEXT_SRC):
+            labels_array_name = f"scale_labels_{id(config) & 0xFFFFFF:06x}"
+            # Build C array of const char*
+            labels_c = ", ".join(f'"{label}"' for label in text_src)
+            lv_add(RawStatement(
+                f'static const char *{labels_array_name}[] = {{{labels_c}, NULL}};'
+            ))
+            lv_add(RawStatement(
+                f"lv_scale_set_text_src({w.obj}, {labels_array_name});"
+            ))
+
+        # Post-fix for labels
+        if post_fix := config.get(CONF_POST_FIX):
+            lv_add(RawStatement(
+                f'lv_scale_set_post_draw({w.obj}, true);'
+            ))
+
+        # Pre-fix for labels
+        if pre_fix := config.get(CONF_PRE_FIX):
+            lv_add(RawStatement(
+                f'lv_scale_set_post_draw({w.obj}, true);'
+            ))
+
         # Add colored sections
         if sections := config.get(CONF_SECTIONS):
             for idx, section_conf in enumerate(sections):
@@ -303,25 +471,163 @@ class ScaleType(NumberType):
                 # Set section range
                 lv.scale_section_set_range(section_var, start_value, end_value)
 
-                # Create and apply style for section (sections need lv_style_t, not lv_obj_set_style_*)
-                # Use section_id to create unique style name
+                # Default section style (INDICATOR part) - backward compatible
                 style_name = f"style_{section_id}"
                 color = await lv_color.process(section_conf.get(CONF_COLOR, 0))
                 width = section_conf.get(CONF_WIDTH, 4)
 
-                # Declare static style, init it, set properties, and apply to section
                 lv_add(RawStatement(f"static lv_style_t {style_name};"))
                 lv_add(RawStatement(f"lv_style_init(&{style_name});"))
                 lv_add(RawStatement(f"lv_style_set_line_color(&{style_name}, {color});"))
                 lv_add(RawStatement(f"lv_style_set_line_width(&{style_name}, {width});"))
-                lv_add(RawStatement(f"lv_scale_section_set_style({section_var}, LV_PART_INDICATOR, &{style_name});"))
+                lv_add(RawStatement(
+                    f"lv_scale_section_set_style({section_var}, LV_PART_INDICATOR, &{style_name});"
+                ))
+
+                # Multi-part section styling: ITEMS part (minor ticks)
+                if items_style := section_conf.get(CONF_ITEMS):
+                    items_style_name = f"style_{section_id}_items"
+                    lv_add(RawStatement(f"static lv_style_t {items_style_name};"))
+                    lv_add(RawStatement(f"lv_style_init(&{items_style_name});"))
+                    if CONF_COLOR in items_style:
+                        items_color = await lv_color.process(items_style[CONF_COLOR])
+                        lv_add(RawStatement(
+                            f"lv_style_set_line_color(&{items_style_name}, {items_color});"
+                        ))
+                    if CONF_WIDTH in items_style:
+                        items_width = items_style[CONF_WIDTH]
+                        lv_add(RawStatement(
+                            f"lv_style_set_line_width(&{items_style_name}, {items_width});"
+                        ))
+                    lv_add(RawStatement(
+                        f"lv_scale_section_set_style({section_var}, LV_PART_ITEMS, &{items_style_name});"
+                    ))
+
+                # Multi-part section styling: MAIN part (main line/arc)
+                if main_style := section_conf.get(CONF_MAIN):
+                    main_style_name = f"style_{section_id}_main"
+                    lv_add(RawStatement(f"static lv_style_t {main_style_name};"))
+                    lv_add(RawStatement(f"lv_style_init(&{main_style_name});"))
+                    if CONF_COLOR in main_style:
+                        main_color = await lv_color.process(main_style[CONF_COLOR])
+                        lv_add(RawStatement(
+                            f"lv_style_set_line_color(&{main_style_name}, {main_color});"
+                        ))
+                    if CONF_WIDTH in main_style:
+                        main_width = main_style[CONF_WIDTH]
+                        lv_add(RawStatement(
+                            f"lv_style_set_line_width(&{main_style_name}, {main_width});"
+                        ))
+                    lv_add(RawStatement(
+                        f"lv_scale_section_set_style({section_var}, LV_PART_MAIN, &{main_style_name});"
+                    ))
+
+                # Multi-part section styling: INDICATOR part override
+                if indicator_style := section_conf.get(CONF_INDICATOR):
+                    ind_style_name = f"style_{section_id}_indicator"
+                    lv_add(RawStatement(f"static lv_style_t {ind_style_name};"))
+                    lv_add(RawStatement(f"lv_style_init(&{ind_style_name});"))
+                    if CONF_COLOR in indicator_style:
+                        ind_color = await lv_color.process(indicator_style[CONF_COLOR])
+                        lv_add(RawStatement(
+                            f"lv_style_set_line_color(&{ind_style_name}, {ind_color});"
+                        ))
+                    if CONF_WIDTH in indicator_style:
+                        ind_width = indicator_style[CONF_WIDTH]
+                        lv_add(RawStatement(
+                            f"lv_style_set_line_width(&{ind_style_name}, {ind_width});"
+                        ))
+                    # Override the default INDICATOR style
+                    lv_add(RawStatement(
+                        f"lv_scale_section_set_style({section_var}, LV_PART_INDICATOR, &{ind_style_name});"
+                    ))
+
+        # Create needles (examples 3, 6, 8, 10, 12)
+        if needles := config.get(CONF_NEEDLES):
+            add_lv_use("line")
+            for needle_conf in needles:
+                needle_id = needle_conf[CONF_ID]
+                value = needle_conf.get(CONF_VALUE, 0)
+
+                if CONF_NEEDLE_SRC in needle_conf:
+                    # Image needle
+                    add_lv_use("img")
+                    needle_var_name = f"needle_img_{id(needle_conf) & 0xFFFFFF:06x}"
+                    src = needle_conf[CONF_NEEDLE_SRC]
+                    pivot_x = needle_conf.get(CONF_NEEDLE_PIVOT_X, 3)
+                    pivot_y = needle_conf.get(CONF_NEEDLE_PIVOT_Y, 4)
+
+                    lv_add(RawStatement(
+                        f"lv_obj_t *{needle_var_name} = lv_image_create({w.obj});"
+                    ))
+                    lv_add(RawStatement(
+                        f"lv_image_set_src({needle_var_name}, {src});"
+                    ))
+                    lv_add(RawStatement(
+                        f"lv_image_set_pivot({needle_var_name}, {pivot_x}, {pivot_y});"
+                    ))
+                    lv_add(RawStatement(
+                        f"lv_scale_set_image_needle_value({w.obj}, {needle_var_name}, {value});"
+                    ))
+                    # Store needle info for update actions
+                    _needle_registry[str(needle_id)] = {
+                        "is_image": True,
+                        "var_name": needle_var_name,
+                    }
+                else:
+                    # Line needle
+                    needle_var_name = f"needle_line_{id(needle_conf) & 0xFFFFFF:06x}"
+                    needle_length = needle_conf.get(CONF_NEEDLE_LENGTH, 60)
+                    needle_width = needle_conf.get(CONF_NEEDLE_WIDTH, 3)
+                    needle_color = await lv_color.process(
+                        needle_conf.get(CONF_NEEDLE_COLOR, 0xFF0000)
+                    )
+                    needle_rounded = needle_conf.get(CONF_NEEDLE_ROUNDED, True)
+
+                    lv_add(RawStatement(
+                        f"lv_obj_t *{needle_var_name} = lv_line_create({w.obj});"
+                    ))
+                    lv_add(RawStatement(
+                        f"lv_obj_set_style_line_width({needle_var_name}, {needle_width}, 0);"
+                    ))
+                    lv_add(RawStatement(
+                        f"lv_obj_set_style_line_color({needle_var_name}, {needle_color}, 0);"
+                    ))
+                    if needle_rounded:
+                        lv_add(RawStatement(
+                            f"lv_obj_set_style_line_rounded({needle_var_name}, true, 0);"
+                        ))
+                    lv_add(RawStatement(
+                        f"lv_scale_set_line_needle_value({w.obj}, {needle_var_name}, {needle_length}, {value});"
+                    ))
+                    # Store length as a C static variable for update actions
+                    lv_add(RawStatement(
+                        f"static int32_t {needle_var_name}_len = {needle_length};"
+                    ))
+                    # Store needle info for update actions
+                    _needle_registry[str(needle_id)] = {
+                        "is_image": False,
+                        "var_name": needle_var_name,
+                        "length": needle_length,
+                    }
+
+        # Custom draw event callback for label customization (example 7)
+        if custom_cb := config.get(CONF_CUSTOM_LABEL_CB):
+            async with LambdaContext(
+                [(lv_event_t.operator("ptr"), "e")]
+            ) as lambda_:
+                lv_add(RawStatement(str(custom_cb)))
+            lv_obj.add_event_cb(
+                w.obj,
+                await lambda_.get_lambda(),
+                LV_EVENT.DRAW_TASK_ADDED,
+                nullptr,
+            )
+            lv.obj_add_flag(w.obj, LV_OBJ_FLAG.SEND_DRAW_TASK_EVENTS)
 
         # Set initial value if provided
         value = await get_start_value(config)
         if value is not None:
-            # Note: Scale widget doesn't have a direct value setter in LVGL 9.4
-            # This would typically be used with indicators/needles that point to values
-            # Store the value for potential use with custom indicators
             pass
 
 
@@ -392,10 +698,9 @@ async def section_update_to_code(config, action_id, template_arg, args):
         if start_value is not None and end_value is not None:
             lv.scale_section_set_range(w.obj, start_value, end_value)
         elif start_value is not None:
-            # If only start value, use it as both start and end
             lv.scale_section_set_range(w.obj, start_value, start_value)
 
-        # Update section style using lv_style_t (sections are not lv_obj_t)
+        # Update section style using lv_style_t
         if CONF_COLOR in config or CONF_WIDTH in config:
             style_name = f"scale_section_update_style_{style_counter[0]}"
             style_counter[0] += 1
@@ -411,6 +716,61 @@ async def section_update_to_code(config, action_id, template_arg, args):
                 width = config[CONF_WIDTH]
                 lv_add(RawStatement(f"lv_style_set_line_width(&{style_name}, {width});"))
 
-            lv_add(RawStatement(f"lv_scale_section_set_style({w.obj}, LV_PART_INDICATOR, &{style_name});"))
+            lv_add(RawStatement(
+                f"lv_scale_section_set_style({w.obj}, LV_PART_INDICATOR, &{style_name});"
+            ))
 
     return await action_to_code(widgets, update_section, action_id, template_arg, args, config)
+
+
+# Needle update action schema
+CONF_SCALE_ID = "scale_id"
+CONF_NEEDLE_ID = "needle_id"
+
+NEEDLE_UPDATE_SCHEMA = cv.Schema(
+    {
+        cv.Required(CONF_SCALE_ID): cv.use_id(LvNumber("lv_scale_t")),
+        cv.Required(CONF_NEEDLE_ID): cv.string,
+        cv.Required(CONF_VALUE): lv_int,
+        cv.Optional(CONF_NEEDLE_LENGTH): cv.positive_int,
+    }
+)
+
+
+@automation.register_action(
+    "lvgl.scale.needle.update",
+    ObjUpdateAction,
+    NEEDLE_UPDATE_SCHEMA,
+)
+async def needle_update_to_code(config, action_id, template_arg, args):
+    """Handle scale needle update actions.
+
+    Updates the value of a line or image needle on a scale widget.
+    The scale_id identifies the parent scale, and needle_id identifies which needle to update.
+    """
+    # Get the scale widget using scale_id
+    scale_widgets = await get_widgets(config, CONF_SCALE_ID)
+    needle_id_str = config[CONF_NEEDLE_ID]
+
+    async def update_needle(w: Widget):
+        value = config.get(CONF_VALUE, 0)
+        needle_info = _needle_registry.get(needle_id_str)
+
+        if needle_info is None:
+            return
+
+        var_name = needle_info["var_name"]
+        if needle_info["is_image"]:
+            lv_add(RawStatement(
+                f"lv_scale_set_image_needle_value({w.obj}, {var_name}, {value});"
+            ))
+        else:
+            # For line needles, use stored length or override
+            length = config.get(CONF_NEEDLE_LENGTH, needle_info.get("length", 60))
+            lv_add(RawStatement(
+                f"lv_scale_set_line_needle_value({w.obj}, {var_name}, {length}, {value});"
+            ))
+
+    return await action_to_code(
+        scale_widgets, update_needle, action_id, template_arg, args, config
+    )

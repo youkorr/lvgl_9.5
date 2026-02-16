@@ -1,6 +1,8 @@
 # ESPHome LVGL Scale Widget Examples
 # =============================================================================
 # LVGL v9.4 Scale Widget - Complete Examples
+# Covers all 12 examples from the LVGL documentation:
+# https://docs.lvgl.io/master/widgets/scale.html
 #
 # Scale Modes:
 #   - ROUND_OUTER: Circular with ticks outside
@@ -10,12 +12,17 @@
 #   - VERTICAL_LEFT: Vertical with ticks on left
 #   - VERTICAL_RIGHT: Vertical with ticks on right
 #
-# IMPORTANT: Scale widget only displays ticks and labels (static).
-# For animated gauges, combine Scale + Arc widgets.
+# New Features (v9.4 complete):
+#   - Needles: line and image needles (lv_scale_set_line_needle_value)
+#   - text_src: custom label text (lv_scale_set_text_src)
+#   - Section multi-part styling: MAIN, INDICATOR, ITEMS per section
+#   - Label transforms: rotate_match_ticks, keep_upright, translate
+#   - Draw event callback: custom_label_cb for label customization
 #
 # Actions:
 #   - lvgl.scale.update: Update scale properties
 #   - lvgl.scale.section.update: Update section color/range
+#   - lvgl.scale.needle.update: Update needle value
 # =============================================================================
 
 globals:
@@ -32,6 +39,27 @@ globals:
   - id: pressure_value
     type: int
     initial_value: "5"
+  # Clock example (example 6)
+  - id: clock_hour
+    type: int
+    initial_value: "10"
+  - id: clock_minute
+    type: int
+    initial_value: "10"
+  - id: clock_second
+    type: int
+    initial_value: "30"
+  # Heart rate (example 10)
+  - id: heart_rate_value
+    type: int
+    initial_value: "72"
+  - id: hr_direction
+    type: int
+    initial_value: "1"
+  # Compass heading (example 12)
+  - id: compass_heading
+    type: int
+    initial_value: "0"
   # Need for Speed Racing Dashboard
   - id: nfs_speed
     type: int
@@ -154,6 +182,64 @@ interval:
             format: "%d bar"
             args: [id(pressure_value)]
 
+  # Clock animation for Example 6 (1000ms)
+  - interval: 1000ms
+    then:
+      - lambda: |-
+          id(clock_second)++;
+          if (id(clock_second) >= 60) {
+            id(clock_second) = 0;
+            id(clock_minute)++;
+            if (id(clock_minute) >= 60) {
+              id(clock_minute) = 0;
+              id(clock_hour)++;
+              if (id(clock_hour) >= 12) id(clock_hour) = 0;
+            }
+          }
+      - lvgl.scale.needle.update:
+          scale_id: clock_scale
+          needle_id: hour_needle
+          value: !lambda 'return id(clock_hour) * 5 + id(clock_minute) / 12;'
+      - lvgl.scale.needle.update:
+          scale_id: clock_scale
+          needle_id: minute_needle
+          value: !lambda 'return id(clock_minute);'
+      - lvgl.scale.needle.update:
+          scale_id: clock_scale
+          needle_id: second_needle
+          value: !lambda 'return id(clock_second);'
+
+  # Heart rate animation for Example 10 (100ms)
+  - interval: 100ms
+    then:
+      - lambda: |-
+          id(heart_rate_value) += id(hr_direction) * (1 + rand() % 3);
+          if (id(heart_rate_value) >= 180) id(hr_direction) = -1;
+          if (id(heart_rate_value) <= 50) id(hr_direction) = 1;
+      - lvgl.scale.needle.update:
+          scale_id: hr_scale
+          needle_id: hr_needle
+          value: !lambda 'return id(heart_rate_value);'
+      - lvgl.label.update:
+          id: hr_value_label
+          text:
+            format: "%d"
+            args: [id(heart_rate_value)]
+
+  # Compass animation for Example 12 (50ms)
+  - interval: 50ms
+    then:
+      - lambda: |-
+          id(compass_heading) = (id(compass_heading) + 1) % 360;
+      - lvgl.scale.update:
+          id: compass_scale
+          rotation: !lambda 'return 360 - id(compass_heading);'
+      - lvgl.label.update:
+          id: compass_heading_label
+          text:
+            format: "%d°"
+            args: [id(compass_heading)]
+
   # ==========================================================================
   # NEED FOR SPEED Racing Dashboard Animation (30ms for smooth racing feel)
   # ==========================================================================
@@ -268,7 +354,791 @@ lvgl:
     - display_id: my_display
       pages:
         # =====================================================================
-        # PAGE 1: Speedometer Gauge (ROUND_OUTER)
+        # EXAMPLE 1: A simple horizontal scale (lv_example_scale_1)
+        # =====================================================================
+        - id: example_1_page
+          bg_color: 0x1a1a2e
+          widgets:
+            - label:
+                x: 20
+                y: 10
+                text: "Ex.1 - Simple Horizontal Scale"
+                text_color: 0xFFFFFF
+                text_font: montserrat_16
+
+            - scale:
+                id: horizontal_simple_scale
+                align: CENTER
+                width: 350
+                height: 80
+                mode: HORIZONTAL_BOTTOM
+                min_value: 10
+                max_value: 40
+                ticks:
+                  count: 31
+                  width: 2
+                  length: 10
+                  color: 0x808080
+                  major:
+                    stride: 5
+                    width: 4
+                    length: 20
+                    color: 0xFFFFFF
+                    label_show: true
+                    label_gap: 10
+
+        # =====================================================================
+        # EXAMPLE 2: A vertical scale with section and custom styling
+        #            + text_src (lv_example_scale_2)
+        # =====================================================================
+        - id: example_2_page
+          bg_color: 0x1a1a2e
+          widgets:
+            - label:
+                x: 20
+                y: 10
+                text: "Ex.2 - Vertical + text_src + Sections"
+                text_color: 0xFFFFFF
+                text_font: montserrat_16
+
+            - scale:
+                id: vertical_custom_scale
+                x: 80
+                y: 60
+                width: 120
+                height: 250
+                mode: VERTICAL_LEFT
+                min_value: 0
+                max_value: 40
+                # Custom text labels (lv_scale_set_text_src)
+                text_src:
+                  - "Cold"
+                  - "10"
+                  - "20"
+                  - "Room"
+                  - "Hot"
+                ticks:
+                  count: 41
+                  width: 2
+                  length: 8
+                  color: 0x404040
+                  major:
+                    stride: 10
+                    width: 4
+                    length: 18
+                    color: 0xFFFFFF
+                    label_show: true
+                    label_gap: 15
+                sections:
+                  - id: vert_cold
+                    range_from: 0
+                    range_to: 10
+                    color: 0x00BFFF
+                    width: 6
+                    # Multi-part styling: minor ticks too
+                    items:
+                      color: 0x0088CC
+                      width: 2
+                  - id: vert_comfort
+                    range_from: 10
+                    range_to: 28
+                    color: 0x00FF00
+                    width: 6
+                    items:
+                      color: 0x00CC00
+                      width: 2
+                  - id: vert_hot
+                    range_from: 28
+                    range_to: 40
+                    color: 0xFF4500
+                    width: 6
+                    items:
+                      color: 0xCC3300
+                      width: 2
+
+        # =====================================================================
+        # EXAMPLE 3: A simple round scale with needles
+        #            (lv_example_scale_3) - Line + Image needle
+        # =====================================================================
+        - id: example_3_page
+          bg_color: 0x1a1a2e
+          widgets:
+            - label:
+                x: 20
+                y: 10
+                text: "Ex.3 - Round Scale with Needles"
+                text_color: 0xFFFFFF
+                text_font: montserrat_16
+
+            - scale:
+                id: round_needle_scale
+                align: CENTER
+                width: 280
+                height: 280
+                mode: ROUND_INNER
+                min_value: 0
+                max_value: 100
+                rotation: 135
+                angle_range: 270
+                ticks:
+                  count: 21
+                  width: 2
+                  length: 10
+                  color: 0x808080
+                  major:
+                    stride: 4
+                    width: 4
+                    length: 20
+                    color: 0xFFFFFF
+                    label_show: true
+                    label_gap: 10
+                # Line needle (lv_scale_set_line_needle_value)
+                needles:
+                  - id: gauge_needle
+                    value: 50
+                    needle_length: 60
+                    needle_width: 4
+                    needle_color: 0xFF0000
+                    needle_rounded: true
+
+        # =====================================================================
+        # EXAMPLE 4: A round scale with section and custom styling + text_src
+        #            (lv_example_scale_4)
+        # =====================================================================
+        - id: example_4_page
+          bg_color: 0x1a1a2e
+          widgets:
+            - label:
+                x: 20
+                y: 10
+                text: "Ex.4 - Round + Sections + text_src"
+                text_color: 0xFFFFFF
+                text_font: montserrat_16
+
+            - scale:
+                id: round_section_scale
+                align: CENTER
+                width: 280
+                height: 280
+                mode: ROUND_OUTER
+                min_value: 0
+                max_value: 100
+                rotation: 135
+                angle_range: 270
+                # Custom text labels
+                text_src:
+                  - "Min"
+                  - "20"
+                  - "40"
+                  - "60"
+                  - "80"
+                  - "Max"
+                ticks:
+                  count: 21
+                  width: 2
+                  length: 10
+                  color: 0x404040
+                  major:
+                    stride: 4
+                    width: 4
+                    length: 20
+                    color: 0xFFFFFF
+                    label_show: true
+                    label_gap: 12
+                sections:
+                  - id: round_green
+                    range_from: 0
+                    range_to: 50
+                    color: 0x00FF00
+                    width: 6
+                  - id: round_yellow
+                    range_from: 50
+                    range_to: 80
+                    color: 0xFFFF00
+                    width: 6
+                  - id: round_red
+                    range_from: 80
+                    range_to: 100
+                    color: 0xFF0000
+                    width: 6
+                needles:
+                  - id: round_section_needle
+                    value: 35
+                    needle_length: 55
+                    needle_width: 3
+                    needle_color: 0xFF0000
+
+        # =====================================================================
+        # EXAMPLE 5: A scale with section and multi-part custom styling
+        #            (lv_example_scale_5) - INDICATOR, ITEMS, MAIN parts
+        # =====================================================================
+        - id: example_5_page
+          bg_color: 0x1a1a2e
+          widgets:
+            - label:
+                x: 20
+                y: 10
+                text: "Ex.5 - Multi-part Section Styling"
+                text_color: 0xFFFFFF
+                text_font: montserrat_16
+
+            - scale:
+                id: multipart_scale
+                align: CENTER
+                width: 300
+                height: 300
+                mode: ROUND_OUTER
+                min_value: 25
+                max_value: 35
+                rotation: 135
+                angle_range: 270
+                ticks:
+                  count: 10
+                  width: 2
+                  length: 10
+                  color: 0xFF0000
+                  major:
+                    stride: 5
+                    width: 4
+                    length: 20
+                    color: 0x00FF00
+                    label_show: true
+                    label_gap: 10
+                sections:
+                  - id: multi_section_1
+                    range_from: 25
+                    range_to: 30
+                    color: 0xFF0000
+                    width: 5
+                    # Multi-part: style major ticks (INDICATOR) differently
+                    indicator:
+                      color: 0x00FF00
+                      width: 6
+                    # Multi-part: style minor ticks (ITEMS) differently
+                    items:
+                      color: 0xFF0000
+                      width: 3
+                    # Multi-part: style main line (MAIN) differently
+                    main:
+                      color: 0x0000FF
+                      width: 4
+
+        # =====================================================================
+        # EXAMPLE 6: A round scale with multiple needles (clock)
+        #            (lv_example_scale_6)
+        # =====================================================================
+        - id: example_6_page
+          bg_color: 0x1a1a2e
+          widgets:
+            - label:
+                x: 20
+                y: 10
+                text: "Ex.6 - Clock with Multiple Needles"
+                text_color: 0xFFFFFF
+                text_font: montserrat_16
+
+            - scale:
+                id: clock_scale
+                align: CENTER
+                width: 280
+                height: 280
+                mode: ROUND_OUTER
+                min_value: 0
+                max_value: 60
+                rotation: 270
+                angle_range: 360
+                # Custom labels for clock hours
+                text_src:
+                  - "12"
+                  - "1"
+                  - "2"
+                  - "3"
+                  - "4"
+                  - "5"
+                  - "6"
+                  - "7"
+                  - "8"
+                  - "9"
+                  - "10"
+                  - "11"
+                  - ""
+                ticks:
+                  count: 61
+                  width: 1
+                  length: 6
+                  color: 0x808080
+                  major:
+                    stride: 5
+                    width: 3
+                    length: 15
+                    color: 0xFFFFFF
+                    label_show: true
+                    label_gap: 18
+                # Three needles: hour, minute, second
+                needles:
+                  - id: hour_needle
+                    value: 50
+                    needle_length: 40
+                    needle_width: 5
+                    needle_color: 0xFFFFFF
+                    needle_rounded: true
+                  - id: minute_needle
+                    value: 10
+                    needle_length: 55
+                    needle_width: 3
+                    needle_color: 0xCCCCCC
+                    needle_rounded: true
+                  - id: second_needle
+                    value: 30
+                    needle_length: 60
+                    needle_width: 1
+                    needle_color: 0xFF0000
+                    needle_rounded: false
+
+        # =====================================================================
+        # EXAMPLE 7: Customizing label color with draw event callback
+        #            (lv_example_scale_7)
+        # =====================================================================
+        - id: example_7_page
+          bg_color: 0x1a1a2e
+          widgets:
+            - label:
+                x: 20
+                y: 10
+                text: "Ex.7 - Custom Label Color (Draw CB)"
+                text_color: 0xFFFFFF
+                text_font: montserrat_16
+
+            - scale:
+                id: custom_label_scale
+                align: CENTER
+                width: 300
+                height: 300
+                mode: ROUND_OUTER
+                min_value: 0
+                max_value: 100
+                rotation: 135
+                angle_range: 270
+                ticks:
+                  count: 21
+                  width: 2
+                  length: 10
+                  color: 0x808080
+                  major:
+                    stride: 2
+                    width: 4
+                    length: 20
+                    color: 0xFFFFFF
+                    label_show: true
+                    label_gap: 12
+                sections:
+                  - id: cb_green
+                    range_from: 0
+                    range_to: 40
+                    color: 0x00FF00
+                    width: 4
+                  - id: cb_yellow
+                    range_from: 40
+                    range_to: 70
+                    color: 0xFFFF00
+                    width: 4
+                  - id: cb_red
+                    range_from: 70
+                    range_to: 100
+                    color: 0xFF0000
+                    width: 4
+                # Custom draw event callback: color labels based on value
+                custom_label_cb: |-
+                  lv_draw_task_t *draw_task = lv_event_get_draw_task(e);
+                  lv_draw_dsc_base_t *base_dsc = (lv_draw_dsc_base_t *)lv_draw_task_get_draw_dsc(draw_task);
+                  if (base_dsc->part == LV_PART_INDICATOR) {
+                    lv_draw_label_dsc_t *label_dsc = lv_draw_task_get_label_dsc(draw_task);
+                    if (label_dsc) {
+                      // Get the tick index from id1
+                      uint32_t tick_idx = base_dsc->id1;
+                      // Color labels based on position
+                      if (tick_idx <= 4) {
+                        label_dsc->color = lv_color_hex(0x00FF00);  // Green
+                      } else if (tick_idx <= 7) {
+                        label_dsc->color = lv_color_hex(0xFFFF00);  // Yellow
+                      } else {
+                        label_dsc->color = lv_color_hex(0xFF0000);  // Red
+                      }
+                    }
+                  }
+
+        # =====================================================================
+        # EXAMPLE 8: A round scale with labels rotated and translated
+        #            (lv_example_scale_8)
+        # =====================================================================
+        - id: example_8_page
+          bg_color: 0x1a1a2e
+          widgets:
+            - label:
+                x: 20
+                y: 10
+                text: "Ex.8 - Round Labels Rotated"
+                text_color: 0xFFFFFF
+                text_font: montserrat_16
+
+            - scale:
+                id: rotated_round_scale
+                align: CENTER
+                width: 300
+                height: 300
+                mode: ROUND_OUTER
+                min_value: 0
+                max_value: 100
+                rotation: 135
+                angle_range: 270
+                ticks:
+                  count: 21
+                  width: 2
+                  length: 10
+                  color: 0x808080
+                  major:
+                    stride: 2
+                    width: 4
+                    length: 20
+                    color: 0xFFFFFF
+                    label_show: true
+                    label_gap: 15
+                    # Label rotation: match ticks + keep upright
+                    rotate_match_ticks: true
+                    keep_upright: true
+                    translate_x: 0
+                    translate_y: -5
+
+        # =====================================================================
+        # EXAMPLE 9: A horizontal scale with labels rotated and translated
+        #            (lv_example_scale_9)
+        # =====================================================================
+        - id: example_9_page
+          bg_color: 0x1a1a2e
+          widgets:
+            - label:
+                x: 20
+                y: 10
+                text: "Ex.9 - Horizontal Labels Rotated"
+                text_color: 0xFFFFFF
+                text_font: montserrat_16
+
+            - scale:
+                id: rotated_h_scale
+                align: CENTER
+                width: 400
+                height: 100
+                mode: HORIZONTAL_TOP
+                min_value: 0
+                max_value: 100
+                ticks:
+                  count: 21
+                  width: 2
+                  length: 10
+                  color: 0x808080
+                  major:
+                    stride: 2
+                    width: 4
+                    length: 20
+                    color: 0xFFFFFF
+                    label_show: true
+                    label_gap: 10
+                    # Rotate labels on horizontal scale
+                    rotate_match_ticks: true
+                    translate_x: 5
+                    translate_y: -10
+
+        # =====================================================================
+        # EXAMPLE 10: Heart Rate Monitor with needle
+        #             (lv_example_scale_10)
+        # =====================================================================
+        - id: example_10_page
+          bg_color: 0x0a0a14
+          widgets:
+            - label:
+                x: 20
+                y: 10
+                text: "Ex.10 - Heart Rate Monitor"
+                text_color: 0xFF3333
+                text_font: montserrat_18
+
+            - scale:
+                id: hr_scale
+                align: CENTER
+                width: 280
+                height: 280
+                mode: ROUND_INNER
+                min_value: 40
+                max_value: 200
+                rotation: 135
+                angle_range: 270
+                ticks:
+                  count: 33
+                  width: 2
+                  length: 8
+                  color: 0x404040
+                  major:
+                    stride: 4
+                    width: 3
+                    length: 15
+                    color: 0xFFFFFF
+                    label_show: true
+                    label_gap: 10
+                sections:
+                  # Resting zone (40-100)
+                  - id: hr_resting
+                    range_from: 40
+                    range_to: 100
+                    color: 0x00FF00
+                    width: 5
+                    items:
+                      color: 0x008800
+                      width: 2
+                  # Active zone (100-140)
+                  - id: hr_active
+                    range_from: 100
+                    range_to: 140
+                    color: 0xFFFF00
+                    width: 5
+                    items:
+                      color: 0x888800
+                      width: 2
+                  # Cardio zone (140-170)
+                  - id: hr_cardio
+                    range_from: 140
+                    range_to: 170
+                    color: 0xFF8800
+                    width: 5
+                    items:
+                      color: 0x884400
+                      width: 2
+                  # Max zone (170-200)
+                  - id: hr_max
+                    range_from: 170
+                    range_to: 200
+                    color: 0xFF0000
+                    width: 5
+                    items:
+                      color: 0x880000
+                      width: 2
+                # Needle for heart rate
+                needles:
+                  - id: hr_needle
+                    value: 72
+                    needle_length: 55
+                    needle_width: 4
+                    needle_color: 0xFF3333
+                    needle_rounded: true
+
+            # Heart rate value display
+            - label:
+                id: hr_value_label
+                align: CENTER
+                y: 15
+                text: "72"
+                text_color: 0xFF3333
+                text_font: montserrat_36
+
+            - label:
+                align: CENTER
+                y: 50
+                text: "BPM"
+                text_color: 0xFF6666
+                text_font: montserrat_14
+
+        # =====================================================================
+        # EXAMPLE 11: Sunset/Sunrise Widget with text_src + sections
+        #             (lv_example_scale_11) - 24h circular display
+        # =====================================================================
+        - id: example_11_page
+          bg_color: 0x1a1a2e
+          widgets:
+            - label:
+                x: 20
+                y: 10
+                text: "Ex.11 - Sunrise/Sunset (24h)"
+                text_color: 0xFFFF00
+                text_font: montserrat_16
+
+            - scale:
+                id: sunrise_scale
+                align: CENTER
+                width: 300
+                height: 300
+                mode: ROUND_INNER
+                min_value: 0
+                max_value: 24
+                rotation: 270
+                angle_range: 360
+                # 24 hour labels
+                text_src:
+                  - "12"
+                  - "1"
+                  - "2"
+                  - "3"
+                  - "4"
+                  - "5"
+                  - "6"
+                  - "7"
+                  - "8"
+                  - "9"
+                  - "10"
+                  - "11"
+                  - "12"
+                  - "13"
+                  - "14"
+                  - "15"
+                  - "16"
+                  - "17"
+                  - "18"
+                  - "19"
+                  - "20"
+                  - "21"
+                  - "22"
+                  - "23"
+                  - ""
+                ticks:
+                  count: 25
+                  width: 2
+                  length: 6
+                  color: 0x404040
+                  major:
+                    stride: 1
+                    width: 3
+                    length: 12
+                    color: 0xFFFFFF
+                    label_show: true
+                    label_gap: 12
+                    rotate_match_ticks: true
+                    keep_upright: true
+                sections:
+                  # Night section (17-5)
+                  - id: night_section
+                    range_from: 17
+                    range_to: 24
+                    color: 0x003366
+                    width: 8
+                    main:
+                      color: 0x003366
+                      width: 8
+                  - id: night_section_2
+                    range_from: 0
+                    range_to: 5
+                    color: 0x003366
+                    width: 8
+                    main:
+                      color: 0x003366
+                      width: 8
+                  # Day section (5-17)
+                  - id: day_section
+                    range_from: 5
+                    range_to: 17
+                    color: 0xCC9900
+                    width: 8
+                    main:
+                      color: 0xCC9900
+                      width: 8
+
+            # TODAY label
+            - label:
+                align: CENTER
+                y: -30
+                text: "TODAY"
+                text_color: 0x808080
+                text_font: montserrat_14
+
+            # Sunrise time
+            - label:
+                align: CENTER
+                y: 5
+                text: "Sunrise: 6:43"
+                text_color: 0xFFAA00
+                text_font: montserrat_14
+
+            # Sunset time
+            - label:
+                align: CENTER
+                y: 25
+                text: "Sunset: 17:37"
+                text_color: 0xFF6600
+                text_font: montserrat_14
+
+        # =====================================================================
+        # EXAMPLE 12: Compass with needles + text_src + animation
+        #             (lv_example_scale_12) - NOT in user's original list
+        # =====================================================================
+        - id: example_12_page
+          bg_color: 0x0a0a14
+          widgets:
+            - label:
+                x: 20
+                y: 10
+                text: "Ex.12 - Compass"
+                text_color: 0x00FFFF
+                text_font: montserrat_16
+
+            - scale:
+                id: compass_scale
+                align: CENTER
+                width: 280
+                height: 280
+                mode: ROUND_INNER
+                min_value: 0
+                max_value: 360
+                rotation: 270
+                angle_range: 360
+                # Cardinal direction labels
+                text_src:
+                  - "N"
+                  - "NE"
+                  - "E"
+                  - "SE"
+                  - "S"
+                  - "SW"
+                  - "W"
+                  - "NW"
+                  - ""
+                ticks:
+                  count: 61
+                  width: 1
+                  length: 6
+                  color: 0x404040
+                  major:
+                    stride: 8
+                    width: 3
+                    length: 15
+                    color: 0xFFFFFF
+                    label_show: true
+                    label_gap: 18
+                    rotate_match_ticks: true
+                    keep_upright: true
+                # North pointer needle
+                needles:
+                  - id: compass_needle
+                    value: 0
+                    needle_length: 60
+                    needle_width: 4
+                    needle_color: 0xFF0000
+                    needle_rounded: true
+
+            # Heading value
+            - label:
+                id: compass_heading_label
+                align: CENTER
+                y: 20
+                text: "0°"
+                text_color: 0x00FFFF
+                text_font: montserrat_36
+
+            - label:
+                align: CENTER
+                y: 55
+                text: "HEADING"
+                text_color: 0x808080
+                text_font: montserrat_12
+
+        # =====================================================================
+        # PAGE: Speedometer Gauge (ROUND_OUTER) - Scale + Arc combined
         # =====================================================================
         - id: speedometer_page
           bg_color: 0x0a0a14
@@ -361,7 +1231,7 @@ lvgl:
                 text_font: montserrat_14
 
         # =====================================================================
-        # PAGE 2: Temperature & Humidity Gauges (Dual ROUND_INNER)
+        # PAGE: Temperature & Humidity Gauges (Dual ROUND_INNER)
         # =====================================================================
         - id: climate_page
           bg_color: 0x0a0a14
@@ -518,283 +1388,7 @@ lvgl:
                 text_font: montserrat_20
 
         # =====================================================================
-        # PAGE 3: Horizontal Scales (Progress Bars)
-        # =====================================================================
-        - id: horizontal_page
-          bg_color: 0x0a0a14
-          widgets:
-            - label:
-                x: 20
-                y: 10
-                text: "Horizontal Scales"
-                text_color: 0xFFFFFF
-                text_font: montserrat_18
-
-            # Horizontal Top Scale
-            - label:
-                x: 20
-                y: 50
-                text: "HORIZONTAL_TOP:"
-                text_color: 0x808080
-
-            - scale:
-                id: h_top_scale
-                x: 20
-                y: 80
-                width: 400
-                height: 60
-                mode: HORIZONTAL_TOP
-                min_value: 0
-                max_value: 100
-                ticks:
-                  count: 11
-                  width: 2
-                  length: 10
-                  color: 0x404040
-                  major:
-                    stride: 2
-                    width: 3
-                    length: 18
-                    color: 0xFFFFFF
-                    label_show: true
-                sections:
-                  - id: h_low
-                    range_from: 0
-                    range_to: 33
-                    color: 0x0088FF
-                    width: 4
-                  - id: h_mid
-                    range_from: 33
-                    range_to: 66
-                    color: 0x00FF88
-                    width: 4
-                  - id: h_high
-                    range_from: 66
-                    range_to: 100
-                    color: 0xFF8800
-                    width: 4
-
-            # Horizontal Bottom Scale
-            - label:
-                x: 20
-                y: 160
-                text: "HORIZONTAL_BOTTOM:"
-                text_color: 0x808080
-
-            - scale:
-                id: h_bottom_scale
-                x: 20
-                y: 190
-                width: 400
-                height: 60
-                mode: HORIZONTAL_BOTTOM
-                min_value: -50
-                max_value: 50
-                ticks:
-                  count: 11
-                  width: 2
-                  length: 10
-                  color: 0x404040
-                  major:
-                    stride: 2
-                    width: 3
-                    length: 18
-                    color: 0xFFFFFF
-                    label_show: true
-                sections:
-                  - id: h_neg
-                    range_from: -50
-                    range_to: 0
-                    color: 0x00BFFF
-                    width: 4
-                  - id: h_pos
-                    range_from: 0
-                    range_to: 50
-                    color: 0xFF4500
-                    width: 4
-
-        # =====================================================================
-        # PAGE 4: Vertical Scales (Thermometer Style)
-        # =====================================================================
-        - id: vertical_page
-          bg_color: 0x0a0a14
-          widgets:
-            - label:
-                x: 20
-                y: 10
-                text: "Vertical Scales"
-                text_color: 0xFFFFFF
-                text_font: montserrat_18
-
-            # Vertical Left Scale
-            - label:
-                x: 20
-                y: 45
-                text: "LEFT"
-                text_color: 0x808080
-
-            - scale:
-                id: v_left_scale
-                x: 60
-                y: 70
-                width: 80
-                height: 200
-                mode: VERTICAL_LEFT
-                min_value: 0
-                max_value: 100
-                ticks:
-                  count: 11
-                  width: 2
-                  length: 10
-                  color: 0x404040
-                  major:
-                    stride: 2
-                    width: 3
-                    length: 18
-                    color: 0xFFFFFF
-                    label_show: true
-                    label_gap: 6
-                sections:
-                  - id: v_low
-                    range_from: 0
-                    range_to: 30
-                    color: 0x00BFFF
-                    width: 4
-                  - id: v_normal
-                    range_from: 30
-                    range_to: 70
-                    color: 0x00FF00
-                    width: 4
-                  - id: v_high
-                    range_from: 70
-                    range_to: 100
-                    color: 0xFF0000
-                    width: 4
-
-            # Vertical Right Scale
-            - label:
-                x: 200
-                y: 45
-                text: "RIGHT"
-                text_color: 0x808080
-
-            - scale:
-                id: v_right_scale
-                x: 180
-                y: 70
-                width: 80
-                height: 200
-                mode: VERTICAL_RIGHT
-                min_value: -20
-                max_value: 50
-                ticks:
-                  count: 15
-                  width: 2
-                  length: 10
-                  color: 0x404040
-                  major:
-                    stride: 3
-                    width: 3
-                    length: 18
-                    color: 0xFFFFFF
-                    label_show: true
-                    label_gap: 6
-                sections:
-                  - id: v_freeze
-                    range_from: -20
-                    range_to: 0
-                    color: 0x00BFFF
-                    width: 4
-                  - id: v_comfort
-                    range_from: 0
-                    range_to: 25
-                    color: 0x00FF00
-                    width: 4
-                  - id: v_hot
-                    range_from: 25
-                    range_to: 50
-                    color: 0xFF4500
-                    width: 4
-
-            # Pressure Gauge (smaller, right side)
-            - label:
-                x: 320
-                y: 45
-                text: "Pressure"
-                text_color: 0x808080
-
-            - scale:
-                id: pressure_scale
-                x: 310
-                y: 70
-                width: 150
-                height: 150
-                mode: ROUND_OUTER
-                min_value: 0
-                max_value: 10
-                rotation: 135
-                angle_range: 270
-                ticks:
-                  count: 11
-                  width: 2
-                  length: 6
-                  color: 0x404040
-                  major:
-                    stride: 2
-                    width: 3
-                    length: 12
-                    color: 0xFFFFFF
-                    label_show: true
-                sections:
-                  - id: p_low
-                    range_from: 0
-                    range_to: 3
-                    color: 0x00FF00
-                    width: 4
-                  - id: p_mid
-                    range_from: 3
-                    range_to: 7
-                    color: 0xFFFF00
-                    width: 4
-                  - id: p_high
-                    range_from: 7
-                    range_to: 10
-                    color: 0xFF0000
-                    width: 4
-
-            - arc:
-                id: pressure_arc
-                x: 330
-                y: 90
-                width: 110
-                height: 110
-                min_value: 0
-                max_value: 10
-                value: 5
-                rotation: 135
-                start_angle: 0
-                end_angle: 270
-                mode: NORMAL
-                adjustable: false
-                indicator:
-                  arc_color: 0xFFFF00
-                  arc_width: 10
-                main:
-                  arc_color: 0x1a1a2e
-                  arc_width: 10
-
-            - label:
-                id: pressure_value_label
-                x: 355
-                y: 140
-                width: 60
-                text_align: CENTER
-                text: "5 bar"
-                text_color: 0xFFFF00
-                text_font: montserrat_14
-
-        # =====================================================================
-        # PAGE 5: Home Assistant Integration (Real Sensors)
+        # PAGE: Home Assistant Integration (Real Sensors)
         # =====================================================================
         - id: ha_sensors_page
           bg_color: 0x0a0a14
@@ -965,13 +1559,12 @@ lvgl:
                 text_color: 0x808080
 
         # =====================================================================
-        # PAGE 6: NEED FOR SPEED Racing Dashboard
+        # PAGE: NEED FOR SPEED Racing Dashboard
         # =====================================================================
         - id: nfs_racing_page
           bg_color: 0x000000
           widgets:
             # ===== SPEEDOMETER (Left Side) =====
-            # Animated spinner around speedometer
             - spinner:
                 id: nfs_speed_spinner
                 x: 20
@@ -988,7 +1581,6 @@ lvgl:
                   arc_color: 0x00FFFF
                   arc_opa: 70%
 
-            # Speed Scale - Racing style
             - scale:
                 id: nfs_speed_scale
                 x: 30
@@ -1029,7 +1621,6 @@ lvgl:
                     color: 0xFF0000
                     width: 3
 
-            # Speed Arc indicator
             - arc:
                 id: nfs_speed_arc
                 x: 55
@@ -1052,7 +1643,6 @@ lvgl:
                   arc_color: 0x0a0a0a
                   arc_width: 25
 
-            # Digital Speed Display
             - label:
                 id: nfs_speed_label
                 x: 95
@@ -1073,7 +1663,6 @@ lvgl:
                 text_font: montserrat_14
 
             # ===== TACHOMETER (Right Side) =====
-            # Animated spinner around tachometer
             - spinner:
                 id: nfs_rpm_spinner
                 x: 320
@@ -1090,7 +1679,6 @@ lvgl:
                   arc_color: 0x00FFFF
                   arc_opa: 70%
 
-            # RPM Scale
             - scale:
                 id: nfs_rpm_scale
                 x: 330
@@ -1131,7 +1719,6 @@ lvgl:
                     color: 0xFF0000
                     width: 4
 
-            # RPM Arc indicator
             - arc:
                 id: nfs_rpm_arc
                 x: 355
@@ -1154,7 +1741,6 @@ lvgl:
                   arc_color: 0x0a0a0a
                   arc_width: 25
 
-            # Digital RPM Display
             - label:
                 id: nfs_rpm_label
                 x: 400
@@ -1221,7 +1807,6 @@ lvgl:
                 text_font: montserrat_14
 
             # ===== STATUS INDICATORS =====
-            # Nitro indicator
             - obj:
                 x: 20
                 y: 330
@@ -1238,7 +1823,6 @@ lvgl:
                       text_color: 0x00FF00
                       text_font: montserrat_12
 
-            # Turbo indicator
             - obj:
                 x: 500
                 y: 330
@@ -1262,7 +1846,8 @@ lvgl:
 # Scale not animating:
 #   - Scale widget only displays ticks/labels (static)
 #   - Use Arc widget overlaid on Scale for animated indicator
-#   - Update the Arc value to animate the gauge
+#   - Or use needles for a gauge-style indicator
+#   - Update the Arc/needle value to animate the gauge
 #
 # Sections not showing:
 #   - Check range_from and range_to are within min_value/max_value
@@ -1278,4 +1863,25 @@ lvgl:
 #   - Arc and Scale should have same rotation and angle_range
 #   - Arc size should be smaller than Scale (to fit inside)
 #   - Use same min_value/max_value for both
+#
+# Needles not showing:
+#   - Needles require the scale to be in a ROUND mode
+#   - Ensure value is within min_value/max_value range
+#   - Check needle_length is > 0
+#
+# text_src not working:
+#   - Array must have one more element than major tick count
+#   - Last element should be empty string ""
+#   - Labels replace numeric values
+#
+# Label rotation not working:
+#   - Set rotate_match_ticks: true in major ticks
+#   - For upright labels: set keep_upright: true
+#   - Use translate_x/translate_y to fine-tune position
+#
+# custom_label_cb not working:
+#   - Callback receives lv_event_t pointer as 'e'
+#   - Use lv_event_get_draw_task(e) to get draw task
+#   - Check base_dsc->part == LV_PART_INDICATOR for labels
+#   - Modify label_dsc->color to change label color
 #
