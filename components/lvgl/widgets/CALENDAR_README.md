@@ -36,8 +36,8 @@ The implementation uses these LVGL v9.4 calendar functions:
 
 ```c
 lv_obj_t * lv_calendar_create(lv_obj_t * parent);
-void lv_calendar_set_today_date(lv_obj_t * obj, uint16_t year, uint8_t month, uint8_t day);
-void lv_calendar_set_showed_date(lv_obj_t * obj, uint16_t year, uint8_t month, uint8_t day);
+void lv_calendar_set_today_date(lv_obj_t * obj, uint32_t year, uint32_t month, uint32_t day);
+void lv_calendar_set_month_shown(lv_obj_t * obj, uint32_t year, uint32_t month);
 void lv_calendar_set_highlighted_dates(lv_obj_t * obj, lv_calendar_date_t dates[], uint16_t num);
 lv_calendar_date_t * lv_calendar_get_pressed_date(lv_obj_t * obj, lv_calendar_date_t * date);
 ```
@@ -137,10 +137,10 @@ calendar:
   on_value:
     - logger.log:
         format: "Selected: %d-%02d-%02d"
-        args: ['x.year', 'x.month', 'x.day']
+        args: ['year', 'month', 'day']
     - lambda: |-
         ESP_LOGI("calendar", "Date: %d-%02d-%02d",
-                 x.year, x.month, x.day);
+                 year, month, day);
 ```
 
 ## Automation Actions
@@ -266,7 +266,7 @@ lvgl:
             on_value:
               - logger.log:
                   format: "Date selected: %d-%02d-%02d"
-                  args: ['x.year', 'x.month', 'x.day']
+                  args: ['year', 'month', 'day']
 ```
 
 ## Implementation Details

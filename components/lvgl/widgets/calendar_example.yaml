@@ -65,7 +65,7 @@ lvgl:
             on_value:
               - logger.log:
                   format: "Date selected: %d-%02d-%02d"
-                  args: ['x.year', 'x.month', 'x.day']
+                  args: ['year', 'month', 'day']
 
         # Calendar with dropdown header (year/month dropdown selectors)
         - calendar:

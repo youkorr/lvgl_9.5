@@ -138,11 +138,11 @@ class CalendarType(WidgetType):
             lv.calendar_set_today_date(w.obj, year, month, day)
 
         # Set showed date (initial display month)
+        # LVGL 9.4 API: lv_calendar_set_month_shown(obj, year, month) - no day param
         if showed := config.get(CONF_SHOWED_DATE):
             year = await lv_int.process(showed.get(CONF_YEAR, 2024))
             month = await lv_int.process(showed.get(CONF_MONTH, 1))
-            day = await lv_int.process(showed.get(CONF_DAY, 1))
-            lv.calendar_set_showed_date(w.obj, year, month, day)
+            lv.calendar_set_month_shown(w.obj, year, month)
 
         # Set highlighted dates
         if highlighted := config.get(CONF_HIGHLIGHTED_DATES):
@@ -205,11 +205,11 @@ async def calendar_update_to_code(config, action_id, template_arg, args):
             lv.calendar_set_today_date(w.obj, year, month, day)
 
         # Update showed date
+        # LVGL 9.4 API: lv_calendar_set_month_shown(obj, year, month) - no day param
         if showed := config.get(CONF_SHOWED_DATE):
             year = await process_date_field(showed.get(CONF_YEAR), 2024)
             month = await process_date_field(showed.get(CONF_MONTH), 1)
-            day = await process_date_field(showed.get(CONF_DAY), 1)
-            lv.calendar_set_showed_date(w.obj, year, month, day)
+            lv.calendar_set_month_shown(w.obj, year, month)
 
         # Update highlighted dates
         if highlighted := config.get(CONF_HIGHLIGHTED_DATES):
