@@ -1,5 +1,6 @@
 # LVGL Calendar Widget Example
-# This demonstrates the LVGL v9.4 Calendar widget implementation
+# Demonstrates the LVGL v9.4 Calendar widget with header navigation
+# Reference: https://docs.lvgl.io/master/widgets/calendar.html
 
 lvgl:
   displays:
@@ -8,13 +9,17 @@ lvgl:
   pages:
     - id: main_page
       widgets:
-        # Basic Calendar
+        # Calendar with arrow header (default - left/right arrows for month navigation)
         - calendar:
             id: my_calendar
             x: 10
             y: 10
             width: 300
             height: 300
+            # Header mode: arrow (default), dropdown, or none
+            header_mode: arrow
+            # Custom day name labels (7 strings, Mon-Sun)
+            day_names: ["Lu", "Ma", "Me", "Je", "Ve", "Sa", "Di"]
             today_date:
               year: 2024
               month: 12
@@ -34,9 +39,6 @@ lvgl:
               - year: 2024
                 month: 12
                 day: 1   # First of month
-            # Style the calendar
-            styles:
-              - my_calendar_style
             # Style the main calendar part
             main:
               bg_color: 0xFFFFFF
@@ -63,10 +65,41 @@ lvgl:
             on_value:
               - logger.log:
                   format: "Date selected: %d-%02d-%02d"
-                  args: ['x.year', 'x.month', 'x.day']
-              - lambda: |-
-                  ESP_LOGI("calendar", "Selected: %d-%02d-%02d",
-                           x.year, x.month, x.day);
+                  args: ['year', 'month', 'day']
+
+        # Calendar with dropdown header (year/month dropdown selectors)
+        - calendar:
+            id: dropdown_calendar
+            x: 10
+            y: 320
+            width: 300
+            height: 300
+            header_mode: dropdown
+            today_date:
+              year: 2024
+              month: 12
+              day: 15
+            showed_date:
+              year: 2024
+              month: 12
+              day: 1
+
+        # Calendar with no header (manual navigation via automation)
+        - calendar:
+            id: minimal_calendar
+            x: 320
+            y: 10
+            width: 300
+            height: 280
+            header_mode: none
+            today_date:
+              year: 2024
+              month: 12
+              day: 15
+            showed_date:
+              year: 2024
+              month: 12
+              day: 1
 
 # Automation example: Update calendar dynamically
 button:
@@ -104,10 +137,3 @@ time:
                 year: !lambda 'return id(sntp_time).now().year;'
                 month: !lambda 'return id(sntp_time).now().month;'
                 day: !lambda 'return id(sntp_time).now().day_of_month;'
-
-# Style definitions
-style:
-  - id: my_calendar_style
-    bg_color: 0xFFFFFF
-    text_font: roboto_16
-    pad_all: 5

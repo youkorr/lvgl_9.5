@@ -36,8 +36,8 @@ The implementation uses these LVGL v9.4 calendar functions:
 
 ```c
 lv_obj_t * lv_calendar_create(lv_obj_t * parent);
-void lv_calendar_set_today_date(lv_obj_t * obj, uint16_t year, uint8_t month, uint8_t day);
-void lv_calendar_set_showed_date(lv_obj_t * obj, uint16_t year, uint8_t month, uint8_t day);
+void lv_calendar_set_today_date(lv_obj_t * obj, uint32_t year, uint32_t month, uint32_t day);
+void lv_calendar_set_month_shown(lv_obj_t * obj, uint32_t year, uint32_t month);
 void lv_calendar_set_highlighted_dates(lv_obj_t * obj, lv_calendar_date_t dates[], uint16_t num);
 lv_calendar_date_t * lv_calendar_get_pressed_date(lv_obj_t * obj, lv_calendar_date_t * date);
 ```
@@ -53,6 +53,7 @@ calendar:
   y: 10
   width: 300
   height: 300
+  header_mode: arrow  # arrow (default), dropdown, or none
   today_date:
     year: 2024
     month: 12
@@ -71,6 +72,8 @@ calendar:
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
+| `header_mode` | String | No | `arrow` | Header type: `arrow`, `dropdown`, or `none` |
+| `day_names` | List[String] | No | - | Custom day name labels (7 strings) |
 | `today_date` | Date | No | - | Sets today's date marker |
 | `showed_date` | Date | No | - | Initial month/year to display |
 | `highlighted_dates` | List[Date] | No | [] | Dates to highlight |
@@ -134,10 +137,10 @@ calendar:
   on_value:
     - logger.log:
         format: "Selected: %d-%02d-%02d"
-        args: ['x.year', 'x.month', 'x.day']
+        args: ['year', 'month', 'day']
     - lambda: |-
         ESP_LOGI("calendar", "Date: %d-%02d-%02d",
-                 x.year, x.month, x.day);
+                 year, month, day);
 ```
 
 ## Automation Actions
@@ -172,6 +175,29 @@ button:
 
 ## Integration with ESPHome Time Component
 
+The `today_date` and `showed_date` fields in `lvgl.calendar.update` support `!lambda` expressions,
+allowing dynamic date updates from time sources like `homeassistant_time` or `sntp_time`.
+
+### Using with Home Assistant time
+
+```yaml
+script:
+  - id: update_clock
+    then:
+      - lvgl.calendar.update:
+          id: my_calendar
+          today_date:
+            year: !lambda 'return id(homeassistant_time).now().year;'
+            month: !lambda 'return id(homeassistant_time).now().month;'
+            day: !lambda 'return id(homeassistant_time).now().day_of_month;'
+          showed_date:
+            year: !lambda 'return id(homeassistant_time).now().year;'
+            month: !lambda 'return id(homeassistant_time).now().month;'
+            day: !lambda 'return id(homeassistant_time).now().day_of_month;'
+```
+
+### Using with SNTP time
+
 ```yaml
 time:
   - platform: sntp
@@ -202,6 +228,7 @@ lvgl:
             id: holiday_calendar
             width: 320
             height: 300
+            header_mode: arrow
             today_date:
               year: 2024
               month: 12
@@ -239,7 +266,7 @@ lvgl:
             on_value:
               - logger.log:
                   format: "Date selected: %d-%02d-%02d"
-                  args: ['x.year', 'x.month', 'x.day']
+                  args: ['year', 'month', 'day']
 ```
 
 ## Implementation Details
