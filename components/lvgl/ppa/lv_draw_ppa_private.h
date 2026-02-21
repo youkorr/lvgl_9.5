@@ -1,7 +1,7 @@
 /**
  * @file lv_draw_ppa_private.h
- * Fixed PPA private header for LVGL 9.4 on ESP32-P4
- * Backported from https://github.com/lvgl/lvgl/pull/9162
+ * Custom PPA private header for ESP32-P4
+ * Based on https://github.com/lvgl/lvgl/pull/9162 (included in LVGL 9.5+)
  * Adapted for C++ compilation (ESPHome build system)
  */
 

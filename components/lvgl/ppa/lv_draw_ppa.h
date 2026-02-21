@@ -1,7 +1,7 @@
 /**
  * @file lv_draw_ppa.h
- * Fixed PPA draw unit header for LVGL 9.4 on ESP32-P4
- * Backported from https://github.com/lvgl/lvgl/pull/9162
+ * Custom PPA draw unit header for ESP32-P4
+ * Based on https://github.com/lvgl/lvgl/pull/9162 (included in LVGL 9.5+)
  */
 
 #ifndef LV_DRAW_PPA_FIXED_H

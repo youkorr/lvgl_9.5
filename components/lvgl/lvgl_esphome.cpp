@@ -124,7 +124,7 @@ void LvglComponent::set_paused(bool paused, bool show_snow) {
   this->paused_ = paused;
   this->show_snow_ = show_snow;
   if (!paused && lv_screen_active() != nullptr) {
-    lv_disp_trig_activity(this->disp_);  // resets the inactivity time
+    lv_display_trigger_activity(this->disp_);  // resets the inactivity time
     lv_obj_invalidate(lv_screen_active());
   }
   if (paused && this->pause_callback_ != nullptr)
@@ -137,8 +137,8 @@ void LvglComponent::esphome_lvgl_init() {
   lv_init();
 #ifdef USE_LVGL_PPA
   // Initialize PPA draw unit after lv_init()
-  // Uses fixed PPA code (backport of https://github.com/lvgl/lvgl/pull/9162)
-  // instead of the buggy LVGL 9.4 PPA code
+  // Uses custom PPA code (based on https://github.com/lvgl/lvgl/pull/9162)
+  // LVGL 9.5 includes this fix natively; kept as fallback
   lv_draw_ppa_init();
 #endif
   lv_tick_set_cb([] { return millis(); });
@@ -166,7 +166,7 @@ void LvglComponent::add_event_cb(lv_obj_t *obj, event_callback_t callback, lv_ev
 void LvglComponent::add_page(LvPageType *page) {
   this->pages_.push_back(page);
   page->set_parent(this);
-  lv_disp_set_default(this->disp_);
+  lv_display_set_default(this->disp_);
   page->setup(this->pages_.size() - 1);
 }
 
@@ -258,7 +258,7 @@ void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uin
     ESP_LOGV(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
              lv_area_get_height(area), (int) (millis() - now));
   }
-  lv_disp_flush_ready(disp_drv);
+  lv_display_flush_ready(disp_drv);
 }
 
 IdleTrigger::IdleTrigger(LvglComponent *parent, TemplatableValue<uint32_t> timeout) : timeout_(std::move(timeout)) {
@@ -487,7 +487,7 @@ bool LvglComponent::is_paused() const {
 }
 
 void LvglComponent::write_random_() {
-  int iterations = 6 - lv_disp_get_inactive_time(this->disp_) / 60000;
+  int iterations = 6 - lv_display_get_inactive_time(this->disp_) / 60000;
   if (iterations <= 0)
     iterations = 1;
   while (iterations-- != 0) {
@@ -559,7 +559,7 @@ void LvglComponent::setup() {
   auto buf_bytes = width * height / frac * LV_COLOR_DEPTH / 8;
   void *buffer = nullptr;
   // CRITICAL: Always use lv_malloc_core() which guarantees 64-byte alignment
-  // Don't use malloc() as it may not be aligned correctly for LVGL 9.4
+  // Don't use malloc() as it may not be aligned correctly for LVGL 9.5
   buffer = lv_malloc_core(buf_bytes);  // NOLINT
   // if specific buffer size not set and can't get 100%, try for a smaller one
   if (buffer == nullptr && this->buffer_frac_ == 0) {
@@ -615,7 +615,7 @@ void LvglComponent::setup() {
   for (auto *disp : this->displays_)
     disp->set_rotation(display::DISPLAY_ROTATION_0_DEGREES);
   this->show_page(0, LV_SCR_LOAD_ANIM_NONE, 0);
-  lv_disp_trig_activity(this->disp_);
+  lv_display_trigger_activity(this->disp_);
 
   // CRITICAL: Configure buffers at the VERY END of setup()
   // This avoids deadlock while ensuring buffers are ready before any callbacks execute
@@ -629,7 +629,7 @@ void LvglComponent::update() {
   if (this->is_paused()) {
     return;
   }
-  this->idle_callbacks_.call(lv_disp_get_inactive_time(this->disp_));
+  this->idle_callbacks_.call(lv_display_get_inactive_time(this->disp_));
 }
 
 void LvglComponent::loop() {

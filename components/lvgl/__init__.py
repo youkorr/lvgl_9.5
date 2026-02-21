@@ -86,7 +86,7 @@ for module_info in pkgutil.iter_modules(widgets.__path__):
 DOMAIN = "lvgl"
 DEPENDENCIES = ["display"]
 AUTO_LOAD = ["key_provider", "button"]
-CODEOWNERS = ["@youkorr"]  # LVGL 9.4.0 implementation with ThorVG enabled by default
+CODEOWNERS = ["@youkorr"]  # LVGL 9.5.0 implementation with ThorVG enabled by default
 HELLO_WORLD_FILE = "hello_world.yaml"
 CONF_USE_PPA = "use_ppa"
 
@@ -208,7 +208,7 @@ def final_validation(config_list):
 async def to_code(configs):
     config_0 = configs[0]
     # Global configuration
-    cg.add_library("lvgl/lvgl", "9.4.0")
+    cg.add_library("lvgl/lvgl", "9.5.0")
     cg.add_define("USE_LVGL")
 
     # Define ESPHOME_ENTITY_BUTTON_COUNT for ESPHome core compatibility
@@ -217,7 +217,7 @@ async def to_code(configs):
 
     # suppress default enabling of extra widgets
     df.add_define("_LV_KCONFIG_PRESENT")
-    # Memory alignment configuration for LVGL 9.4
+    # Memory alignment configuration for LVGL 9.5
     df.add_define("LV_DRAW_BUF_STRIDE_ALIGN", "1")  # LVGL default
     # Keep LV_DRAW_BUF_ALIGN at LVGL default (4). Setting higher values
     # causes crashes because LVGL's internal stack/static buffers can't meet
@@ -226,9 +226,8 @@ async def to_code(configs):
     df.add_define("LV_DRAW_BUF_ALIGN", "4")
     use_ppa = config_0.get(CONF_USE_PPA, False)
     if use_ppa:
-        # Do NOT set LV_USE_PPA=1 in lv_conf.h: the LVGL 9.4 PPA code is buggy.
-        # Instead we compile our own fixed PPA files (backport of PR #9162)
-        # and call lv_draw_ppa_init() from lvgl_esphome.cpp after lv_init().
+        # LVGL 9.5 includes the PPA fix (PR #9162) natively.
+        # We keep our custom PPA files as a fallback option.
         # PPA evaluate checks buffer alignment at runtime before claiming tasks.
         cg.add_define("USE_LVGL_PPA")
         ppa_dir = Path(__file__).parent / "ppa"
@@ -236,7 +235,7 @@ async def to_code(configs):
     df.add_define("LV_USE_STDLIB_MALLOC", "LV_STDLIB_CUSTOM")
 
     # ============================================
-    # THORVG + SVG/LOTTIE SUPPORT (LVGL v9.4+)
+    # THORVG + SVG/LOTTIE SUPPORT (LVGL v9.5+)
     # ============================================
     # Enable floating point support (required by matrix)
     df.add_define("LV_USE_FLOAT", "1")
