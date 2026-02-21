@@ -4926,6 +4926,7 @@ key_collector:
           - arc:
               id: thermostat_arc
               align: CENTER
+              x: -150
               width: 150
               height: 150
               rotation: 135
@@ -4937,4 +4938,28 @@ key_collector:
                 - lvgl.label.update:
                     id: thermostat_target_temp
                     text: !lambda 'return str_sprintf("%.0f%%", x);'
+
+          # Button - reproduction de lv_example_btn_1
+          - button:
+              align: CENTER
+              x: 150
+              y: -40
+              on_click:
+                - logger.log: "Button clicked"
+              widgets:
+                - label:
+                    align: CENTER
+                    text: "Button"
+
+          # Toggle button
+          - button:
+              id: test_toggle_btn
+              align: CENTER
+              x: 150
+              y: 40
+              checkable: true
+              widgets:
+                - label:
+                    align: CENTER
+                    text: "Toggle"
 
