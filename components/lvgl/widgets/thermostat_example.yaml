@@ -217,6 +217,43 @@ lvgl:
                           color: 0x8090AA
                           label_show: true
                           label_gap: 10
+                      sections:
+                        # Blue - cold zone (4° to 15°)
+                        - id: section_cold
+                          range_from: 4
+                          range_to: 15
+                          color: 0x42A5F5
+                          width: 2
+                          items:
+                            color: 0x42A5F5
+                            width: 1
+                        # Green - comfort zone (15° to 22°)
+                        - id: section_comfort
+                          range_from: 15
+                          range_to: 22
+                          color: 0x00E5A0
+                          width: 2
+                          items:
+                            color: 0x00E5A0
+                            width: 1
+                        # Orange - warm zone (22° to 27°)
+                        - id: section_warm
+                          range_from: 22
+                          range_to: 27
+                          color: 0xFFA726
+                          width: 2
+                          items:
+                            color: 0xFFA726
+                            width: 1
+                        # Red - hot zone (27° to 31°)
+                        - id: section_hot
+                          range_from: 27
+                          range_to: 31
+                          color: 0xEF5350
+                          width: 2
+                          items:
+                            color: 0xEF5350
+                            width: 1
 
                   # ---------------------------------------------------------
                   # ARC - Interactive temperature control with blue knob
