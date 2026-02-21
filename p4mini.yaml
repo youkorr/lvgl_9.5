@@ -5109,12 +5109,12 @@ key_collector:
                         - lvgl.arc.update:
                             id: thermostat_arc
                             value: !lambda |-
-                              auto val = lv_arc_get_value(id(thermostat_arc).get_obj());
+                              auto val = lv_arc_get_value(id(thermostat_arc));
                               return val > 50 ? val - 5 : 50;
                         - lvgl.label.update:
                             id: thermostat_target_temp
                             text: !lambda |-
-                              auto val = lv_arc_get_value(id(thermostat_arc).get_obj());
+                              auto val = lv_arc_get_value(id(thermostat_arc));
                               return str_sprintf("%.1f°", val / 10.0);
 
                 # Bouton +
@@ -5144,10 +5144,10 @@ key_collector:
                         - lvgl.arc.update:
                             id: thermostat_arc
                             value: !lambda |-
-                              auto val = lv_arc_get_value(id(thermostat_arc).get_obj());
+                              auto val = lv_arc_get_value(id(thermostat_arc));
                               return val < 300 ? val + 5 : 300;
                         - lvgl.label.update:
                             id: thermostat_target_temp
                             text: !lambda |-
-                              auto val = lv_arc_get_value(id(thermostat_arc).get_obj());
+                              auto val = lv_arc_get_value(id(thermostat_arc));
                               return str_sprintf("%.1f°", val / 10.0);
