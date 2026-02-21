@@ -4973,3 +4973,17 @@ key_collector:
                     text: "Button"
                     text_color: 0xFFFFFF
 
+          # Button - reproduction de lv_example_button_3 (Gummy button)
+          - button:
+              align: CENTER
+              x: 150
+              y: 80
+              pressed:
+                transform_width: 10
+                transform_height: -10
+                text_letter_space: 10
+              widgets:
+                - label:
+                    align: CENTER
+                    text: "Gum"
+
