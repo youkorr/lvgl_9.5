@@ -300,37 +300,6 @@ void LVTouchListener::update(const touchscreen::TouchPoints_t &tpoints) {
 }
 #endif  // USE_LVGL_TOUCHSCREEN
 
-void lv_arc_rotate_obj_to_angle(lv_obj_t *arc, lv_obj_t *obj, int32_t r_offset) {
-  // Get the indicator end angle (where the current value points) plus rotation
-  auto angle = (int32_t) lv_arc_get_angle_end(arc);
-  auto rotation = (int32_t) lv_arc_get_rotation(arc);
-  auto total_angle = (angle + rotation) % 360;
-  if (total_angle < 0)
-    total_angle += 360;
-
-  // Arc center relative to parent
-  auto arc_w = lv_obj_get_width(arc);
-  auto arc_h = lv_obj_get_height(arc);
-  auto cx = lv_obj_get_x(arc) + arc_w / 2;
-  auto cy = lv_obj_get_y(arc) + arc_h / 2;
-
-  // Radial distance from center: half the arc size + user offset
-  auto radius = LV_MIN(arc_w, arc_h) / 2 + r_offset;
-
-  // LVGL trig: input in degrees, output scaled by 32768
-  // Convention: 0°=right, 90°=down (screen coords), clockwise
-  auto cos_val = lv_trigo_cos(total_angle) / 32768.0f;
-  auto sin_val = lv_trigo_sin(total_angle) / 32768.0f;
-
-  auto x = cx + (int32_t) (radius * cos_val);
-  auto y = cy + (int32_t) (radius * sin_val);
-
-  // Center the object at the computed position
-  auto obj_w = lv_obj_get_width(obj);
-  auto obj_h = lv_obj_get_height(obj);
-  lv_obj_set_pos(obj, x - obj_w / 2, y - obj_h / 2);
-}
-
 #ifdef USE_LVGL_METER
 
 int16_t lv_get_needle_angle_for_value(lv_obj_t *obj, int value) {

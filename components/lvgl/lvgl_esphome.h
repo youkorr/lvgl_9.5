@@ -298,10 +298,6 @@ class LVTouchListener : public touchscreen::TouchListener, public Parented<LvglC
 };
 #endif  // USE_LVGL_TOUCHSCREEN
 
-// Positions an object (e.g. label) at the arc's indicator end angle,
-// at a radial distance of (arc_radius + r_offset) from the arc center.
-void lv_arc_rotate_obj_to_angle(lv_obj_t *arc, lv_obj_t *obj, int32_t r_offset);
-
 #ifdef USE_LVGL_METER
 
 void lv_image_set_needle_value(lv_obj_t *obj, int value);
