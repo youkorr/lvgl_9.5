@@ -106,6 +106,8 @@ class ArcType(NumberType):
             rotate_config = config[CONF_ROTATE_LABEL]
             label_w = await get_widget_(rotate_config[CONF_ID])
             offset = rotate_config[CONF_OFFSET]
+            # Force layout update so arc coordinates are resolved before positioning the label
+            lv_obj.update_layout(w.obj)
             # Initial rotation to position label at current arc value
             lv.arc_rotate_obj_to_angle(w.obj, label_w.obj, offset)
             # Register VALUE_CHANGED callback for ongoing rotation
