@@ -1,7 +1,7 @@
-# Guide Complet des Widgets LVGL 9.4 pour ESPHome CERTAIN nouveaux widgets de lvgl 9.4 ne sont pas fonctionnel pour l'instant,
+# Guide Complet des Widgets LVGL 9.5 pour ESPHome CERTAIN nouveaux widgets de lvgl 9.5 ne sont pas fonctionnel pour l'instant,
 mais bientot avec des mise jour pour qu'il soit compatible avec esphome les test effectuer sont des esp32P4 
 
-Ce guide documente **tous les 35 widgets** disponibles dans l'implémentation LVGL 9.4 pour ESPHome.
+Ce guide documente **tous les 35 widgets** disponibles dans l'implémentation LVGL 9.5 pour ESPHome.
 
 ## Table des Matières
 
@@ -63,7 +63,7 @@ lvgl:
 - `long_mode`: Comportement pour texte long
 - `recolor`: Active les codes de couleur inline
 
-**Documentation**: [Label - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/label.html)
+**Documentation**: [Label - LVGL 9.5](https://docs.lvgl.io/9.5/details/widgets/label.html)
 
 ---
 
@@ -94,7 +94,7 @@ lvgl:
 - `on_press`: Début de pression
 - `on_release`: Relâchement
 
-**Documentation**: [Button - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/button.html)
+**Documentation**: [Button - LVGL 9.5](https://docs.lvgl.io/9.5/details/widgets/button.html)
 
 ---
 
@@ -152,7 +152,7 @@ lvgl:
               text: "Inside container"
 ```
 
-**Documentation**: [Object - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/obj.html)
+
 
 ---
 
@@ -184,7 +184,7 @@ lvgl:
 - `SYMMETRICAL`: Valeur centrée (0 au milieu)
 - `RANGE`: Deux valeurs (début et fin)
 
-**Documentation**: [Slider - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/slider.html)
+**Documentation**: [Slider - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/slider.html)
 
 ---
 
@@ -210,7 +210,7 @@ lvgl:
                 - logger.log: "Switch OFF"
 ```
 
-**Documentation**: [Switch - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/switch.html)
+**Documentation**: [Switch - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/switch.html)
 
 ---
 
@@ -233,7 +233,7 @@ lvgl:
               args: [ 'x ? "checked" : "unchecked"' ]
 ```
 
-**Documentation**: [Checkbox - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/checkbox.html)
+**Documentation**: [Checkbox - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/checkbox.html)
 
 ---
 
@@ -261,7 +261,7 @@ lvgl:
               ESP_LOGI("dropdown", "Selected: %d", (int)x);
 ```
 
-**Documentation**: [Dropdown - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/dropdown.html)
+**Documentation**: [Dropdown - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/dropdown.html)
 
 ---
 
@@ -288,7 +288,7 @@ lvgl:
               args: [ 'x' ]
 ```
 
-**Documentation**: [Roller - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/roller.html)
+**Documentation**: [Roller - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/roller.html)
 
 ---
 
@@ -317,7 +317,7 @@ lvgl:
               args: [ 'x.c_str()' ]
 ```
 
-**Documentation**: [Textarea - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/textarea.html)
+**Documentation**: [Textarea - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/textarea.html)
 
 ---
 
@@ -350,7 +350,7 @@ lvgl:
 - `SPECIAL`: Caractères spéciaux
 - `NUMBER`: Pavé numérique
 
-**Documentation**: [Keyboard - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/keyboard.html)
+**Documentation**: [Keyboard - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/keyboard.html)
 
 ---
 
@@ -376,7 +376,7 @@ lvgl:
         rollover: true  # Boucle à la fin
 ```
 
-**Documentation**: [Spinbox - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/spinbox.html)
+**Documentation**: [Spinbox - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/spinbox.html)
 
 ---
 
@@ -405,7 +405,7 @@ lvgl:
         adjustable: true  # Ajustable par l'utilisateur
 ```
 
-**Documentation**: [Arc - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/arc.html)
+**Documentation**: [Arc - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/arc.html)
 
 ---
 
@@ -432,7 +432,7 @@ lvgl:
           duration: 500ms
 ```
 
-**Documentation**: [Bar - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/bar.html)
+**Documentation**: [Bar - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/bar.html)
 
 ---
 
@@ -453,7 +453,7 @@ lvgl:
         brightness: 255  # 0-255
 ```
 
-**Documentation**: [LED - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/led.html)
+**Documentation**: [LED - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/led.html)
 
 ---
 
@@ -474,7 +474,7 @@ lvgl:
         arc_length: 60  # Longueur de l'arc (0-360)
 ```
 
-**Documentation**: [Spinner - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/spinner.html)
+**Documentation**: [Spinner - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/spinner.html)
 
 ---
 
@@ -501,7 +501,7 @@ lvgl:
         line_rounded: true  # Extrémités arrondies
 ```
 
-**Documentation**: [Line - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/line.html)
+**Documentation**: [Line - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/line.html)
 
 ---
 
@@ -535,7 +535,7 @@ lvgl:
         tick_width: 2
 ```
 
-**Documentation**: [Scale - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/scale.html)
+**Documentation**: [Scale - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/scale.html)
 **Voir aussi**: `SCALE_WIDGET_README.md` et `SCALE_QUICK_REFERENCE.md`
 
 ---
@@ -573,7 +573,7 @@ lvgl:
 - `BAR`: Histogramme
 - `SCATTER`: Nuage de points
 
-**Documentation**: [Chart - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/chart.html)
+**Documentation**: [Chart - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/chart.html)
 **Voir aussi**: `CHART_README.md`
 
 ---
@@ -595,7 +595,7 @@ lvgl:
         light_color: 0xFFFFFF
 ```
 
-**Documentation**: [QR Code - LVGL 9.4](https://docs.lvgl.io/9.4/details/libs/qrcode.html)
+**Documentation**: [QR Code - LVGL 9.5](https://docs.lvgl.io/9.4/details/libs/qrcode.html)
 
 ---
 
@@ -621,7 +621,7 @@ lvgl:
         auto_start: true
 ```
 
-**Documentation**: [AnimImg - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/animimg.html)
+**Documentation**: [AnimImg - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/animimg.html)
 
 ---
 
@@ -656,7 +656,7 @@ lvgl:
 - Redimensionnable sans perte de qualité
 
 **Ressources**:
-- Lottie documentation (https://docs.lvgl.io/9.4/details/widgets/lottie.html)
+- Lottie documentation (https://docs.lvgl.io/9.5/details/widgets/lottie.html)
 - [Weather Icons by Basmilius](https://github.com/basmilius/weather-icons)
 - [LottieFiles](https://lottiefiles.com/)
 
@@ -710,7 +710,7 @@ lvgl:
             text_decor: UNDERLINE
 ```
 
-**Documentation**: [Spangroup - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/spangroup.html)
+**Documentation**: [Spangroup - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/spangroup.html)
 **Voir aussi**: `SPAN_README.md`
 
 ---
@@ -745,7 +745,7 @@ lvgl:
                   text: "Settings content"
 ```
 
-**Documentation**: [TabView - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/tabview.html)
+**Documentation**: [TabView - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/tabview.html)
 
 ---
 
@@ -780,7 +780,7 @@ lvgl:
                   text: "Tile 2"
 ```
 
-**Documentation**: [TileView - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/tileview.html)
+**Documentation**: [TileView - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/tileview.html)
 
 ---
 
@@ -816,7 +816,7 @@ lvgl:
                   text: "Bluetooth"
 ```
 
-**Documentation**: [Menu - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/menu.html)
+**Documentation**: [Menu - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/index.html)
 **Voir aussi**: `MENU_README.md`
 
 ---
@@ -842,7 +842,7 @@ lvgl:
               text: "Window content"
 ```
 
-**Documentation**: [Window - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/win.html)
+**Documentation**: [Window - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/win.html)
 **Voir aussi**: `WIN_README.md`
 
 ---
@@ -868,7 +868,7 @@ lvgl:
           - text: "Item 3"
 ```
 
-**Documentation**: [List - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/list.html)
+**Documentation**: [List - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/list.html)
 
 ---
 
@@ -908,7 +908,7 @@ lvgl:
             text: "Paris"
 ```
 
-**Documentation**: [Table - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/table.html)
+**Documentation**: [Table - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/table.html)
 **Voir aussi**: `TABLE_README.md` et `TABLE_IMPLEMENTATION_SUMMARY.md`
 
 ---
@@ -936,7 +936,7 @@ lvgl:
               ESP_LOGI("calendar", "Selected: %d/%d/%d", day, month, year);
 ```
 
-**Documentation**: [Calendar - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/calendar.html)
+**Documentation**: [Calendar - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/calendar.html)
 **Voir aussi**: `CALENDAR_README.md`
 
 ---
@@ -981,7 +981,7 @@ lvgl:
               ESP_LOGI("btnmatrix", "Button %d clicked", button_id);
 ```
 
-**Documentation**: [ButtonMatrix - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/buttonmatrix.html)
+**Documentation**: [ButtonMatrix - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/buttonmatrix.html)
 
 ---
 
@@ -1009,7 +1009,7 @@ lvgl:
               }
 ```
 
-**Documentation**: [MsgBox - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/msgbox.html)
+**Documentation**: [MsgBox - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/msgbox.html)
 
 ---
 
@@ -1035,7 +1035,7 @@ lvgl:
 - Images
 - Pixels individuels
 
-**Documentation**: [Canvas - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/canvas.html)
+**Documentation**: [Canvas - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/canvas.html)
 
 ---
 
@@ -1059,7 +1059,7 @@ lvgl:
           - logger.log: "Power button clicked"
 ```
 
-**Documentation**: [ImageButton - LVGL 9.4](https://docs.lvgl.io/9.4/details/widgets/imagebutton.html)
+**Documentation**: [ImageButton - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/imagebutton.html)
 **Voir aussi**: `IMGBTN_README.md`
 
 ---
@@ -1117,10 +1117,8 @@ styles:
 ## Ressources
 
 ### Documentation Officielle
-- [LVGL 9.4 Documentation](https://docs.lvgl.io/9.4/)
-- [Widget Catalog](https://docs.lvgl.io/9.4/details/widgets/index.html)
-- [Events Reference](https://docs.lvgl.io/9.4/details/common-widget-features/events.html)
-- [Styles Guide](https://docs.lvgl.io/9.4/details/common-widget-features/styles.html)
+- [LVGL 9.4 Documentation](https://docs.lvgl.io/9.5/introduction/index.html)
+
 
 ### Ressources Graphiques
 - **SVG Icons**:
@@ -1141,9 +1139,6 @@ styles:
 
 ## Support et Contribution
 
-### Problèmes et Questions
-- [GitHub Issues](https://github.com/youkorr/test2_esp_video_esphome/issues)
-- [ESPHome Discord](https://discord.gg/KhAMKrd)
 
 ### Documentation des Widgets
 Consultez les README spécifiques pour plus de détails:
@@ -1163,7 +1158,7 @@ Consultez les README spécifiques pour plus de détails:
 
 ---
 
-**Implémentation complète LVGL 9.4 pour ESPHome**
+**Implémentation complète LVGL 9.5 pour ESPHome**
 ✅ 35/35 widgets documentés
 ✅ 70 événements supportés
 ✅ ThorVG/SVG/Lottie activés
