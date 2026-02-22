@@ -19,6 +19,7 @@ from esphome.coroutine import FakeAwaitable
 from esphome.cpp_generator import MockObj
 
 from ..defines import (
+    ANIM_PATHS,
     CONF_FLEX_ALIGN_CROSS,
     CONF_FLEX_ALIGN_MAIN,
     CONF_FLEX_ALIGN_TRACK,
@@ -32,6 +33,9 @@ from ..defines import (
     CONF_PAD_COLUMN,
     CONF_PAD_ROW,
     CONF_SCALE,
+    CONF_STYLE_TRANSITION_DELAY,
+    CONF_STYLE_TRANSITION_PATH,
+    CONF_STYLE_TRANSITION_TIME,
     CONF_STYLES,
     CONF_WIDGETS,
     OBJ_FLAGS,
@@ -55,6 +59,7 @@ from ..lvcode import (
     lv_obj,
     lv_Pvariable,
 )
+from esphome.cpp_generator import RawStatement
 from ..types import (
     LV_STATE,
     LvCompound,
@@ -484,6 +489,10 @@ def collect_props(config):
                 props[CONF_SCALE + "_y"] = config[prop]
             else:
                 props[prop] = config[prop]
+    # Collect transition properties
+    for prop in [CONF_STYLE_TRANSITION_TIME, CONF_STYLE_TRANSITION_DELAY, CONF_STYLE_TRANSITION_PATH]:
+        if prop in config:
+            props[prop] = config[prop]
     return props
 
 
@@ -553,6 +562,14 @@ async def set_obj_properties(w: Widget, config):
             lv_obj.set_flex_align(w.obj, main, cross, track)
     parts = collect_parts(config)
     for part, states in parts.items():
+        # Collect all style properties across all states for this part
+        # (needed for transition descriptors to cover all animated properties)
+        all_part_style_props = set()
+        for _state_name, _state_props in states.items():
+            for prop in _state_props:
+                if prop in ALL_STYLES:
+                    all_part_style_props.add(remap_property(prop))
+
         part = "LV_PART_" + part.upper()
         for state, props in states.items():
             state = "LV_STATE_" + state.upper()
@@ -571,6 +588,29 @@ async def set_obj_properties(w: Widget, config):
                     value = await ALL_STYLES[prop].process(value)
                 prop_r = remap_property(prop)
                 w.set_style(prop_r, value, lv_state)
+            # Handle style transitions for animated state changes
+            trans_time = props.get(CONF_STYLE_TRANSITION_TIME)
+            if trans_time is not None and all_part_style_props:
+                trans_delay = props.get(CONF_STYLE_TRANSITION_DELAY)
+                trans_path = props.get(CONF_STYLE_TRANSITION_PATH, "ease_in_out")
+                path_func = ANIM_PATHS.get(trans_path, "lv_anim_path_ease_in_out")
+                time_ms = int(trans_time.total_milliseconds)
+                delay_ms = int(trans_delay.total_milliseconds) if trans_delay else 0
+                # Generate unique variable names from widget ID and state
+                wid_str = str(config[CONF_ID])
+                state_str = state.replace("LV_STATE_", "").lower()
+                part_str = part.replace("LV_PART_", "").lower()
+                base_name = f"{wid_str}_{part_str}_{state_str}"
+                props_var = f"{base_name}_tr_props"
+                dsc_var = f"{base_name}_tr_dsc"
+                # Build LV_STYLE_* property enum list for transition
+                prop_enums = sorted(f"LV_STYLE_{p.upper()}" for p in all_part_style_props)
+                props_str = "{" + ", ".join(prop_enums) + ", 0}"
+                # Generate C++ transition descriptor code
+                lv_add(RawStatement(f"static const lv_style_prop_t {props_var}[] = {props_str};"))
+                lv_add(RawStatement(f"static lv_style_transition_dsc_t {dsc_var};"))
+                lv_add(RawStatement(f"lv_style_transition_dsc_init(&{dsc_var}, {props_var}, {path_func}, {time_ms}, {delay_ms}, NULL);"))
+                w.set_style("transition", literal(f"&{dsc_var}"), lv_state)
     if group := config.get(CONF_GROUP):
         group = await cg.get_variable(group)
         lv.group_add_obj(group, w.obj)
