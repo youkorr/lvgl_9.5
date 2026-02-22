@@ -4959,19 +4959,16 @@ key_collector:
               outline_color: 0x2196F3
               outline_opa: COVER
               pad_all: 10
-              # Transition for release animation (back to default)
-              style_transition_time: 300ms
-              style_transition_delay: 0ms
-              style_transition_path: ease_out
               pressed:
                 outline_width: 30
                 outline_opa: TRANSP
+                translate_y: 5
+                shadow_offset_y: 3
                 bg_color: 0x1565C0
                 bg_grad_color: 0x0D47A1
-                shadow_offset_y: 3
-                # Transition for press animation
-                style_transition_time: 100ms
-                style_transition_path: ease_in_out
+                # Transition on pressed state (linear 300ms like LVGL example)
+                style_transition_time: 300ms
+                style_transition_path: linear
               on_click:
                 - logger.log: "Styled button clicked"
               widgets:
