@@ -106,16 +106,22 @@ class ArcType(NumberType):
             rotate_config = config[CONF_ROTATE_LABEL]
             label_w = await get_widget_(rotate_config[CONF_ID])
             offset = rotate_config[CONF_OFFSET]
-            # Force layout update so arc coordinates are resolved before positioning the label
-            lv_obj.update_layout(w.obj)
-            # Initial rotation to position label at current arc value
-            lv.arc_rotate_obj_to_angle(w.obj, label_w.obj, offset)
             # Register VALUE_CHANGED callback for ongoing rotation
             async with LambdaContext(EVENT_ARG, where=config[CONF_ID]) as context:
                 lv.arc_rotate_obj_to_angle(w.obj, label_w.obj, offset)
             lv_add(
                 lvgl_static.add_event_cb(
                     w.obj, await context.get_lambda(), LV_EVENT.VALUE_CHANGED
+                )
+            )
+            # Position label when page is actually displayed (not during init)
+            async with LambdaContext(EVENT_ARG, where=config[CONF_ID]) as screen_ctx:
+                lv.arc_rotate_obj_to_angle(w.obj, label_w.obj, offset)
+            lv_add(
+                lvgl_static.add_event_cb(
+                    lv_expr.obj_get_screen(w.obj),
+                    await screen_ctx.get_lambda(),
+                    LV_EVENT.SCREEN_LOADED,
                 )
             )
 
