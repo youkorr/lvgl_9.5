@@ -582,18 +582,17 @@ lvgl:
 ### 20. QR Code
 
 Génère et affiche un QR code.
-probleme DATA invalide option QR Code
+
 ```yaml
 lvgl:
   widgets:
     - qrcode:
-        id: wifi_qrcode
-        x: 100
-        y: 100
+        id: wifi_qr
+        text: "WIFI:T:WPA;S:MonWifi;P:motdepasse;;"
         size: 150
-        data: "WIFI:T:WPA;S:MyNetwork;P:password123;;"
-        dark_color: 0x000000
+        align: CENTER
         light_color: 0xFFFFFF
+        dark_color: 0x000000
 ```
 
 **Documentation**: [QR Code - LVGL 9.5](https://docs.lvgl.io/9.4/details/libs/qrcode.html)
