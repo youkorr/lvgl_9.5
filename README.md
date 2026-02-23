@@ -370,7 +370,7 @@ lvgl:
         value: 20
         min_value: 0
         max_value: 100
-        step: 1
+        //step: 1
         digits: 3  # Nombre de chiffres
         decimal_places: 1  # Nombre de décimales
         rollover: true  # Boucle à la fin
@@ -412,6 +412,7 @@ lvgl:
 ### 14. Bar (Barre de progression)
 
 Barre de progression horizontale ou verticale.
+animated non reconue 
 
 ```yaml
 lvgl:
@@ -427,9 +428,9 @@ lvgl:
         value: 75
         mode: NORMAL  # NORMAL, SYMMETRICAL, RANGE
         # Animation
-        animated: true
-        animation:
-          duration: 500ms
+        //animated: true
+        //animation:
+          //duration: 500ms
 ```
 
 **Documentation**: [Bar - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/bar.html)
@@ -581,7 +582,7 @@ lvgl:
 ### 20. QR Code
 
 Génère et affiche un QR code.
-
+probleme DATA invalide option QR Code
 ```yaml
 lvgl:
   widgets:
@@ -730,7 +731,7 @@ lvgl:
         y: 0
         width: 100%
         height: 100%
-        tab_position: TOP  # TOP, BOTTOM, LEFT, RIGHT
+        position: TOP  # TOP, BOTTOM, LEFT, RIGHT
         tabs:
           - id: tab_home
             name: "Home"
@@ -765,7 +766,7 @@ lvgl:
         tiles:
           - id: tile1
             row: 0
-            col: 0
+            column: 0   # ← changed from col
             dir: HOR  # HOR, VER, ALL
             widgets:
               - label:
@@ -773,7 +774,7 @@ lvgl:
 
           - id: tile2
             row: 0
-            col: 1
+            column: 1   # ← changed from col
             dir: HOR
             widgets:
               - label:
@@ -787,6 +788,7 @@ lvgl:
 ### 28. Menu (Menu Hiérarchique) ⚡ Nouveau LVGL 9
 
 Menu de navigation hiérarchique avec sidebar.
+A revoire!! 
 
 ```yaml
 lvgl:
@@ -824,22 +826,321 @@ lvgl:
 ### 29. Window (Fenêtre)
 
 Fenêtre avec barre de titre et boutons.
-
+ERROR   dictionary-based
 ```yaml
 lvgl:
   widgets:
-    - win:
-        id: my_window
-        x: 50
-        y: 50
-        width: 300
-        height: 400
-        title: "Window Title"
-        header_height: 40
-        close_button: true
-        widgets:
-          - label:
-              text: "Window content"
+    - id: main_page
+      widgets:
+        # Background / Main screen content
+        - label:
+            text: "Main Screen"
+            align: CENTER
+
+        - button:
+            id: show_info_btn
+            text: "Show Info"
+            x: 50
+            y: 50
+            width: 120
+            on_click:
+              - lvgl.obj.clear_flag:
+                  id: info_window
+                  flag: HIDDEN
+
+        - button:
+            id: show_settings_btn
+            text: "Settings"
+            x: 50
+            y: 100
+            width: 120
+            on_click:
+              - lvgl.obj.clear_flag:
+                  id: settings_window
+                  flag: HIDDEN
+
+        # Example 1: Basic Information Window
+        - win:
+            id: info_window
+            title: "Information"
+            x: 100
+            y: 100
+            width: 300
+            height: 200
+            bg_color: 0xFFFFFF
+            border_width: 2
+            border_color: 0x333333
+            shadow_width: 10
+            shadow_opa: 30%
+            flag: HIDDEN  # Start hidden
+
+            header:
+              bg_color: 0x2196F3
+              text_color: 0xFFFFFF
+              height: 40
+
+            header_buttons:
+              - id: info_close_btn
+                src: close_icon
+                on_click:
+                  - lvgl.obj.add_flag:
+                      id: info_window
+                      flag: HIDDEN
+
+            body:
+              bg_color: 0xF5F5F5
+              pad_all: 15
+
+            widgets:
+              - label:
+                  text: "This is an information window"
+                  align: TOP_MID
+                  y: 10
+
+              - label:
+                  text: "You can add any widgets here"
+                  align: CENTER
+
+              - button:
+                  text: "OK"
+                  align: BOTTOM_MID
+                  y: -10
+                  width: 100
+                  on_click:
+                    - lvgl.obj.add_flag:
+                        id: info_window
+                        flag: HIDDEN
+
+        # Example 2: Settings Window with Multiple Controls
+        - win:
+            id: settings_window
+            title: "Settings"
+            x: 50
+            y: 50
+            width: 400
+            height: 350
+            bg_color: 0xFFFFFF
+            flag: HIDDEN
+
+            header:
+              bg_color: 0xFF5722
+              text_color: 0xFFFFFF
+
+            header_buttons:
+              - id: settings_close_btn
+                src: close_icon
+                on_click:
+                  - lvgl.obj.add_flag:
+                      id: settings_window
+                      flag: HIDDEN
+
+            widgets:
+              - label:
+                  text: "Device Configuration"
+                  x: 10
+                  y: 10
+                  text_font: roboto_16_bold
+
+              # WiFi Settings
+              - label:
+                  text: "WiFi:"
+                  x: 10
+                  y: 50
+
+              - switch:
+                  id: wifi_switch
+                  text: "Enable WiFi"
+                  x: 10
+                  y: 75
+
+              # Brightness Control
+              - label:
+                  text: "Brightness:"
+                  x: 10
+                  y: 120
+
+              - slider:
+                  id: brightness_slider
+                  min_value: 0
+                  max_value: 100
+                  value: 75
+                  x: 10
+                  y: 145
+                  width: 360
+
+              - label:
+                  id: brightness_value
+                  text: "75%"
+                  x: 370
+                  y: 145
+
+              # Sound Settings
+              - label:
+                  text: "Volume:"
+                  x: 10
+                  y: 190
+
+              - slider:
+                  id: volume_slider
+                  min_value: 0
+                  max_value: 100
+                  value: 50
+                  x: 10
+                  y: 215
+                  width: 360
+
+              # Action Buttons
+              - button:
+                  text: "Cancel"
+                  x: 200
+                  y: 280
+                  width: 90
+                  on_click:
+                    - lvgl.obj.add_flag:
+                        id: settings_window
+                        flag: HIDDEN
+
+              - button:
+                  text: "Save"
+                  x: 300
+                  y: 280
+                  width: 90
+                  bg_color: 0x4CAF50
+                  text_color: 0xFFFFFF
+                  on_click:
+                    - lambda: |-
+                        // Save settings
+                    - lvgl.obj.add_flag:
+                        id: settings_window
+                        flag: HIDDEN
+
+        # Example 3: Confirmation Dialog
+        - win:
+            id: confirm_dialog
+            title: "Confirm"
+            x: CENTER
+            y: CENTER
+            width: 280
+            height: 150
+            bg_color: 0xFFFFFF
+            shadow_width: 20
+            shadow_opa: 50%
+            flag: HIDDEN
+
+            header:
+              bg_color: 0xFFC107
+              text_color: 0x000000
+
+            widgets:
+              - label:
+                  text: "Are you sure you want to restart?"
+                  align: TOP_MID
+                  y: 15
+                  text_align: CENTER
+
+              - container:
+                  layout: flex
+                  flex_flow: ROW
+                  align: BOTTOM_MID
+                  y: -15
+                  pad_column: 10
+                  widgets:
+                    - button:
+                        text: "No"
+                        width: 100
+                        on_click:
+                          - lvgl.obj.add_flag:
+                              id: confirm_dialog
+                              flag: HIDDEN
+
+                    - button:
+                        text: "Yes"
+                        width: 100
+                        bg_color: 0xF44336
+                        text_color: 0xFFFFFF
+                        on_click:
+                          - lambda: |-
+                              // Perform restart
+                          - lvgl.obj.add_flag:
+                              id: confirm_dialog
+                              flag: HIDDEN
+
+        # Example 4: File Browser Window
+        - win:
+            id: file_browser
+            title: "Select File"
+            x: 80
+            y: 60
+            width: 380
+            height: 320
+            flag: HIDDEN
+
+            header:
+              bg_color: 0x607D8B
+              text_color: 0xFFFFFF
+
+            header_buttons:
+              - id: file_browser_close
+                src: close_icon
+                on_click:
+                  - lvgl.obj.add_flag:
+                      id: file_browser
+                      flag: HIDDEN
+
+            widgets:
+              # Current path
+              - label:
+                  id: current_path
+                  text: "/home/user/"
+                  x: 5
+                  y: 5
+
+              # File list
+              - list:
+                  id: file_list
+                  x: 5
+                  y: 30
+                  width: 360
+                  height: 220
+                  items:
+                    - type: text
+                      text: "Folders"
+                    - type: button
+                      text: "Documents"
+                    - type: button
+                      text: "Pictures"
+                    - type: text
+                      text: "Files"
+                    - type: button
+                      text: "readme.txt"
+                    - type: button
+                      text: "config.yaml"
+
+              # Action buttons
+              - button:
+                  text: "Cancel"
+                  x: 150
+                  y: 265
+                  width: 100
+                  on_click:
+                    - lvgl.obj.add_flag:
+                        id: file_browser
+                        flag: HIDDEN
+
+              - button:
+                  text: "Open"
+                  x: 260
+                  y: 265
+                  width: 100
+                  bg_color: 0x2196F3
+                  text_color: 0xFFFFFF
+
+# Update brightness label when slider changes
+on_slider_changed:
+- lambda: |-
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%d%%", (int)id(brightness_slider)->get_value());
+  id(brightness_value)->set_text(buf);
 ```
 
 **Documentation**: [Window - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/win.html)
@@ -850,7 +1151,7 @@ lvgl:
 ### 30. List (Liste)
 
 Liste de boutons avec texte et icônes.
-
+RIEN NE FONCTIONNE
 ```yaml
 lvgl:
   widgets:
@@ -875,7 +1176,7 @@ lvgl:
 ### 31. Table (Tableau)
 
 Tableau avec lignes et colonnes.
-
+IL FAUT TOUS REVOIR
 ```yaml
 lvgl:
   widgets:
@@ -906,6 +1207,28 @@ lvgl:
           - row: 1
             col: 2
             text: "Paris"
+
+      widgets: 
+        - table: 
+            id: data_table
+            x: 50
+            y: 50
+            width: 300
+            height: 200
+            
+            [col_count] is an invalid option for [table]. Did you mean [column_count], [row_count], [scroll_one]?
+            col_count: 3
+            row_count: 4
+            cells: 
+              
+              'column' is a required option for [cells].
+              - row: 0
+                
+                [col] is an invalid option for [cells]. Did you mean [column]?
+                col: 0
+                text: Name
+              - row: 0
+            
 ```
 
 **Documentation**: [Table - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/table.html)
@@ -921,19 +1244,20 @@ Calendrier mensuel interactif.
 lvgl:
   widgets:
     - calendar:
-        id: my_calendar
-        x: 50
-        y: 50
+        id: dropdown_calendar
+        x: 10
+        y: 320
         width: 300
         height: 300
-        year: 2024
-        month: 1  # 1-12
-        day: 15
-        show_month_names: true
-        show_day_names: true
-        on_change:
-          - lambda: |-
-              ESP_LOGI("calendar", "Selected: %d/%d/%d", day, month, year);
+        header_mode: dropdown
+        today_date:
+          year: 2024
+          month: 12
+          day: 15
+        showed_date:
+          year: 2024
+          month: 12
+          day: 1
 ```
 
 **Documentation**: [Calendar - LVGL 9.5](https://docs.lvgl.io/9.5/widgets/calendar.html)
@@ -1039,10 +1363,73 @@ lvgl:
 
 ---
 
-### 36. ImageButton (Bouton Image)
+### 36. Button (Styling buttons)
 
-Bouton avec images pour chaque état.
-
+Styling buttons.
+```yaml
+lvgl:
+  widgets:
+    - button:
+        align: CENTER
+        x: 150
+        width: SIZE_CONTENT
+        height: SIZE_CONTENT
+        radius: 3
+        bg_color: 0x2196F3
+        bg_grad_color: 0x1565C0
+        bg_grad_dir: VER
+        bg_opa: COVER
+        border_width: 2
+        border_color: 0x9E9E9E
+        border_opa: 40%
+        shadow_width: 8
+        shadow_color: 0x9E9E9E
+        shadow_offset_y: 8
+        outline_color: 0x2196F3
+        outline_opa: COVER
+        pad_all: 10
+        pressed:
+          outline_width: 30
+          outline_opa: TRANSP
+          translate_y: 5
+          shadow_offset_y: 3
+          bg_color: 0x1565C0
+          bg_grad_color: 0x0D47A1
+          # Transition on pressed state (linear 300ms like LVGL example)
+          style_transition_time: 300ms
+          style_transition_path: linear
+        on_click:
+          - logger.log: "Styled button clicked"
+        widgets:
+          - label:
+              align: CENTER
+              text: "Button"
+              text_color: 0xFFFFFF  
+ --- 
+### 37. Button (Gum)
+```yaml
+lvgl:
+  widgets:
+    - button:
+          align: CENTER
+          x: 150
+          y: 80
+          # Transition for release (overshoot = bounce-back effect)
+          style_transition_time: 250ms
+          style_transition_delay: 100ms
+          style_transition_path: overshoot
+          pressed:
+            transform_width: 10
+            transform_height: -10
+            text_letter_space: 10
+            # Transition for press
+            style_transition_time: 250ms
+            style_transition_path: ease_in_out
+          widgets:
+            - label:
+                align: CENTER
+                text: "Gum" 
+---                
 ```yaml
 lvgl:
   widgets:
