@@ -180,18 +180,24 @@ void LvglComponent::show_page(size_t index, lv_scr_load_anim_t anim, uint32_t ti
 void LvglComponent::show_next_page(lv_scr_load_anim_t anim, uint32_t time) {
   if (this->pages_.empty() || (this->current_page_ == this->pages_.size() - 1 && !this->page_wrap_))
     return;
+  auto start = this->current_page_;
   do {
     this->current_page_ = (this->current_page_ + 1) % this->pages_.size();
-  } while (this->pages_[this->current_page_]->skip);  // skip empty pages()
+    if (this->current_page_ == start)
+      return;  // all pages are skipped, avoid infinite loop
+  } while (this->pages_[this->current_page_]->skip);
   this->show_page(this->current_page_, anim, time);
 }
 
 void LvglComponent::show_prev_page(lv_scr_load_anim_t anim, uint32_t time) {
   if (this->pages_.empty() || (this->current_page_ == 0 && !this->page_wrap_))
     return;
+  auto start = this->current_page_;
   do {
     this->current_page_ = (this->current_page_ + this->pages_.size() - 1) % this->pages_.size();
-  } while (this->pages_[this->current_page_]->skip);  // skip empty pages()
+    if (this->current_page_ == start)
+      return;  // all pages are skipped, avoid infinite loop
+  } while (this->pages_[this->current_page_]->skip);
   this->show_page(this->current_page_, anim, time);
 }
 
@@ -204,7 +210,7 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
   auto height_rounded = (height + this->draw_rounding - 1) / this->draw_rounding * this->draw_rounding;
   auto x1 = area->x1;
   auto y1 = area->y1;
-  lv_color_data *dst = reinterpret_cast<lv_color_data *>(this->rotate_buf_);
+  auto *dst = reinterpret_cast<lv_color_data *>(this->rotate_buf_);
   switch (this->rotation) {
     case display::DISPLAY_ROTATION_90_DEGREES:
       for (lv_coord_t x = height; x-- != 0;) {
@@ -214,7 +220,6 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
       }
       y1 = x1;
       x1 = this->height_ - area->y1 - height;
-      width = height;
       height = width;
       width = height_rounded;
       break;
@@ -495,7 +500,10 @@ void LvglComponent::write_random_() {
     col = col / this->draw_rounding * this->draw_rounding;
     auto row = random_uint32() % this->height_;
     row = row / this->draw_rounding * this->draw_rounding;
-    auto size = (random_uint32() % 32) / this->draw_rounding * this->draw_rounding - 1;
+    auto raw_size = (random_uint32() % 32) / this->draw_rounding * this->draw_rounding;
+    if (raw_size == 0)
+      continue;
+    auto size = raw_size - 1;
     lv_area_t area;
     area.x1 = col;
     area.y1 = row;
@@ -580,13 +588,12 @@ void LvglComponent::setup() {
   lv_display_set_user_data(this->disp_, this);
   lv_display_set_flush_cb(this->disp_, static_flush_cb);
   lv_display_add_event_cb(this->disp_, rounder_cb, LV_EVENT_INVALIDATE_AREA, this);
-  // CRITICAL FIX: Do NOT call lv_display_set_buffers() here!
-  // It can trigger immediate rendering which deadlocks because loop() hasn't started yet.
-  // Store buf_bytes for delayed configuration in loop()
+  // Store buf_bytes - lv_display_set_buffers() is called at the END of setup()
+  // to avoid triggering rendering before all callbacks and pages are configured.
   this->buf_bytes_ = buf_bytes;
   this->rotation = display->get_rotation();
   if (this->rotation != display::DISPLAY_ROTATION_0_DEGREES) {
-    this->rotate_buf_ = static_cast<lv_color_t *>(lv_malloc_core(buf_bytes));  // NOLINT
+    this->rotate_buf_ = static_cast<lv_color_t *>(lv_malloc_core(buf_bytes));
     if (this->rotate_buf_ == nullptr) {
       this->status_set_error(LOG_STR("Memory allocation failure"));
       this->mark_failed();
@@ -633,7 +640,9 @@ void LvglComponent::update() {
 }
 
 void LvglComponent::loop() {
-  // Mark that loop has started - LVGL is now fully ready for operations
+  if (!this->buffers_configured_)
+    return;  // setup() not complete or failed, skip rendering
+
   if (!this->loop_started_) {
     this->loop_started_ = true;
     ESP_LOGD(TAG, "LVGL loop started - system is now fully ready");
@@ -814,9 +823,18 @@ void *lv_realloc_core(void *ptr, size_t size) {
   if (new_ptr == nullptr)
     return nullptr;
 
-  // We don't know the old size, so we copy 'size' bytes (safe if new >= old)
-  // This is a limitation but matches typical realloc usage patterns
-  memcpy(new_ptr, ptr, size);
+  // We don't know the old size exactly, so copy min(new_size, old_usable_size).
+  // On most platforms, malloc_usable_size() returns the actual allocated size.
+  // Fall back to new size if unavailable (safe: reads at most what was allocated).
+#if defined(__GLIBC__) || defined(__ANDROID__)
+  size_t old_size = malloc_usable_size(reinterpret_cast<void **>(ptr)[-1]);
+  // Subtract alignment overhead to get usable size from aligned pointer
+  size_t overhead = reinterpret_cast<uintptr_t>(ptr) - reinterpret_cast<uintptr_t>(reinterpret_cast<void **>(ptr)[-1]);
+  old_size = (old_size > overhead) ? old_size - overhead : 0;
+#else
+  size_t old_size = size;  // conservative fallback: may read less than available
+#endif
+  memcpy(new_ptr, ptr, (size < old_size) ? size : old_size);
   lv_free_core(ptr);
 
   return new_ptr;
@@ -895,8 +913,9 @@ void *lv_realloc_core(void *ptr, size_t size) {
   if (new_ptr == nullptr)
     return nullptr;
 
-  // Copy data to new buffer (we don't know old size, copy 'size' bytes)
-  memcpy(new_ptr, ptr, size);
+  // Copy data to new buffer using heap_caps_get_allocated_size for safe bounds
+  size_t old_size = heap_caps_get_allocated_size(ptr);
+  memcpy(new_ptr, ptr, (size < old_size) ? size : old_size);
   lv_free_core(ptr);
 
   return new_ptr;
