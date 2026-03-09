@@ -259,6 +259,8 @@ inline size_t asvg_build_frame_svg(const AnimSvgContext *ctx, float elapsed_s,
 inline bool asvg_render_frame(AnimSvgContext *ctx, const char *svg_data, size_t svg_len) {
     memset(ctx->pixel_buffer, 0, ctx->width * ctx->height * sizeof(uint32_t));
 
+    tvg_engine_init(TVG_ENGINE_SW, 0);
+
     Tvg_Canvas *tc = tvg_swcanvas_create();
     if (!tc) return false;
 
