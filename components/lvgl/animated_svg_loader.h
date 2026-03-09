@@ -256,26 +256,39 @@ inline size_t asvg_build_frame_svg(const AnimSvgContext *ctx, float elapsed_s,
 // Render one frame of the animated SVG using ThorVG.
 // MUST be called under lv_lock() to avoid ThorVG concurrency with Lottie.
 // ---------------------------------------------------------------------------
-inline bool asvg_render_frame(AnimSvgContext *ctx, const char *svg_data, size_t svg_len) {
+inline bool asvg_render_frame(AnimSvgContext *ctx, const char *svg_data, size_t svg_len,
+                               bool log_diag = false) {
     memset(ctx->pixel_buffer, 0, ctx->width * ctx->height * sizeof(uint32_t));
 
+    Tvg_Result res;
     tvg_engine_init(TVG_ENGINE_SW, 0);
 
     Tvg_Canvas *tc = tvg_swcanvas_create();
-    if (!tc) return false;
+    if (!tc) { ESP_LOGE(ASVG_TAG, "swcanvas_create FAILED"); return false; }
 
-    if (tvg_swcanvas_set_target(tc, ctx->pixel_buffer, ctx->width,
-                                 ctx->width, ctx->height,
-                                 TVG_COLORSPACE_ARGB8888) != TVG_RESULT_SUCCESS) {
+    res = tvg_swcanvas_set_target(tc, ctx->pixel_buffer, ctx->width,
+                                   ctx->width, ctx->height,
+                                   TVG_COLORSPACE_ARGB8888);
+    if (res != TVG_RESULT_SUCCESS) {
+        ESP_LOGE(ASVG_TAG, "set_target FAILED: %d", (int)res);
         tvg_canvas_destroy(tc);
         return false;
     }
 
     Tvg_Paint *pic = tvg_picture_new();
-    if (!pic) { tvg_canvas_destroy(tc); return false; }
+    if (!pic) { ESP_LOGE(ASVG_TAG, "picture_new FAILED"); tvg_canvas_destroy(tc); return false; }
 
-    if (tvg_picture_load_data(pic, svg_data, (uint32_t)svg_len,
-                               "svg", true) != TVG_RESULT_SUCCESS) {
+    res = tvg_picture_load_data(pic, svg_data, (uint32_t)svg_len, "svg", true);
+    if (res != TVG_RESULT_SUCCESS) {
+        ESP_LOGE(ASVG_TAG, "picture_load_data FAILED: %d (len=%u)", (int)res, (unsigned)svg_len);
+        if (log_diag && svg_len > 0) {
+            // Log first 200 chars of SVG for debugging
+            char preview[201];
+            size_t plen = svg_len < 200 ? svg_len : 200;
+            memcpy(preview, svg_data, plen);
+            preview[plen] = '\0';
+            ESP_LOGI(ASVG_TAG, "SVG start: %s", preview);
+        }
         tvg_paint_del(pic);
         tvg_canvas_destroy(tc);
         return false;
@@ -283,17 +296,50 @@ inline bool asvg_render_frame(AnimSvgContext *ctx, const char *svg_data, size_t 
 
     float ow = 0, oh = 0;
     tvg_picture_get_size(pic, &ow, &oh);
+    if (log_diag) {
+        ESP_LOGI(ASVG_TAG, "SVG native size: %.0fx%.0f -> render %ux%u",
+                 ow, oh, (unsigned)ctx->width, (unsigned)ctx->height);
+    }
     tvg_picture_set_size(pic, (float)ctx->width, (float)ctx->height);
 
-    if (tvg_canvas_push(tc, pic) != TVG_RESULT_SUCCESS) {
+    res = tvg_canvas_push(tc, pic);
+    if (res != TVG_RESULT_SUCCESS) {
+        ESP_LOGE(ASVG_TAG, "canvas_push FAILED: %d", (int)res);
         tvg_paint_del(pic);
         tvg_canvas_destroy(tc);
         return false;
     }
 
-    tvg_canvas_draw(tc);
-    tvg_canvas_sync(tc);
+    res = tvg_canvas_draw(tc);
+    if (log_diag && res != TVG_RESULT_SUCCESS) {
+        ESP_LOGE(ASVG_TAG, "canvas_draw FAILED: %d", (int)res);
+    }
+
+    res = tvg_canvas_sync(tc);
+    if (log_diag && res != TVG_RESULT_SUCCESS) {
+        ESP_LOGE(ASVG_TAG, "canvas_sync FAILED: %d", (int)res);
+    }
+
     tvg_canvas_destroy(tc);
+
+    // Check if any pixels were actually rendered
+    if (log_diag) {
+        uint32_t nonzero = 0;
+        size_t total = ctx->width * ctx->height;
+        for (size_t i = 0; i < total && nonzero < 10; i++) {
+            if (ctx->pixel_buffer[i] != 0) nonzero++;
+        }
+        ESP_LOGI(ASVG_TAG, "Pixel check: %u non-zero pixels found (of %u total)",
+                 (unsigned)nonzero, (unsigned)total);
+
+        // Check draw_buf stride
+        if (ctx->draw_buf) {
+            ESP_LOGI(ASVG_TAG, "draw_buf: data=%p, stride=%u, w=%u, h=%u",
+                     ctx->draw_buf->data, (unsigned)ctx->draw_buf->header.stride,
+                     (unsigned)ctx->draw_buf->header.w, (unsigned)ctx->draw_buf->header.h);
+        }
+        ESP_LOGI(ASVG_TAG, "pixel_buffer=%p", ctx->pixel_buffer);
+    }
 
     return true;
 }
@@ -1204,7 +1250,7 @@ inline void asvg_render_task(void *param) {
             // Render under lv_lock to prevent ThorVG concurrency with Lottie.
             // ThorVG is NOT thread-safe – both Lottie and SVG use it.
             lv_lock();
-            bool ok = asvg_render_frame(ctx, svg_buf, svg_len);
+            bool ok = asvg_render_frame(ctx, svg_buf, svg_len, first_frame);
 
             if (ok) {
                 if (first_frame) {
