@@ -1240,6 +1240,7 @@ inline void asvg_render_task(void *param) {
     {
         TickType_t start_tick = xTaskGetTickCount();
         bool first_frame = true;
+        int diag_frames = 5;  // Log diagnostics for first N frames
 
         while (!ctx->stop_requested) {
             float elapsed_s = (float)((xTaskGetTickCount() - start_tick) * portTICK_PERIOD_MS) / 1000.0f;
@@ -1247,12 +1248,47 @@ inline void asvg_render_task(void *param) {
             // Build SVG for this frame (string manipulation, no ThorVG)
             size_t svg_len = asvg_build_frame_svg(ctx, elapsed_s, svg_buf, svg_buf_size);
 
+            // Log first frame SVG text for debugging
+            if (first_frame && svg_len > 0) {
+                size_t preview_len = svg_len < 400 ? svg_len : 400;
+                char saved = svg_buf[preview_len];
+                svg_buf[preview_len] = '\0';
+                ESP_LOGI(ASVG_TAG, "Frame SVG (%u bytes): %s%s",
+                         (unsigned)svg_len, svg_buf, svg_len > 400 ? "..." : "");
+                svg_buf[preview_len] = saved;
+            }
+
             // Render under lv_lock to prevent ThorVG concurrency with Lottie.
             // ThorVG is NOT thread-safe – both Lottie and SVG use it.
             lv_lock();
-            bool ok = asvg_render_frame(ctx, svg_buf, svg_len, first_frame);
+            bool ok = asvg_render_frame(ctx, svg_buf, svg_len, diag_frames > 0);
 
             if (ok) {
+                if (diag_frames > 0) {
+                    // Count non-zero pixels for diagnostic
+                    uint32_t nonzero = 0;
+                    size_t total = ctx->width * ctx->height;
+                    for (size_t i = 0; i < total; i++) {
+                        if (ctx->pixel_buffer[i] != 0) nonzero++;
+                    }
+                    // Check alpha channel
+                    uint32_t has_alpha = 0;
+                    for (size_t i = 0; i < total && has_alpha < 5; i++) {
+                        uint32_t px = ctx->pixel_buffer[i];
+                        if (px != 0) {
+                            uint8_t a = (px >> 24) & 0xFF;
+                            uint8_t r = (px >> 16) & 0xFF;
+                            uint8_t g = (px >> 8) & 0xFF;
+                            uint8_t b = px & 0xFF;
+                            ESP_LOGI(ASVG_TAG, "  pixel sample: ARGB=0x%02X%02X%02X%02X", a, r, g, b);
+                            has_alpha++;
+                        }
+                    }
+                    ESP_LOGI(ASVG_TAG, "Frame diag: %u/%u non-zero pixels, elapsed=%.2fs",
+                             (unsigned)nonzero, (unsigned)total, elapsed_s);
+                    diag_frames--;
+                }
+
                 if (first_frame) {
                     first_frame = false;
                     if (!ctx->runtime_hidden) {
@@ -1261,6 +1297,9 @@ inline void asvg_render_task(void *param) {
                     ESP_LOGI(ASVG_TAG, "First frame rendered OK");
                 }
                 lv_obj_invalidate(ctx->canvas_obj);
+            } else if (diag_frames > 0) {
+                ESP_LOGE(ASVG_TAG, "Frame render FAILED at elapsed=%.2fs", elapsed_s);
+                diag_frames--;
             }
             lv_unlock();
 
