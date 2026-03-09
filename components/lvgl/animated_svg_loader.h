@@ -71,6 +71,8 @@ struct AnimSvgContext {
     uint32_t width;
     uint32_t height;
     uint32_t frame_delay_ms;         // target frame time (e.g. 100 = 10 FPS)
+    const char *file_path;           // filesystem path (SD card) or nullptr
+    bool file_loaded;                // true after first successful file load
 
     // --- Runtime state (freed on screen unload) ---
     uint32_t *pixel_buffer;          // PSRAM – width*height*4 bytes
@@ -470,12 +472,9 @@ inline void asvg_screen_unloaded_cb(lv_event_t *e) {
              (unsigned)ctx->width, (unsigned)ctx->height);
 }
 
-inline void asvg_screen_loaded_cb(lv_event_t *e) {
-    AnimSvgContext *ctx = (AnimSvgContext *)lv_event_get_user_data(e);
-    if (ctx->pixel_buffer == nullptr) {
-        asvg_launch(ctx);
-    }
-}
+// asvg_screen_loaded_cb is defined later (after asvg_load_file_deferred)
+// so it can call the deferred file loader for SD card SVGs.
+inline void asvg_screen_loaded_cb(lv_event_t *e);
 
 // ---------------------------------------------------------------------------
 // Public API: initialise animated SVG widget.
@@ -1148,18 +1147,16 @@ inline bool rt_parse_smil(const char *svg_data, size_t svg_len, RtSmilParseResul
 }
 
 // ---------------------------------------------------------------------------
-// Public API: initialise from filesystem with runtime SMIL parsing.
-// Reads SVG file, parses SMIL animations at runtime, and starts animation.
-// This is the function to use for animated SVGs on SD card / LittleFS.
+// Load SVG file from filesystem (SD card) and parse SMIL animations.
+// Called from asvg_launch() on SCREEN_LOADED, when the SD card is mounted.
+// Returns true if file was loaded and parsed successfully.
 // ---------------------------------------------------------------------------
-inline bool asvg_init_file_rt(lv_obj_t *canvas_obj,
-                               const char *file_path,
-                               uint32_t width, uint32_t height,
-                               uint32_t frame_delay_ms, bool user_wants_hidden) {
-    // Read the SVG file
-    FILE *f = fopen(file_path, "r");
+inline bool asvg_load_file_deferred(AnimSvgContext *ctx) {
+    if (!ctx->file_path) return false;
+
+    FILE *f = fopen(ctx->file_path, "r");
     if (!f) {
-        ESP_LOGE(ASVG_TAG, "Cannot open: %s", file_path);
+        ESP_LOGE(ASVG_TAG, "Cannot open: %s", ctx->file_path);
         return false;
     }
     fseek(f, 0, SEEK_END);
@@ -1178,12 +1175,12 @@ inline bool asvg_init_file_rt(lv_obj_t *canvas_obj,
     fclose(f);
     raw_svg[nread] = '\0';
 
-    ESP_LOGI(ASVG_TAG, "Read %u bytes from %s", (unsigned)nread, file_path);
+    ESP_LOGI(ASVG_TAG, "Read %u bytes from %s", (unsigned)nread, ctx->file_path);
 
     // Parse SMIL animations at runtime
     RtSmilParseResult parse_result;
     if (!rt_parse_smil(raw_svg, nread, &parse_result)) {
-        ESP_LOGE(ASVG_TAG, "SMIL parse failed for %s", file_path);
+        ESP_LOGE(ASVG_TAG, "SMIL parse failed for %s", ctx->file_path);
         heap_caps_free(raw_svg);
         return false;
     }
@@ -1192,25 +1189,87 @@ inline bool asvg_init_file_rt(lv_obj_t *canvas_obj,
     heap_caps_free(raw_svg);
 
     if (parse_result.num_anims == 0) {
-        ESP_LOGW(ASVG_TAG, "No animations in %s, rendering as static SVG", file_path);
+        ESP_LOGW(ASVG_TAG, "No animations in %s, rendering as static SVG", ctx->file_path);
     }
 
+    // Store the parsed template
+    ctx->svg_template = parse_result.svg_template;
+    ctx->svg_template_size = parse_result.svg_template_size;
+
     // Copy animations to persistent PSRAM allocation
-    SmilAnim *persistent_anims = nullptr;
     if (parse_result.num_anims > 0) {
         size_t anims_size = sizeof(SmilAnim) * parse_result.num_anims;
-        persistent_anims = (SmilAnim *)heap_caps_malloc(anims_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        SmilAnim *persistent_anims = (SmilAnim *)heap_caps_malloc(anims_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (!persistent_anims) {
-            heap_caps_free(parse_result.svg_template);
+            heap_caps_free((void *)ctx->svg_template);
+            ctx->svg_template = nullptr;
             return false;
         }
         memcpy(persistent_anims, parse_result.anims, anims_size);
+        ctx->anims = persistent_anims;
     }
+    ctx->num_anims = parse_result.num_anims;
+    ctx->file_loaded = true;
 
-    // Initialise the animated SVG widget
-    return asvg_init(canvas_obj, parse_result.svg_template, parse_result.svg_template_size,
-                      persistent_anims, parse_result.num_anims,
-                      width, height, frame_delay_ms, user_wants_hidden);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Screen loaded callback – implementation (declared earlier as forward decl).
+// For file-based SVGs, loads the file here (SD card is mounted by now).
+// ---------------------------------------------------------------------------
+inline void asvg_screen_loaded_cb(lv_event_t *e) {
+    AnimSvgContext *ctx = (AnimSvgContext *)lv_event_get_user_data(e);
+    if (ctx->pixel_buffer == nullptr) {
+        // If this is a file-based SVG that hasn't been loaded yet, load it now
+        if (ctx->file_path && !ctx->file_loaded) {
+            if (!asvg_load_file_deferred(ctx)) {
+                ESP_LOGE(ASVG_TAG, "Failed to load SVG from %s", ctx->file_path);
+                return;
+            }
+        }
+        asvg_launch(ctx);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Public API: initialise from filesystem with runtime SMIL parsing.
+// Defers file reading to SCREEN_LOADED event (like Lottie) so that the
+// SD card / filesystem is mounted before we try to open the file.
+// This is the function to use for animated SVGs on SD card / LittleFS.
+// ---------------------------------------------------------------------------
+inline bool asvg_init_file_rt(lv_obj_t *canvas_obj,
+                               const char *file_path,
+                               uint32_t width, uint32_t height,
+                               uint32_t frame_delay_ms, bool user_wants_hidden) {
+    AnimSvgContext *ctx = (AnimSvgContext *)heap_caps_malloc(
+        sizeof(AnimSvgContext), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!ctx) return false;
+    memset(ctx, 0, sizeof(AnimSvgContext));
+
+    ctx->canvas_obj     = canvas_obj;
+    ctx->file_path      = file_path;
+    ctx->file_loaded    = false;
+    ctx->width          = width;
+    ctx->height         = height;
+    ctx->frame_delay_ms = frame_delay_ms > 0 ? frame_delay_ms : 100;
+    ctx->user_wants_hidden = user_wants_hidden;
+    ctx->runtime_hidden = user_wants_hidden;
+
+    lv_obj_set_user_data(canvas_obj, ctx);
+
+    // Register screen events – file will be read on SCREEN_LOADED
+    lv_obj_t *screen = lv_obj_get_screen(canvas_obj);
+    lv_obj_add_event_cb(screen, asvg_screen_unload_start_cb,
+                        LV_EVENT_SCREEN_UNLOAD_START, ctx);
+    lv_obj_add_event_cb(screen, asvg_screen_unloaded_cb,
+                        LV_EVENT_SCREEN_UNLOADED, ctx);
+    lv_obj_add_event_cb(screen, asvg_screen_loaded_cb,
+                        LV_EVENT_SCREEN_LOADED, ctx);
+
+    ESP_LOGI(ASVG_TAG, "Animated SVG registered (%ux%u) from %s, waiting for page load",
+             (unsigned)width, (unsigned)height, file_path);
+    return true;
 }
 
 }  // namespace lvgl
