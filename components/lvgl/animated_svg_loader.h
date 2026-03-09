@@ -254,11 +254,10 @@ inline size_t asvg_build_frame_svg(const AnimSvgContext *ctx, float elapsed_s,
 
 // ---------------------------------------------------------------------------
 // Render one frame of the animated SVG using ThorVG.
+// MUST be called under lv_lock() to avoid ThorVG concurrency with Lottie.
 // ---------------------------------------------------------------------------
 inline bool asvg_render_frame(AnimSvgContext *ctx, const char *svg_data, size_t svg_len) {
     memset(ctx->pixel_buffer, 0, ctx->width * ctx->height * sizeof(uint32_t));
-
-    tvg_engine_init(TVG_ENGINE_SW, 0);
 
     Tvg_Canvas *tc = tvg_swcanvas_create();
     if (!tc) return false;
@@ -1197,14 +1196,15 @@ inline void asvg_render_task(void *param) {
         while (!ctx->stop_requested) {
             float elapsed_s = (float)((xTaskGetTickCount() - start_tick) * portTICK_PERIOD_MS) / 1000.0f;
 
-            // Build SVG for this frame
+            // Build SVG for this frame (string manipulation, no ThorVG)
             size_t svg_len = asvg_build_frame_svg(ctx, elapsed_s, svg_buf, svg_buf_size);
 
-            // Render
+            // Render under lv_lock to prevent ThorVG concurrency with Lottie.
+            // ThorVG is NOT thread-safe – both Lottie and SVG use it.
+            lv_lock();
             bool ok = asvg_render_frame(ctx, svg_buf, svg_len);
 
             if (ok) {
-                lv_lock();
                 if (first_frame) {
                     first_frame = false;
                     if (!ctx->runtime_hidden) {
@@ -1213,8 +1213,8 @@ inline void asvg_render_task(void *param) {
                     ESP_LOGI(ASVG_TAG, "First frame rendered OK");
                 }
                 lv_obj_invalidate(ctx->canvas_obj);
-                lv_unlock();
             }
+            lv_unlock();
 
             vTaskDelay(pdMS_TO_TICKS(ctx->frame_delay_ms));
         }
