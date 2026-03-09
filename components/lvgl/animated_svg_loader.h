@@ -73,6 +73,7 @@ struct AnimSvgContext {
     uint32_t frame_delay_ms;         // target frame time (e.g. 100 = 10 FPS)
     const char *file_path;           // filesystem path (SD card) or nullptr
     bool file_loaded;                // true after first successful file load
+    const char *fill_color;          // replacement for "currentColor" (e.g. "#FFFFFF")
 
     // --- Runtime state (freed on screen unload) ---
     uint32_t *pixel_buffer;          // PSRAM – width*height*4 bytes
@@ -249,6 +250,29 @@ inline size_t asvg_build_frame_svg(const AnimSvgContext *ctx, float elapsed_s,
         out_buf[out_pos++] = tmpl[i++];
     }
     out_buf[out_pos] = '\0';
+
+    // Replace "currentColor" with the configured fill color.
+    // ThorVG does not support the CSS "currentColor" keyword.
+    if (ctx->fill_color && ctx->fill_color[0]) {
+        const char *needle = "currentColor";
+        size_t needle_len = 12; // strlen("currentColor")
+        size_t color_len = strlen(ctx->fill_color);
+
+        // Work in-place: only shrink or same size replacements are safe
+        // For longer replacements, shift right (we have buffer headroom from alloc)
+        char *pos = out_buf;
+        while ((pos = strstr(pos, needle)) != nullptr) {
+            int diff = (int)color_len - (int)needle_len;
+            size_t tail_len = strlen(pos + needle_len) + 1; // includes null terminator
+            if (diff != 0) {
+                memmove(pos + color_len, pos + needle_len, tail_len);
+                out_pos += diff;
+            }
+            memcpy(pos, ctx->fill_color, color_len);
+            pos += color_len;
+        }
+    }
+
     return out_pos;
 }
 
@@ -260,35 +284,23 @@ inline bool asvg_render_frame(AnimSvgContext *ctx, const char *svg_data, size_t 
                                bool log_diag = false) {
     memset(ctx->pixel_buffer, 0, ctx->width * ctx->height * sizeof(uint32_t));
 
-    Tvg_Result res;
     tvg_engine_init(TVG_ENGINE_SW, 0);
 
     Tvg_Canvas *tc = tvg_swcanvas_create();
-    if (!tc) { ESP_LOGE(ASVG_TAG, "swcanvas_create FAILED"); return false; }
+    if (!tc) return false;
 
-    res = tvg_swcanvas_set_target(tc, ctx->pixel_buffer, ctx->width,
-                                   ctx->width, ctx->height,
-                                   TVG_COLORSPACE_ARGB8888);
-    if (res != TVG_RESULT_SUCCESS) {
-        ESP_LOGE(ASVG_TAG, "set_target FAILED: %d", (int)res);
+    if (tvg_swcanvas_set_target(tc, ctx->pixel_buffer, ctx->width,
+                                 ctx->width, ctx->height,
+                                 TVG_COLORSPACE_ARGB8888) != TVG_RESULT_SUCCESS) {
         tvg_canvas_destroy(tc);
         return false;
     }
 
     Tvg_Paint *pic = tvg_picture_new();
-    if (!pic) { ESP_LOGE(ASVG_TAG, "picture_new FAILED"); tvg_canvas_destroy(tc); return false; }
+    if (!pic) { tvg_canvas_destroy(tc); return false; }
 
-    res = tvg_picture_load_data(pic, svg_data, (uint32_t)svg_len, "svg", true);
-    if (res != TVG_RESULT_SUCCESS) {
-        ESP_LOGE(ASVG_TAG, "picture_load_data FAILED: %d (len=%u)", (int)res, (unsigned)svg_len);
-        if (log_diag && svg_len > 0) {
-            // Log first 200 chars of SVG for debugging
-            char preview[201];
-            size_t plen = svg_len < 200 ? svg_len : 200;
-            memcpy(preview, svg_data, plen);
-            preview[plen] = '\0';
-            ESP_LOGI(ASVG_TAG, "SVG start: %s", preview);
-        }
+    if (tvg_picture_load_data(pic, svg_data, (uint32_t)svg_len,
+                               "svg", true) != TVG_RESULT_SUCCESS) {
         tvg_paint_del(pic);
         tvg_canvas_destroy(tc);
         return false;
@@ -302,44 +314,15 @@ inline bool asvg_render_frame(AnimSvgContext *ctx, const char *svg_data, size_t 
     }
     tvg_picture_set_size(pic, (float)ctx->width, (float)ctx->height);
 
-    res = tvg_canvas_push(tc, pic);
-    if (res != TVG_RESULT_SUCCESS) {
-        ESP_LOGE(ASVG_TAG, "canvas_push FAILED: %d", (int)res);
+    if (tvg_canvas_push(tc, pic) != TVG_RESULT_SUCCESS) {
         tvg_paint_del(pic);
         tvg_canvas_destroy(tc);
         return false;
     }
 
-    res = tvg_canvas_draw(tc);
-    if (log_diag && res != TVG_RESULT_SUCCESS) {
-        ESP_LOGE(ASVG_TAG, "canvas_draw FAILED: %d", (int)res);
-    }
-
-    res = tvg_canvas_sync(tc);
-    if (log_diag && res != TVG_RESULT_SUCCESS) {
-        ESP_LOGE(ASVG_TAG, "canvas_sync FAILED: %d", (int)res);
-    }
-
+    tvg_canvas_draw(tc);
+    tvg_canvas_sync(tc);
     tvg_canvas_destroy(tc);
-
-    // Check if any pixels were actually rendered
-    if (log_diag) {
-        uint32_t nonzero = 0;
-        size_t total = ctx->width * ctx->height;
-        for (size_t i = 0; i < total && nonzero < 10; i++) {
-            if (ctx->pixel_buffer[i] != 0) nonzero++;
-        }
-        ESP_LOGI(ASVG_TAG, "Pixel check: %u non-zero pixels found (of %u total)",
-                 (unsigned)nonzero, (unsigned)total);
-
-        // Check draw_buf stride
-        if (ctx->draw_buf) {
-            ESP_LOGI(ASVG_TAG, "draw_buf: data=%p, stride=%u, w=%u, h=%u",
-                     ctx->draw_buf->data, (unsigned)ctx->draw_buf->header.stride,
-                     (unsigned)ctx->draw_buf->header.w, (unsigned)ctx->draw_buf->header.h);
-        }
-        ESP_LOGI(ASVG_TAG, "pixel_buffer=%p", ctx->pixel_buffer);
-    }
 
     return true;
 }
@@ -492,6 +475,7 @@ inline bool asvg_init(lv_obj_t *canvas_obj,
     ctx->frame_delay_ms   = frame_delay_ms > 0 ? frame_delay_ms : 100;
     ctx->user_wants_hidden = user_wants_hidden;
     ctx->runtime_hidden   = user_wants_hidden;
+    ctx->fill_color       = "#FFFFFF";  // default: white (ThorVG doesn't support "currentColor")
 
     lv_obj_set_user_data(canvas_obj, ctx);
 
@@ -1240,7 +1224,6 @@ inline void asvg_render_task(void *param) {
     {
         TickType_t start_tick = xTaskGetTickCount();
         bool first_frame = true;
-        int diag_frames = 5;  // Log diagnostics for first N frames
 
         while (!ctx->stop_requested) {
             float elapsed_s = (float)((xTaskGetTickCount() - start_tick) * portTICK_PERIOD_MS) / 1000.0f;
@@ -1248,58 +1231,28 @@ inline void asvg_render_task(void *param) {
             // Build SVG for this frame (string manipulation, no ThorVG)
             size_t svg_len = asvg_build_frame_svg(ctx, elapsed_s, svg_buf, svg_buf_size);
 
-            // Log first frame SVG text for debugging
-            if (first_frame && svg_len > 0) {
-                size_t preview_len = svg_len < 400 ? svg_len : 400;
-                char saved = svg_buf[preview_len];
-                svg_buf[preview_len] = '\0';
-                ESP_LOGI(ASVG_TAG, "Frame SVG (%u bytes): %s%s",
-                         (unsigned)svg_len, svg_buf, svg_len > 400 ? "..." : "");
-                svg_buf[preview_len] = saved;
-            }
-
             // Render under lv_lock to prevent ThorVG concurrency with Lottie.
             // ThorVG is NOT thread-safe – both Lottie and SVG use it.
             lv_lock();
-            bool ok = asvg_render_frame(ctx, svg_buf, svg_len, diag_frames > 0);
+            bool ok = asvg_render_frame(ctx, svg_buf, svg_len, first_frame);
 
             if (ok) {
-                if (diag_frames > 0) {
-                    // Count non-zero pixels for diagnostic
+                if (first_frame) {
+                    // Log pixel count on first frame for diagnostics
                     uint32_t nonzero = 0;
                     size_t total = ctx->width * ctx->height;
                     for (size_t i = 0; i < total; i++) {
                         if (ctx->pixel_buffer[i] != 0) nonzero++;
                     }
-                    // Check alpha channel
-                    uint32_t has_alpha = 0;
-                    for (size_t i = 0; i < total && has_alpha < 5; i++) {
-                        uint32_t px = ctx->pixel_buffer[i];
-                        if (px != 0) {
-                            uint8_t a = (px >> 24) & 0xFF;
-                            uint8_t r = (px >> 16) & 0xFF;
-                            uint8_t g = (px >> 8) & 0xFF;
-                            uint8_t b = px & 0xFF;
-                            ESP_LOGI(ASVG_TAG, "  pixel sample: ARGB=0x%02X%02X%02X%02X", a, r, g, b);
-                            has_alpha++;
-                        }
-                    }
-                    ESP_LOGI(ASVG_TAG, "Frame diag: %u/%u non-zero pixels, elapsed=%.2fs",
-                             (unsigned)nonzero, (unsigned)total, elapsed_s);
-                    diag_frames--;
-                }
+                    ESP_LOGI(ASVG_TAG, "First frame: %u/%u non-zero pixels",
+                             (unsigned)nonzero, (unsigned)total);
 
-                if (first_frame) {
                     first_frame = false;
                     if (!ctx->runtime_hidden) {
                         lv_obj_remove_flag(ctx->canvas_obj, LV_OBJ_FLAG_HIDDEN);
                     }
-                    ESP_LOGI(ASVG_TAG, "First frame rendered OK");
                 }
                 lv_obj_invalidate(ctx->canvas_obj);
-            } else if (diag_frames > 0) {
-                ESP_LOGE(ASVG_TAG, "Frame render FAILED at elapsed=%.2fs", elapsed_s);
-                diag_frames--;
             }
             lv_unlock();
 
@@ -1345,6 +1298,7 @@ inline bool asvg_init_file_rt(lv_obj_t *canvas_obj,
     ctx->frame_delay_ms = frame_delay_ms > 0 ? frame_delay_ms : 100;
     ctx->user_wants_hidden = user_wants_hidden;
     ctx->runtime_hidden = user_wants_hidden;
+    ctx->fill_color     = "#FFFFFF";  // default: white (ThorVG doesn't support "currentColor")
 
     lv_obj_set_user_data(canvas_obj, ctx);
 
