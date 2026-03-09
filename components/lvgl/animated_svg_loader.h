@@ -526,13 +526,13 @@ inline bool asvg_init(lv_obj_t *canvas_obj,
 
 // ---------------------------------------------------------------------------
 // Public API: initialise from filesystem path (reads file at runtime).
+// Requires pre-parsed animations (from compile-time Python extraction).
 // ---------------------------------------------------------------------------
 inline bool asvg_init_file(lv_obj_t *canvas_obj,
                             const char *file_path,
                             const SmilAnim *anims, uint8_t num_anims,
                             uint32_t width, uint32_t height,
                             uint32_t frame_delay_ms, bool user_wants_hidden) {
-    // Read file to get SVG template
     FILE *f = fopen(file_path, "r");
     if (!f) {
         ESP_LOGE(ASVG_TAG, "Cannot open: %s", file_path);
@@ -551,6 +551,665 @@ inline bool asvg_init_file(lv_obj_t *canvas_obj,
     buf[nread] = '\0';
 
     return asvg_init(canvas_obj, buf, nread, anims, num_anims,
+                      width, height, frame_delay_ms, user_wants_hidden);
+}
+
+// ===========================================================================
+// Runtime SMIL parser — parses animated SVG files from filesystem (SD card)
+// at runtime without needing compile-time Python preprocessing.
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Helper: skip whitespace
+// ---------------------------------------------------------------------------
+inline const char *rt_skip_ws(const char *p) {
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+    return p;
+}
+
+// ---------------------------------------------------------------------------
+// Helper: extract attribute value from inside an XML tag.
+// p should point somewhere inside an opening tag (after '<tagname').
+// tag_end should point to the '>' that closes this tag.
+// Returns pointer to a heap-allocated string (caller must free), or nullptr.
+// ---------------------------------------------------------------------------
+inline char *rt_get_attr(const char *tag_start, const char *tag_end, const char *attr_name) {
+    size_t attr_len = strlen(attr_name);
+    const char *p = tag_start;
+
+    while (p < tag_end) {
+        // Find attribute name
+        const char *found = strstr(p, attr_name);
+        if (!found || found >= tag_end) return nullptr;
+
+        // Ensure it's a real attribute boundary (preceded by space/tab/newline)
+        if (found > tag_start) {
+            char before = *(found - 1);
+            if (before != ' ' && before != '\t' && before != '\n' && before != '\r') {
+                p = found + 1;
+                continue;
+            }
+        }
+
+        const char *eq = found + attr_len;
+        eq = rt_skip_ws(eq);
+        if (*eq != '=') { p = found + 1; continue; }
+        eq++;
+        eq = rt_skip_ws(eq);
+
+        char quote = *eq;
+        if (quote != '"' && quote != '\'') { p = found + 1; continue; }
+        eq++;  // skip opening quote
+
+        const char *val_end = strchr(eq, quote);
+        if (!val_end || val_end > tag_end) return nullptr;
+
+        size_t val_len = (size_t)(val_end - eq);
+        char *result = (char *)malloc(val_len + 1);
+        if (!result) return nullptr;
+        memcpy(result, eq, val_len);
+        result[val_len] = '\0';
+        return result;
+    }
+    return nullptr;
+}
+
+// ---------------------------------------------------------------------------
+// Helper: parse a duration string like "6s", ".67s", "500ms" to seconds.
+// ---------------------------------------------------------------------------
+inline float rt_parse_duration(const char *s) {
+    if (!s || !*s) return 1.0f;
+    float val = 0;
+    bool negative = false;
+    const char *p = s;
+    if (*p == '-') { negative = true; p++; }
+
+    // Parse number
+    val = (float)strtod(p, (char **)&p);
+
+    if (strncmp(p, "ms", 2) == 0) val /= 1000.0f;
+    // 's' suffix or no suffix: already in seconds
+
+    return negative ? -val : val;
+}
+
+// ---------------------------------------------------------------------------
+// Helper: parse begin attribute for delay and repeat gap.
+// E.g. "0s", "-.33s", "0s; x1.end+.33s"
+// ---------------------------------------------------------------------------
+inline void rt_parse_begin(const char *s, float *delay, float *repeat_gap) {
+    *delay = 0;
+    *repeat_gap = 0;
+    if (!s || !*s) return;
+
+    // Split on ';' — find first part
+    const char *semi = strchr(s, ';');
+    size_t first_len = semi ? (size_t)(semi - s) : strlen(s);
+
+    // Check if first part contains ".end" or ".begin" (event reference)
+    bool is_event_ref = false;
+    for (size_t i = 0; i < first_len; i++) {
+        if (s[i] == '.') { is_event_ref = true; break; }
+    }
+
+    if (!is_event_ref && first_len > 0) {
+        // Simple delay value
+        char tmp[32];
+        size_t copy_len = first_len < 31 ? first_len : 31;
+        memcpy(tmp, s, copy_len);
+        tmp[copy_len] = '\0';
+        *delay = rt_parse_duration(tmp);
+    }
+
+    // Look for ".end+Xs" or ".end-Xs" pattern in any part
+    const char *end_ref = strstr(s, ".end");
+    if (end_ref) {
+        const char *p = end_ref + 4;
+        while (*p == ' ') p++;
+        if (*p == '+' || *p == '-') {
+            bool neg = (*p == '-');
+            p++;
+            while (*p == ' ') p++;
+            float gap = (float)strtod(p, nullptr);
+            *repeat_gap = neg ? -gap : gap;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helper: parse "values" attribute — semicolon-separated groups of floats.
+// E.g. "0 187.5 187.5; 360 187.5 187.5"
+// Fills vals[] and returns count.
+// ---------------------------------------------------------------------------
+inline uint8_t rt_parse_values(const char *s, SmilValue *vals, uint8_t max_vals) {
+    if (!s || !*s) return 0;
+
+    uint8_t count = 0;
+    const char *p = s;
+
+    while (*p && count < max_vals) {
+        p = rt_skip_ws(p);
+        if (!*p) break;
+
+        // Parse up to 3 floats
+        float components[3] = {0, 0, 0};
+        uint8_t nc = 0;
+
+        while (*p && *p != ';' && nc < 3) {
+            p = rt_skip_ws(p);
+            if (*p == ';' || !*p) break;
+
+            char *endp = nullptr;
+            float v = strtof(p, &endp);
+            if (endp == p) break;  // no progress
+            components[nc++] = v;
+            p = endp;
+        }
+
+        if (nc > 0) {
+            vals[count].v[0] = components[0];
+            vals[count].v[1] = components[1];
+            vals[count].v[2] = components[2];
+            vals[count].count = nc;
+            count++;
+        }
+
+        // Skip past semicolon
+        if (*p == ';') p++;
+    }
+
+    return count;
+}
+
+// ---------------------------------------------------------------------------
+// Helper: parse "keyTimes" attribute — semicolon-separated floats (0..1).
+// Returns count.
+// ---------------------------------------------------------------------------
+inline uint8_t rt_parse_key_times(const char *s, float *kt, uint8_t max_vals) {
+    if (!s || !*s) return 0;
+
+    uint8_t count = 0;
+    const char *p = s;
+
+    while (*p && count < max_vals) {
+        p = rt_skip_ws(p);
+        if (!*p) break;
+
+        char *endp = nullptr;
+        float v = strtof(p, &endp);
+        if (endp == p) break;
+        kt[count++] = v;
+        p = endp;
+
+        p = rt_skip_ws(p);
+        if (*p == ';') p++;
+    }
+
+    return count;
+}
+
+// ---------------------------------------------------------------------------
+// Runtime SMIL extraction context
+// ---------------------------------------------------------------------------
+struct RtSmilParseResult {
+    SmilAnim anims[ASVG_MAX_ANIMS];
+    uint8_t num_anims;
+    char *svg_template;       // PSRAM — modified SVG with placeholders
+    size_t svg_template_size;
+};
+
+// ---------------------------------------------------------------------------
+// Find the enclosing element's transform attribute and inject placeholder.
+// `tag_pos` points to '<animateTransform' or '<animate'.
+// We search backwards from tag_pos to find the parent element's opening tag
+// and inject a placeholder into its transform or opacity attribute.
+//
+// Strategy: We work with a mutable output buffer. Instead of modifying in
+// place (complex), we do a two-pass approach:
+//   Pass 1: Find all animation elements, record positions, build SmilAnim[]
+//   Pass 2: Copy SVG to output, skipping animation elements and injecting
+//           placeholder attributes into parent elements.
+// ---------------------------------------------------------------------------
+
+// Information about one discovered animation tag
+struct RtAnimTag {
+    size_t tag_start;      // position of '<' in source
+    size_t tag_end;        // position after '>' or '/>' in source
+    SmilAnim anim;         // parsed animation
+    size_t parent_start;   // position of parent '<' in source
+    size_t parent_tag_end; // position of '>' that ends parent opening tag
+    bool is_transform;     // true = animateTransform, false = animate(opacity)
+};
+
+// ---------------------------------------------------------------------------
+// Find the start of the parent element that contains position `pos`.
+// Simple heuristic: scan backwards for '<' that starts a non-closing tag
+// and is not self-closing before `pos`.
+// ---------------------------------------------------------------------------
+inline size_t rt_find_parent_tag_start(const char *svg, size_t pos) {
+    // Count nesting depth going backwards
+    int depth = 0;
+    size_t i = pos;
+
+    while (i > 0) {
+        i--;
+        if (svg[i] == '<') {
+            if (i + 1 < pos && svg[i + 1] == '/') {
+                // Closing tag — increase depth
+                depth++;
+            } else {
+                if (depth > 0) {
+                    depth--;
+                } else {
+                    // Check it's not a self-closing or processing instruction
+                    if (svg[i + 1] != '?' && svg[i + 1] != '!') {
+                        return i;
+                    }
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Find the end of the opening tag at position `start` (find the first '>').
+// ---------------------------------------------------------------------------
+inline size_t rt_find_tag_end(const char *svg, size_t start, size_t len) {
+    for (size_t i = start; i < len; i++) {
+        if (svg[i] == '>') return i;
+    }
+    return len;
+}
+
+// ---------------------------------------------------------------------------
+// Runtime SMIL parser — main function.
+// Parses SVG text, extracts SMIL animations, builds template with placeholders.
+// All allocations in PSRAM. Caller must free result->svg_template when done.
+// ---------------------------------------------------------------------------
+inline bool rt_parse_smil(const char *svg_data, size_t svg_len, RtSmilParseResult *result) {
+    memset(result, 0, sizeof(RtSmilParseResult));
+
+    // Pass 1: find all animation tags
+    RtAnimTag found_anims[ASVG_MAX_ANIMS];
+    uint8_t found_count = 0;
+
+    const char *p = svg_data;
+    while (*p && found_count < ASVG_MAX_ANIMS) {
+        // Look for <animateTransform or <animate
+        const char *at = strstr(p, "<animateTransform");
+        const char *an = strstr(p, "<animate");
+
+        // Skip <animateTransform when we find <animate first
+        // (but <animate also matches <animateTransform, so be careful)
+        const char *match = nullptr;
+        bool is_transform = false;
+
+        if (at && an) {
+            if (at <= an) {
+                match = at;
+                is_transform = true;
+            } else {
+                // Check if `an` is actually `<animateTransform`
+                if (strncmp(an, "<animateTransform", 17) == 0) {
+                    match = an;
+                    is_transform = true;
+                } else {
+                    match = an;
+                    is_transform = false;
+                }
+            }
+        } else if (at) {
+            match = at;
+            is_transform = true;
+        } else if (an) {
+            // Make sure it's not <animateTransform or <animateMotion
+            if (strncmp(an, "<animateTransform", 17) == 0) {
+                match = an;
+                is_transform = true;
+            } else if (strncmp(an, "<animateMotion", 14) == 0) {
+                p = an + 14;
+                continue;
+            } else {
+                match = an;
+                is_transform = false;
+            }
+        } else {
+            break;  // no more animation tags
+        }
+
+        size_t tag_start = (size_t)(match - svg_data);
+
+        // Find end of this tag (self-closing '/>' or '>')
+        const char *tag_p = match;
+        const char *tag_end_ptr = nullptr;
+        while (*tag_p) {
+            if (*tag_p == '/' && *(tag_p + 1) == '>') {
+                tag_end_ptr = tag_p + 2;
+                break;
+            }
+            if (*tag_p == '>') {
+                // Check if it's a self-closing tag (</animateTransform> shouldn't happen normally)
+                tag_end_ptr = tag_p + 1;
+                // Look for closing tag if not self-closing
+                if (*(tag_p - 1) != '/') {
+                    const char *close = is_transform ?
+                        strstr(tag_end_ptr, "</animateTransform>") :
+                        strstr(tag_end_ptr, "</animate>");
+                    if (close) {
+                        tag_end_ptr = close + (is_transform ? 19 : 10);
+                    }
+                }
+                break;
+            }
+            tag_p++;
+        }
+        if (!tag_end_ptr) break;
+
+        size_t tag_end = (size_t)(tag_end_ptr - svg_data);
+
+        // Parse the animation attributes
+        RtAnimTag *at_entry = &found_anims[found_count];
+        memset(at_entry, 0, sizeof(RtAnimTag));
+        at_entry->tag_start = tag_start;
+        at_entry->tag_end = tag_end;
+        at_entry->is_transform = is_transform;
+
+        SmilAnim *anim = &at_entry->anim;
+        anim->placeholder_id = found_count;
+
+        if (is_transform) {
+            char *type_str = rt_get_attr(match, tag_end_ptr, "type");
+            if (type_str) {
+                if (strcmp(type_str, "rotate") == 0) anim->type = SMIL_ROTATE;
+                else if (strcmp(type_str, "translate") == 0) anim->type = SMIL_TRANSLATE;
+                else if (strcmp(type_str, "scale") == 0) anim->type = SMIL_SCALE;
+                else anim->type = SMIL_TRANSLATE;
+                free(type_str);
+            } else {
+                anim->type = SMIL_TRANSLATE;
+            }
+        } else {
+            // <animate> — check attributeName
+            char *attr_name = rt_get_attr(match, tag_end_ptr, "attributeName");
+            if (attr_name) {
+                if (strcmp(attr_name, "opacity") == 0) {
+                    anim->type = SMIL_OPACITY;
+                } else {
+                    // Unsupported attribute — skip
+                    free(attr_name);
+                    p = tag_end_ptr;
+                    continue;
+                }
+                free(attr_name);
+            } else {
+                p = tag_end_ptr;
+                continue;
+            }
+        }
+
+        // Parse values
+        char *values_str = rt_get_attr(match, tag_end_ptr, "values");
+        if (values_str) {
+            anim->num_values = rt_parse_values(values_str, anim->values, ASVG_MAX_VALUES);
+            free(values_str);
+        }
+
+        // Parse duration
+        char *dur_str = rt_get_attr(match, tag_end_ptr, "dur");
+        anim->duration_s = rt_parse_duration(dur_str);
+        if (dur_str) free(dur_str);
+
+        // Parse begin (delay + repeat gap)
+        char *begin_str = rt_get_attr(match, tag_end_ptr, "begin");
+        rt_parse_begin(begin_str, &anim->begin_delay_s, &anim->repeat_gap_s);
+        if (begin_str) free(begin_str);
+
+        // Parse additive
+        char *additive_str = rt_get_attr(match, tag_end_ptr, "additive");
+        anim->additive = (additive_str && strcmp(additive_str, "sum") == 0);
+        if (additive_str) free(additive_str);
+
+        // Parse keyTimes
+        char *kt_str = rt_get_attr(match, tag_end_ptr, "keyTimes");
+        if (kt_str) {
+            uint8_t kt_count = rt_parse_key_times(kt_str, anim->key_times, ASVG_MAX_VALUES);
+            anim->has_key_times = (kt_count > 0);
+            free(kt_str);
+        }
+
+        // Find parent element
+        at_entry->parent_start = rt_find_parent_tag_start(svg_data, tag_start);
+        at_entry->parent_tag_end = rt_find_tag_end(svg_data, at_entry->parent_start, svg_len);
+
+        found_count++;
+        p = tag_end_ptr;
+    }
+
+    if (found_count == 0) {
+        ESP_LOGW(ASVG_TAG, "No SMIL animations found in SVG");
+        // Still create template (just a copy)
+        result->svg_template = (char *)heap_caps_malloc(svg_len + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!result->svg_template) return false;
+        memcpy(result->svg_template, svg_data, svg_len);
+        result->svg_template[svg_len] = '\0';
+        result->svg_template_size = svg_len;
+        return true;
+    }
+
+    // Pass 2: Build output SVG with placeholders
+    // Allocate generous output buffer (original + space for placeholders)
+    size_t out_capacity = svg_len + found_count * 64 + 256;
+    char *out = (char *)heap_caps_malloc(out_capacity, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!out) return false;
+
+    size_t out_pos = 0;
+    size_t src_pos = 0;
+
+    // Track which parent elements we've already added placeholders to
+    // (multiple animations can share the same parent)
+    struct ParentPH {
+        size_t parent_start;
+        size_t parent_tag_end;
+        int transform_ph;   // -1 if none
+        int opacity_ph;     // -1 if none
+    };
+    ParentPH parents[ASVG_MAX_ANIMS];
+    uint8_t num_parents = 0;
+
+    // Group animations by parent
+    for (uint8_t i = 0; i < found_count; i++) {
+        RtAnimTag *at_e = &found_anims[i];
+        int parent_idx = -1;
+        for (uint8_t j = 0; j < num_parents; j++) {
+            if (parents[j].parent_start == at_e->parent_start) {
+                parent_idx = j;
+                break;
+            }
+        }
+        if (parent_idx < 0) {
+            parent_idx = num_parents++;
+            parents[parent_idx].parent_start = at_e->parent_start;
+            parents[parent_idx].parent_tag_end = at_e->parent_tag_end;
+            parents[parent_idx].transform_ph = -1;
+            parents[parent_idx].opacity_ph = -1;
+        }
+        if (at_e->is_transform) {
+            parents[parent_idx].transform_ph = at_e->anim.placeholder_id;
+        } else {
+            parents[parent_idx].opacity_ph = at_e->anim.placeholder_id;
+        }
+    }
+
+    // Sort animations by tag_start for sequential processing
+    // Simple bubble sort (max 16 elements)
+    for (uint8_t i = 0; i < found_count; i++) {
+        for (uint8_t j = i + 1; j < found_count; j++) {
+            if (found_anims[j].tag_start < found_anims[i].tag_start) {
+                RtAnimTag tmp = found_anims[i];
+                found_anims[i] = found_anims[j];
+                found_anims[j] = tmp;
+            }
+        }
+    }
+
+    // Process: copy SVG, skip animation tags, inject placeholders at parent tags
+    for (uint8_t i = 0; i < found_count; i++) {
+        RtAnimTag *at_e = &found_anims[i];
+
+        // Copy everything from current position to just before this animation tag
+        if (at_e->tag_start > src_pos) {
+            size_t copy_len = at_e->tag_start - src_pos;
+
+            // Check if any parent tag '>' falls within this range and needs placeholder injection
+            for (uint8_t pi = 0; pi < num_parents; pi++) {
+                size_t pte = parents[pi].parent_tag_end;
+                if (pte >= src_pos && pte < at_e->tag_start) {
+                    // Copy up to the '>' of parent tag
+                    size_t before_gt = pte - src_pos;
+                    if (before_gt > 0 && out_pos + before_gt < out_capacity - 128) {
+                        memcpy(out + out_pos, svg_data + src_pos, before_gt);
+                        out_pos += before_gt;
+                        src_pos += before_gt;
+                    }
+
+                    // Inject transform placeholder
+                    if (parents[pi].transform_ph >= 0) {
+                        int n = snprintf(out + out_pos, out_capacity - out_pos,
+                                         " transform=\"__PH%d__\"", parents[pi].transform_ph);
+                        if (n > 0) out_pos += n;
+                        parents[pi].transform_ph = -2;  // mark as injected
+                    }
+
+                    // Inject opacity placeholder
+                    if (parents[pi].opacity_ph >= 0) {
+                        int n = snprintf(out + out_pos, out_capacity - out_pos,
+                                         " opacity=\"__PH%d__\"", parents[pi].opacity_ph);
+                        if (n > 0) out_pos += n;
+                        parents[pi].opacity_ph = -2;  // mark as injected
+                    }
+
+                    // Continue copying
+                    copy_len = at_e->tag_start - src_pos;
+                }
+            }
+
+            if (copy_len > 0 && out_pos + copy_len < out_capacity - 1) {
+                memcpy(out + out_pos, svg_data + src_pos, copy_len);
+                out_pos += copy_len;
+            }
+        }
+
+        // Skip the animation tag entirely
+        src_pos = at_e->tag_end;
+    }
+
+    // Handle any remaining parent placeholder injections after last animation tag
+    for (uint8_t pi = 0; pi < num_parents; pi++) {
+        size_t pte = parents[pi].parent_tag_end;
+        if (pte >= src_pos && (parents[pi].transform_ph >= 0 || parents[pi].opacity_ph >= 0)) {
+            size_t before_gt = pte - src_pos;
+            if (before_gt > 0 && out_pos + before_gt < out_capacity - 128) {
+                memcpy(out + out_pos, svg_data + src_pos, before_gt);
+                out_pos += before_gt;
+                src_pos += before_gt;
+            }
+            if (parents[pi].transform_ph >= 0) {
+                int n = snprintf(out + out_pos, out_capacity - out_pos,
+                                 " transform=\"__PH%d__\"", parents[pi].transform_ph);
+                if (n > 0) out_pos += n;
+            }
+            if (parents[pi].opacity_ph >= 0) {
+                int n = snprintf(out + out_pos, out_capacity - out_pos,
+                                 " opacity=\"__PH%d__\"", parents[pi].opacity_ph);
+                if (n > 0) out_pos += n;
+            }
+        }
+    }
+
+    // Copy remaining SVG text
+    if (src_pos < svg_len && out_pos + (svg_len - src_pos) < out_capacity - 1) {
+        memcpy(out + out_pos, svg_data + src_pos, svg_len - src_pos);
+        out_pos += svg_len - src_pos;
+    }
+    out[out_pos] = '\0';
+
+    // Build result
+    result->svg_template = out;
+    result->svg_template_size = out_pos;
+    result->num_anims = found_count;
+    for (uint8_t i = 0; i < found_count; i++) {
+        result->anims[i] = found_anims[i].anim;
+    }
+
+    ESP_LOGI(ASVG_TAG, "Runtime SMIL parse: %u animations, template %u bytes",
+             (unsigned)found_count, (unsigned)out_pos);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Public API: initialise from filesystem with runtime SMIL parsing.
+// Reads SVG file, parses SMIL animations at runtime, and starts animation.
+// This is the function to use for animated SVGs on SD card / LittleFS.
+// ---------------------------------------------------------------------------
+inline bool asvg_init_file_rt(lv_obj_t *canvas_obj,
+                               const char *file_path,
+                               uint32_t width, uint32_t height,
+                               uint32_t frame_delay_ms, bool user_wants_hidden) {
+    // Read the SVG file
+    FILE *f = fopen(file_path, "r");
+    if (!f) {
+        ESP_LOGE(ASVG_TAG, "Cannot open: %s", file_path);
+        return false;
+    }
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz <= 0) { fclose(f); return false; }
+
+    char *raw_svg = (char *)heap_caps_malloc(sz + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!raw_svg) {
+        ESP_LOGE(ASVG_TAG, "Alloc failed for %ld bytes", sz);
+        fclose(f);
+        return false;
+    }
+
+    size_t nread = fread(raw_svg, 1, sz, f);
+    fclose(f);
+    raw_svg[nread] = '\0';
+
+    ESP_LOGI(ASVG_TAG, "Read %u bytes from %s", (unsigned)nread, file_path);
+
+    // Parse SMIL animations at runtime
+    RtSmilParseResult parse_result;
+    if (!rt_parse_smil(raw_svg, nread, &parse_result)) {
+        ESP_LOGE(ASVG_TAG, "SMIL parse failed for %s", file_path);
+        heap_caps_free(raw_svg);
+        return false;
+    }
+
+    // Free the raw SVG — we now have the template in parse_result
+    heap_caps_free(raw_svg);
+
+    if (parse_result.num_anims == 0) {
+        ESP_LOGW(ASVG_TAG, "No animations in %s, rendering as static SVG", file_path);
+    }
+
+    // Copy animations to persistent PSRAM allocation
+    SmilAnim *persistent_anims = nullptr;
+    if (parse_result.num_anims > 0) {
+        size_t anims_size = sizeof(SmilAnim) * parse_result.num_anims;
+        persistent_anims = (SmilAnim *)heap_caps_malloc(anims_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!persistent_anims) {
+            heap_caps_free(parse_result.svg_template);
+            return false;
+        }
+        memcpy(persistent_anims, parse_result.anims, anims_size);
+    }
+
+    // Initialise the animated SVG widget
+    return asvg_init(canvas_obj, parse_result.svg_template, parse_result.svg_template_size,
+                      persistent_anims, parse_result.num_anims,
                       width, height, frame_delay_ms, user_wants_hidden);
 }
 

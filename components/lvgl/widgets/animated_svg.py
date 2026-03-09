@@ -541,23 +541,12 @@ class AnimatedSvgType(WidgetType):
     esphome::lvgl::asvg_init({w.obj}, (const char *){prog_arr}, {len(modified_svg.encode('utf-8'))}, {anim_array_name}, {len(animations)}, {width}, {height}, {frame_delay_ms}, {user_wants_hidden});"""))
 
         elif src := config.get(CONF_SRC):
-            # ------- Filesystem animated SVG -------
-            # For filesystem SVGs, we can't pre-parse at compile time.
-            # The SVG will be rendered as-is (ThorVG may ignore SMIL elements).
-            # For full animation support, use the 'file' method (embedded).
-            import logging
-            logging.getLogger(__name__).info(
-                f"Animated SVG from filesystem '{src}': "
-                f"SMIL animations require 'file' method for full support. "
-                f"Rendering as static SVG."
-            )
-
-            # Fall back to static rendering for filesystem SVGs
-            cg.add_global(
-                cg.RawStatement('#include "esphome/components/lvgl/svg_loader.h"')
-            )
+            # ------- Filesystem animated SVG (SD card, LittleFS) -------
+            # Uses runtime SMIL parser to extract animations from SVG at boot.
+            # Supports the same animation types as embedded mode:
+            #   animateTransform (rotate, translate, scale), animate (opacity)
             lv_add(cg.RawStatement(f"""
-    esphome::lvgl::svg_setup_and_render_file({w.obj}, "{src}", {width}, {height}, {user_wants_hidden});"""))
+    esphome::lvgl::asvg_init_file_rt({w.obj}, "{src}", {width}, {height}, {frame_delay_ms}, {user_wants_hidden});"""))
 
 
 animated_svg_spec = AnimatedSvgType()
