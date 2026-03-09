@@ -297,74 +297,9 @@ inline bool asvg_render_frame(AnimSvgContext *ctx, const char *svg_data, size_t 
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// Animation render task – runs on 64 KB PSRAM stack.
-// Renders the SVG at the target frame rate, updating placeholders each frame.
-// ---------------------------------------------------------------------------
-inline void asvg_render_task(void *param) {
-    AnimSvgContext *ctx = (AnimSvgContext *)param;
-
-    vTaskDelay(pdMS_TO_TICKS(500));
-
-    // Allocate working buffer for SVG text (template + extra space for replacements)
-    size_t svg_buf_size = ctx->svg_template_size + ctx->num_anims * 64 + 256;
-    char *svg_buf = (char *)heap_caps_malloc(svg_buf_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!svg_buf) {
-        // Fallback to internal RAM if PSRAM alloc fails
-        svg_buf = (char *)malloc(svg_buf_size);
-    }
-    if (!svg_buf) {
-        ESP_LOGE(ASVG_TAG, "SVG buffer alloc failed (%u bytes)", (unsigned)svg_buf_size);
-        goto done;
-    }
-
-    ESP_LOGI(ASVG_TAG, "Animated SVG render loop starting (%ux%u, %u anims, %u ms/frame)",
-             (unsigned)ctx->width, (unsigned)ctx->height,
-             (unsigned)ctx->num_anims, (unsigned)ctx->frame_delay_ms);
-
-    {
-        TickType_t start_tick = xTaskGetTickCount();
-        bool first_frame = true;
-
-        while (!ctx->stop_requested) {
-            float elapsed_s = (float)((xTaskGetTickCount() - start_tick) * portTICK_PERIOD_MS) / 1000.0f;
-
-            // Build SVG for this frame
-            size_t svg_len = asvg_build_frame_svg(ctx, elapsed_s, svg_buf, svg_buf_size);
-
-            // Render
-            bool ok = asvg_render_frame(ctx, svg_buf, svg_len);
-
-            if (ok) {
-                lv_lock();
-                if (first_frame) {
-                    first_frame = false;
-                    if (!ctx->runtime_hidden) {
-                        lv_obj_remove_flag(ctx->canvas_obj, LV_OBJ_FLAG_HIDDEN);
-                    }
-                    ESP_LOGI(ASVG_TAG, "First frame rendered OK");
-                }
-                lv_obj_invalidate(ctx->canvas_obj);
-                lv_unlock();
-            }
-
-            vTaskDelay(pdMS_TO_TICKS(ctx->frame_delay_ms));
-        }
-    }
-
-    if (svg_buf) {
-        if (heap_caps_get_allocated_size(svg_buf) > 0) {
-            heap_caps_free(svg_buf);
-        } else {
-            free(svg_buf);
-        }
-    }
-
-done:
-    ESP_LOGI(ASVG_TAG, "Render task stopping");
-    ctx->stop_requested = false;
-    vTaskSuspend(NULL);
-}
+// Forward declaration – defined after rt_parse_smil / asvg_load_file_deferred
+// so the render task can call the deferred file loader on its 64 KB stack.
+inline void asvg_render_task(void *param);
 
 // ---------------------------------------------------------------------------
 // Free all PSRAM/internal-RAM resources.
@@ -472,9 +407,12 @@ inline void asvg_screen_unloaded_cb(lv_event_t *e) {
              (unsigned)ctx->width, (unsigned)ctx->height);
 }
 
-// asvg_screen_loaded_cb is defined later (after asvg_load_file_deferred)
-// so it can call the deferred file loader for SD card SVGs.
-inline void asvg_screen_loaded_cb(lv_event_t *e);
+inline void asvg_screen_loaded_cb(lv_event_t *e) {
+    AnimSvgContext *ctx = (AnimSvgContext *)lv_event_get_user_data(e);
+    if (ctx->pixel_buffer == nullptr) {
+        asvg_launch(ctx);
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Public API: initialise animated SVG widget.
@@ -1215,21 +1153,86 @@ inline bool asvg_load_file_deferred(AnimSvgContext *ctx) {
 }
 
 // ---------------------------------------------------------------------------
-// Screen loaded callback – implementation (declared earlier as forward decl).
-// For file-based SVGs, loads the file here (SD card is mounted by now).
+// Animation render task – runs on 64 KB PSRAM stack.
+// Renders the SVG at the target frame rate, updating placeholders each frame.
+// For file-based SVGs, loads and parses the file here (large stack available).
 // ---------------------------------------------------------------------------
-inline void asvg_screen_loaded_cb(lv_event_t *e) {
-    AnimSvgContext *ctx = (AnimSvgContext *)lv_event_get_user_data(e);
-    if (ctx->pixel_buffer == nullptr) {
-        // If this is a file-based SVG that hasn't been loaded yet, load it now
-        if (ctx->file_path && !ctx->file_loaded) {
-            if (!asvg_load_file_deferred(ctx)) {
-                ESP_LOGE(ASVG_TAG, "Failed to load SVG from %s", ctx->file_path);
-                return;
-            }
+inline void asvg_render_task(void *param) {
+    AnimSvgContext *ctx = (AnimSvgContext *)param;
+
+    // File-based SVGs need longer delay (SD card mount) on first load
+    vTaskDelay(pdMS_TO_TICKS(ctx->file_path && !ctx->file_loaded ? 1000 : 500));
+
+    // If this is a file-based SVG, load and parse the file now.
+    // We do this here (not in SCREEN_LOADED callback) because rt_parse_smil
+    // uses large stack-local structures that would overflow the main loop task.
+    if (ctx->file_path && !ctx->file_loaded) {
+        if (!asvg_load_file_deferred(ctx)) {
+            ESP_LOGE(ASVG_TAG, "Deferred file load failed, task stopping");
+            goto done;
         }
-        asvg_launch(ctx);
     }
+
+    {
+    // Allocate working buffer for SVG text (template + extra space for replacements)
+    size_t svg_buf_size = ctx->svg_template_size + ctx->num_anims * 64 + 256;
+    char *svg_buf = (char *)heap_caps_malloc(svg_buf_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!svg_buf) {
+        // Fallback to internal RAM if PSRAM alloc fails
+        svg_buf = (char *)malloc(svg_buf_size);
+    }
+    if (!svg_buf) {
+        ESP_LOGE(ASVG_TAG, "SVG buffer alloc failed (%u bytes)", (unsigned)svg_buf_size);
+        goto done;
+    }
+
+    ESP_LOGI(ASVG_TAG, "Animated SVG render loop starting (%ux%u, %u anims, %u ms/frame)",
+             (unsigned)ctx->width, (unsigned)ctx->height,
+             (unsigned)ctx->num_anims, (unsigned)ctx->frame_delay_ms);
+
+    {
+        TickType_t start_tick = xTaskGetTickCount();
+        bool first_frame = true;
+
+        while (!ctx->stop_requested) {
+            float elapsed_s = (float)((xTaskGetTickCount() - start_tick) * portTICK_PERIOD_MS) / 1000.0f;
+
+            // Build SVG for this frame
+            size_t svg_len = asvg_build_frame_svg(ctx, elapsed_s, svg_buf, svg_buf_size);
+
+            // Render
+            bool ok = asvg_render_frame(ctx, svg_buf, svg_len);
+
+            if (ok) {
+                lv_lock();
+                if (first_frame) {
+                    first_frame = false;
+                    if (!ctx->runtime_hidden) {
+                        lv_obj_remove_flag(ctx->canvas_obj, LV_OBJ_FLAG_HIDDEN);
+                    }
+                    ESP_LOGI(ASVG_TAG, "First frame rendered OK");
+                }
+                lv_obj_invalidate(ctx->canvas_obj);
+                lv_unlock();
+            }
+
+            vTaskDelay(pdMS_TO_TICKS(ctx->frame_delay_ms));
+        }
+    }
+
+    if (svg_buf) {
+        if (heap_caps_get_allocated_size(svg_buf) > 0) {
+            heap_caps_free(svg_buf);
+        } else {
+            free(svg_buf);
+        }
+    }
+    } // end scope for svg_buf_size/svg_buf
+
+done:
+    ESP_LOGI(ASVG_TAG, "Render task stopping");
+    ctx->stop_requested = false;
+    vTaskSuspend(NULL);
 }
 
 // ---------------------------------------------------------------------------
