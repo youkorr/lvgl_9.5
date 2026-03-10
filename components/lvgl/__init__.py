@@ -224,6 +224,13 @@ async def to_code(configs):
     # Place frequently-used LVGL functions in IRAM for faster execution (ESP32)
     # This is one of Espressif's top performance recommendations
     df.add_define("LV_ATTRIBUTE_FAST_MEM", "IRAM_ATTR")
+    # Disable expensive debug assertions that can consume nearly 100% CPU
+    # during animations and input processing (LVGL forum recommendation)
+    df.add_define("LV_USE_ASSERT_NULL", "0")
+    df.add_define("LV_USE_ASSERT_MALLOC", "0")
+    df.add_define("LV_USE_ASSERT_STYLE", "0")
+    df.add_define("LV_USE_ASSERT_MEM_INTEGRITY", "0")
+    df.add_define("LV_USE_ASSERT_OBJ", "0")
 
     # Performance: faster input device polling (5ms = 200Hz instead of default 30ms)
     # Lower values reduce touch/button response latency
