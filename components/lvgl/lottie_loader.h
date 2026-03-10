@@ -1,13 +1,14 @@
 #pragma once
 
 #ifdef USE_ESP32
+#include <lvgl.h>
+#if LV_USE_LOTTIE
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include <cstring>
-#include <lvgl.h>
 
 // Access lv_lottie_t internals for safe re-initialisation on screen re-load.
 // Needed to null out the dangling anim pointer and to clear the ThorVG canvas
@@ -395,6 +396,7 @@ inline bool lottie_init(lv_obj_t *obj, const void *data, size_t data_size,
 }  // namespace lvgl
 }  // namespace esphome
 
+#endif  // LV_USE_LOTTIE
 #endif  // USE_ESP32
 
 
