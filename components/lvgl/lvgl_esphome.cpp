@@ -582,6 +582,14 @@ void LvglComponent::setup() {
     return;
   }
   this->draw_buf_ = static_cast<uint8_t *>(buffer);
+  // Allocate second buffer for double buffering (LVGL can draw while SPI flushes)
+  void *buffer2 = lv_malloc_core(buf_bytes);  // NOLINT
+  if (buffer2 != nullptr) {
+    this->draw_buf2_ = static_cast<uint8_t *>(buffer2);
+    ESP_LOGD(TAG, "Double buffering enabled (%zu bytes x2)", buf_bytes);
+  } else {
+    ESP_LOGW(TAG, "Could not allocate second buffer, using single buffer mode");
+  }
   lv_display_set_resolution(this->disp_, this->width_, this->height_);
   lv_display_set_color_format(this->disp_, LV_COLOR_FORMAT_RGB565);
   // CRITICAL: Set user_data BEFORE flush_cb, as flush_cb uses user_data
@@ -626,7 +634,8 @@ void LvglComponent::setup() {
 
   // CRITICAL: Configure buffers at the VERY END of setup()
   // This avoids deadlock while ensuring buffers are ready before any callbacks execute
-  lv_display_set_buffers(this->disp_, this->draw_buf_, nullptr, this->buf_bytes_,
+  // Use double buffering when available: LVGL draws to one buffer while SPI flushes the other
+  lv_display_set_buffers(this->disp_, this->draw_buf_, this->draw_buf2_, this->buf_bytes_,
                          this->full_refresh_ ? LV_DISPLAY_RENDER_MODE_FULL : LV_DISPLAY_RENDER_MODE_PARTIAL);
   this->buffers_configured_ = true;
 }

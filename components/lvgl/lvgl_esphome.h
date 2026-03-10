@@ -231,6 +231,7 @@ class LvglComponent : public PollingComponent {
   bool update_when_display_idle_{};
 
   uint8_t *draw_buf_{};
+  uint8_t *draw_buf2_{};  // Second buffer for double buffering (non-blocking flush)
   lv_display_t *disp_{};
   uint16_t width_{};
   uint16_t height_{};
