@@ -373,52 +373,55 @@ def stop_value(value):
 lv_images_used = set()
 
 
+def _find_id_in_config(component_key, value):
+    """Check if an ID is declared under a specific component in the config."""
+    str_value = str(value)
+    configs = CORE.config.get(component_key)
+    if configs is None:
+        return False
+    if isinstance(configs, list):
+        for conf in configs:
+            if isinstance(conf, dict) and str(conf.get(CONF_ID)) == str_value:
+                return True
+    return False
+
+
 def image_validator(value):
     # Accept multiple types:
-    # 1. SdImageComponent ID - image from storage/sd_image component (e.g., "peaceful")
-    # 2. SvgFile ID - embedded SVG from svg_file: component
-    # 3. Image ID - embedded image from image: component
+    # 1. Image ID - embedded image from image: component
+    # 2. SdImageComponent ID - image from storage/sd_image component
+    # 3. SvgFile ID - embedded SVG from svg_file: component
     # 4. String path - file on SD card (e.g., "/sdcard/icons/wifi.svg")
     #
-    # IMPORTANT: Try IDs first before treating as file path!
-    # IDs are also strings in YAML, so we must distinguish them.
+    # NOTE: cv.use_id() does not check types at validation time - it always
+    # succeeds for valid ID strings. We must check CORE.config to determine
+    # which component actually declares the ID before calling cv.use_id().
 
-    # Try sd_image ID first (from storage component) - most common use case
-    try:
-        sd_image_class = cg.esphome_ns.namespace("storage").class_("SdImageComponent")
-        result = cv.use_id(sd_image_class)(value)
+    # If it's a file path, handle it directly
+    if isinstance(value, str) and value.startswith("/"):
         add_lv_use("img", "label")
-        return result
-    except cv.Invalid:
-        pass
+        return value
 
-    # Try svg_file ID
-    try:
-        svg_file_class = cg.esphome_ns.namespace("svg_file").class_("SvgFile")
-        result = cv.use_id(svg_file_class)(value)
-        add_lv_use("img", "label")
-        return result
-    except cv.Invalid:
-        pass
-
-    # Try regular embedded image ID
-    try:
+    # Check if this ID is declared as a regular embedded image
+    if _find_id_in_config("image", value):
         value_id = requires_component("image")(value)
         value_id = cv.use_id(Image_)(value_id)
         lv_images_used.add(value_id)
         add_lv_use("img", "label")
         return value_id
-    except cv.Invalid:
-        pass
 
-    # If all ID resolutions failed and it's a string starting with "/", treat as file path
-    if isinstance(value, str) and value.startswith("/"):
-        # It's a file path (e.g., "/sdcard/icons/wifi.svg")
+    # Check if this ID is declared as an svg_file
+    if _find_id_in_config("svg_file", value):
+        svg_file_class = cg.esphome_ns.namespace("svg_file").class_("SvgFile")
+        result = cv.use_id(svg_file_class)(value)
         add_lv_use("img", "label")
-        return value
+        return result
 
-    # If we get here, it's an invalid value
-    raise cv.Invalid(f"Invalid image source: {value}. Must be an image/sd_image/svg_file ID or a file path starting with '/'")
+    # Default: assume sd_image (storage component) for any unmatched ID
+    sd_image_class = cg.esphome_ns.namespace("storage").class_("SdImageComponent")
+    result = cv.use_id(sd_image_class)(value)
+    add_lv_use("img", "label")
+    return result
 
 
 
