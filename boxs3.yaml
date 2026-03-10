@@ -5,7 +5,7 @@
 substitutions:
   name: esp32-s3box-3
   friendly_name: ESP32-S3-Box-3
-  frigate: "http://192.168.1.38:8123/local/llmvision/frigate1.png"
+  frigate: ":8123/local/llmvision/frigate1.png"
 
   home_assistant_host: http://homeassistant.local:8123
 
