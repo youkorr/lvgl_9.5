@@ -269,12 +269,20 @@ async def to_code(configs):
         df.add_define("LV_USE_THORVG_INTERNAL", "0")
         df.add_define("LV_USE_SVG", "0")
         df.add_define("LV_USE_LOTTIE", "0")
-        # Smaller draw thread stack when no ThorVG (8KB is sufficient)
-        df.add_define("LV_DRAW_THREAD_STACK_SIZE", "(8 * 1024)")
 
-    # Enable FreeRTOS threading for LVGL draw operations
-    # Note: atomic.h shim added in components/lvgl/ for ESP-IDF compatibility
-    df.add_define("LV_USE_OS", "LV_OS_FREERTOS")
+    if use_vector_graphics:
+        # Enable FreeRTOS threading for LVGL draw operations (needed by ThorVG)
+        # Note: atomic.h shim added in components/lvgl/ for ESP-IDF compatibility
+        df.add_define("LV_USE_OS", "LV_OS_FREERTOS")
+        df.add_define("LV_DRAW_THREAD_STACK_SIZE", "(48 * 1024)")
+    else:
+        # Disable OS threading when vector graphics is off.
+        # The mutex overhead from LV_OS_FREERTOS adds significant latency
+        # to touch/button event processing on ESP32-S3.
+        # Single-threaded rendering is faster for standard widgets.
+        df.add_define("LV_USE_OS", "LV_OS_NONE")
+        # Use a single draw unit — no parallelism needed without ThorVG
+        df.add_define("LV_DRAW_SW_DRAW_UNIT_CNT", "1")
     # Enable advanced image decoders
     df.add_define("LV_USE_LIBPNG", "0")  # PNG support via pngdec (not libpng)
     df.add_define("LV_USE_BMP", "1")      # BMP support
