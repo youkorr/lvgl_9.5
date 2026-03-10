@@ -89,6 +89,7 @@ AUTO_LOAD = ["key_provider", "button"]
 CODEOWNERS = ["@youkorr"]  # LVGL 9.5.0 implementation with ThorVG enabled by default
 HELLO_WORLD_FILE = "hello_world.yaml"
 CONF_USE_PPA = "use_ppa"
+CONF_USE_VECTOR_GRAPHICS = "use_vector_graphics"
 
 
 SIMPLE_TRIGGERS = (
@@ -238,25 +239,42 @@ async def to_code(configs):
     # ============================================
     # THORVG + SVG/LOTTIE SUPPORT (LVGL v9.5+)
     # ============================================
-    # Enable floating point support (required by matrix)
-    df.add_define("LV_USE_FLOAT", "1")
-    # Enable matrix support (required by vector graphics)
-    df.add_define("LV_USE_MATRIX", "1")
-    # Enable vector graphics support (required for SVG/Lottie)
-    df.add_define("LV_USE_VECTOR_GRAPHIC", "1")
-    # Enable ThorVG vector graphics engine (built-in to LVGL v9)
-    df.add_define("LV_USE_THORVG_INTERNAL", "1")
-    # ThorVG optimizations for ESP32
-    df.add_define("LV_VG_LITE_THORVG_16PIXELS_ALIGN", "1")  # Optimize for 16-pixel alignment
+    # Only enable ThorVG/SVG/Lottie when explicitly requested via use_vector_graphics: true
+    # ThorVG is CPU-intensive and adds significant overhead even when idle.
+    # For configs using only standard widgets (buttons, labels, animimg, etc.),
+    # keeping this disabled dramatically improves touch responsiveness.
+    use_vector_graphics = config_0.get(CONF_USE_VECTOR_GRAPHICS, False)
+    if use_vector_graphics:
+        # Enable floating point support (required by matrix)
+        df.add_define("LV_USE_FLOAT", "1")
+        # Enable matrix support (required by vector graphics)
+        df.add_define("LV_USE_MATRIX", "1")
+        # Enable vector graphics support (required for SVG/Lottie)
+        df.add_define("LV_USE_VECTOR_GRAPHIC", "1")
+        # Enable ThorVG vector graphics engine (built-in to LVGL v9)
+        df.add_define("LV_USE_THORVG_INTERNAL", "1")
+        # ThorVG optimizations for ESP32
+        df.add_define("LV_VG_LITE_THORVG_16PIXELS_ALIGN", "1")
+        # Draw thread stack size - 48KB for ThorVG rendering
+        df.add_define("LV_DRAW_THREAD_STACK_SIZE", "(48 * 1024)")
+        # Enable SVG support (requires ThorVG)
+        df.add_define("LV_USE_SVG", "1")
+        # Enable Lottie animation support (requires ThorVG)
+        df.add_define("LV_USE_LOTTIE", "1")
+    else:
+        # Explicitly disable vector graphics to save CPU and memory
+        df.add_define("LV_USE_FLOAT", "0")
+        df.add_define("LV_USE_MATRIX", "0")
+        df.add_define("LV_USE_VECTOR_GRAPHIC", "0")
+        df.add_define("LV_USE_THORVG_INTERNAL", "0")
+        df.add_define("LV_USE_SVG", "0")
+        df.add_define("LV_USE_LOTTIE", "0")
+        # Smaller draw thread stack when no ThorVG (8KB is sufficient)
+        df.add_define("LV_DRAW_THREAD_STACK_SIZE", "(8 * 1024)")
+
     # Enable FreeRTOS threading for LVGL draw operations
     # Note: atomic.h shim added in components/lvgl/ for ESP-IDF compatibility
     df.add_define("LV_USE_OS", "LV_OS_FREERTOS")
-    # Draw thread stack size - 48KB for ThorVG rendering
-    df.add_define("LV_DRAW_THREAD_STACK_SIZE", "(48 * 1024)")
-    # Enable SVG support (requires ThorVG)
-    df.add_define("LV_USE_SVG", "1")
-    # Enable Lottie animation support (requires ThorVG)
-    df.add_define("LV_USE_LOTTIE", "1")
     # Enable advanced image decoders
     df.add_define("LV_USE_LIBPNG", "0")  # PNG support via pngdec (not libpng)
     df.add_define("LV_USE_BMP", "1")      # BMP support
@@ -515,6 +533,7 @@ LVGL_SCHEMA = cv.All(
                 cv.GenerateID(df.CONF_DEFAULT_GROUP): cv.declare_id(lv_group_t),
                 cv.Optional(df.CONF_RESUME_ON_INPUT, default=True): cv.boolean,
                 cv.Optional(CONF_USE_PPA, default=False): cv.boolean,
+                cv.Optional(CONF_USE_VECTOR_GRAPHICS, default=False): cv.boolean,
             }
         )
         .extend(DISP_BG_SCHEMA),
