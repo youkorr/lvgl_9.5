@@ -221,11 +221,16 @@ async def to_code(configs):
     # stricter alignment. The custom lv_malloc_core() already provides 64-byte
     # aligned heap allocations for the actual draw buffers on ESP32.
     df.add_define("LV_DRAW_BUF_ALIGN", "4")
+    # Place frequently-used LVGL functions in IRAM for faster execution (ESP32)
+    # This is one of Espressif's top performance recommendations
+    df.add_define("LV_ATTRIBUTE_FAST_MEM", "IRAM_ATTR")
 
-    # Performance: faster input device polling (10ms = 100Hz instead of default 30ms)
-    df.add_define("LV_INDEV_DEF_READ_PERIOD", "10")
-    # Performance: faster display refresh (20ms = 50Hz instead of default 33ms/30Hz)
-    df.add_define("LV_DEF_REFR_PERIOD", "20")
+    # Performance: faster input device polling (5ms = 200Hz instead of default 30ms)
+    # Lower values reduce touch/button response latency
+    df.add_define("LV_INDEV_DEF_READ_PERIOD", "5")
+    # Performance: faster display refresh (10ms = 100Hz instead of default 33ms/30Hz)
+    # Espressif recommends 10ms for best responsiveness
+    df.add_define("LV_DEF_REFR_PERIOD", "10")
     use_ppa = config_0.get(CONF_USE_PPA, False)
     if use_ppa:
         # LVGL 9.5 includes the PPA fix (PR #9162) natively.

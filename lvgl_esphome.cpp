@@ -115,9 +115,12 @@ void LvglComponent::dump_config() {
                 "LVGL:\n"
                 "  Display width/height: %d x %d\n"
                 "  Buffer size: %zu%%\n"
+                "  Double buffering: %s\n"
                 "  Rotation: %d\n"
                 "  Draw rounding: %d",
-                this->width_, this->height_, 100 / this->buffer_frac_, this->rotation, (int) this->draw_rounding);
+                this->width_, this->height_, 100 / this->buffer_frac_,
+                this->draw_buf2_ != nullptr ? "YES" : "NO",
+                this->rotation, (int) this->draw_rounding);
 }
 
 void LvglComponent::set_paused(bool paused, bool show_snow) {
@@ -582,6 +585,15 @@ void LvglComponent::setup() {
     return;
   }
   this->draw_buf_ = static_cast<uint8_t *>(buffer);
+  // Try to allocate a second buffer for double buffering.
+  // Double buffering lets LVGL render the next frame while the display
+  // is still flushing the previous one, dramatically reducing input latency.
+  this->draw_buf2_ = static_cast<uint8_t *>(lv_malloc_core(buf_bytes));
+  if (this->draw_buf2_ != nullptr) {
+    ESP_LOGI(TAG, "Double buffering enabled (%zu bytes x2)", buf_bytes);
+  } else {
+    ESP_LOGW(TAG, "Could not allocate second buffer, using single buffer mode");
+  }
   lv_display_set_resolution(this->disp_, this->width_, this->height_);
   lv_display_set_color_format(this->disp_, LV_COLOR_FORMAT_RGB565);
   // CRITICAL: Set user_data BEFORE flush_cb, as flush_cb uses user_data
@@ -625,8 +637,9 @@ void LvglComponent::setup() {
   lv_display_trigger_activity(this->disp_);
 
   // CRITICAL: Configure buffers at the VERY END of setup()
-  // This avoids deadlock while ensuring buffers are ready before any callbacks execute
-  lv_display_set_buffers(this->disp_, this->draw_buf_, nullptr, this->buf_bytes_,
+  // This avoids deadlock while ensuring buffers are ready before any callbacks execute.
+  // Pass second buffer (may be nullptr for single-buffer fallback).
+  lv_display_set_buffers(this->disp_, this->draw_buf_, this->draw_buf2_, this->buf_bytes_,
                          this->full_refresh_ ? LV_DISPLAY_RENDER_MODE_FULL : LV_DISPLAY_RENDER_MODE_PARTIAL);
   this->buffers_configured_ = true;
 }
