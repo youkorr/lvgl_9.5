@@ -375,6 +375,8 @@ lv_images_used = set()
 
 def _find_id_in_config(component_key, value):
     """Check if an ID is declared under a specific component in the config."""
+    if CORE.config is None:
+        return False
     str_value = str(value)
     configs = CORE.config.get(component_key)
     if configs is None:
