@@ -526,7 +526,7 @@ esp32:
     sdkconfig_options:
       CONFIG_SPIRAM_RODATA: y
       CONFIG_VFS_SUPPORT_IO: "y"
-      CONFIG_VFS_MAX_COUNT: "16" 
+      CONFIG_VFS_MAX_COUNT: "16"
       CONFIG_FATFS_LFN_STACK: "y"
       CONFIG_FATFS_LFN_HEAP: "y"
       CONFIG_LWIP_SO_RCVBUF: "y"
@@ -535,21 +535,21 @@ esp32:
       CONFIG_SPIRAM_USE_MALLOC: y
       CONFIG_ESP_MAIN_TASK_STACK_SIZE: "16384"
       CONFIG_ESP_TIMER_TASK_STACK_SIZE: "4096"
-      #CONFIG_ESP_MAIN_TASK_STACK_SIZE: "16384"  # Augmente à 16KB
-      #CONFIG_ESP_TIMER_TASK_STACK_SIZE: "4096"
-      #CONFIG_ESP_TASK_WDT_TIMEOUT_S: "60"       # 60 secondes de timeout
-      #CONFIG_ESP_TASK_LOOP_STACK_SIZE: "16384"   # <-- à ajouter
-      #DCONFIG_ESP_JPG_DECODE_ENABLE: "y"
-      #DCONFIG_ESPHOME_ENABLE_PNGLE: "1"
 
-      
+      # Performance ESP32-S3 : cache étendu pour code et données
+      CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+
+      # FreeRTOS 1000 Hz : animations LVGL plus fluides (au lieu de 100 Hz par défaut)
+      CONFIG_FREERTOS_HZ: "1000"
+
+      # Optimisation compilateur pour la performance
+      CONFIG_COMPILER_OPTIMIZATION_PERF: "y"
+
       #CONFIG_USB_OTG_SUPPORTED: y
       #CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE: "256"
       #CONFIG_USB_HOST_HW_BUFFER_BIAS_IN: y
-      #CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB: "y"
-
-      #task_stack_size: "16384"
-      #task_stack_size: "12288"
 
 
 
@@ -2083,8 +2083,10 @@ image:
 ############################################################### LGVL ###########################################################################################################################
 lvgl:
   byte_order: little_endian
+  # buffer_size: 25% de l'écran alloué en PSRAM → animations plus fluides
+  buffer_size: 25%
   displays:
-    - my_display  
+    - my_display
   touchscreens:
     - gt911_touchscreen
 
