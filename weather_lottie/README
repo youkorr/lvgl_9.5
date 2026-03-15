@@ -1,0 +1,13 @@
+Weather Widget Lottie - Deployment
+====================================
+
+Copy these files to your ESP32 SD card:
+
+  /sdcard/weather/weather_widget.json    (the Lottie animation)
+  /sdcard/weather/SFProDisplay-Regular.ttf  (font for text rendering)
+
+The Lottie animation contains all weather icons, text slots,
+and gradient backgrounds in a single file. ThorVG's slot override
+API is used to update text, switch icons, and change colors at runtime.
+
+Source: LottieFiles Motion Tokens weather widget demo
