@@ -547,6 +547,16 @@ esp32:
       # Optimisation compilateur pour la performance
       CONFIG_COMPILER_OPTIMIZATION_PERF: "y"
 
+      # CRITIQUE (Espressif BSP perf guide) : place les fonctions LVGL fréquentes en IRAM
+      # → évite les cache-miss sur le flash SPI, gain majeur sur rendu logiciel
+      CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM: "y"
+
+      # Période de rafraîchissement LVGL 9 : 10 ms = 100 fps max (défaut = 33 ms)
+      CONFIG_LV_DEF_REFR_PERIOD: "10"
+
+      # Affinité tâche principale sur CPU1 → CPU0 libre pour BT/WiFi/audio
+      CONFIG_ESP_MAIN_TASK_AFFINITY_CPU1: "y"
+
       #CONFIG_USB_OTG_SUPPORTED: y
       #CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE: "256"
       #CONFIG_USB_HOST_HW_BUFFER_BIAS_IN: y
