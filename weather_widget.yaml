@@ -1,0 +1,502 @@
+# =============================================================================
+# Weather Widget pour LVGL 9.5 / ESPHome
+# =============================================================================
+# Widget météo complet avec :
+#   - Animations Lottie (fichiers JSON sur carte SD)
+#   - Appels API Open-Meteo (pas besoin de Home Assistant)
+#   - Sélecteur de ville via dropdown LVGL
+#   - Affichage : ville, température, min/max, description, animation
+#   - Thèmes de couleurs cycliques
+#   - Rafraîchissement automatique toutes les 5 minutes
+#
+# Fichiers Lottie requis sur la carte SD (/sdcard/weather/) :
+#   clear-day.json, clear-night.json, cloudy.json,
+#   partly-cloudy-day-rain.json, snow.json,
+#   thunderstorms-day-rain.json, dust-wind.json,
+#   fog.json, overcast.json, extreme.json
+#
+# Ce fichier peut être inclus via: packages: !include weather_widget.yaml
+# ou intégré directement dans votre configuration principale.
+# =============================================================================
+
+
+# ---------------------------------------------------------------------------
+# Globals : stockage de l'état météo
+# ---------------------------------------------------------------------------
+globals:
+  - id: weather_city_name
+    type: std::string
+    restore_value: no
+    initial_value: '"Paris"'
+
+  - id: weather_latitude
+    type: float
+    restore_value: no
+    initial_value: '48.8566'
+
+  - id: weather_longitude
+    type: float
+    restore_value: no
+    initial_value: '2.3522'
+
+  - id: weather_theme_index
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: weather_current_temp
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+
+  - id: weather_temp_min
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+
+  - id: weather_temp_max
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+
+  - id: weather_code
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: weather_is_day
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+
+
+# ---------------------------------------------------------------------------
+# Intervalle : rafraîchissement automatique de la météo
+# ---------------------------------------------------------------------------
+interval:
+  - interval: 5min
+    then:
+      - script.execute: weather_fetch_data
+
+
+# ---------------------------------------------------------------------------
+# Scripts
+# ---------------------------------------------------------------------------
+script:
+  # =========================================================================
+  # Script principal : sélectionner les coordonnées de la ville et fetch
+  # =========================================================================
+  - id: weather_select_city
+    parameters:
+      city_index: int
+    then:
+      - lambda: !lambda |-
+          // Table des villes : nom, latitude, longitude
+          struct CityInfo {
+            const char* name;
+            float lat;
+            float lon;
+          };
+
+          static const CityInfo cities[] = {
+            {"Paris",          48.8566,   2.3522},
+            {"London",         51.5074,  -0.1278},
+            {"Tokyo",          35.6762, 139.6503},
+            {"New York",       40.7128, -74.0060},
+            {"Sydney",        -33.8688, 151.2093},
+            {"Taipei",         25.0330, 121.5654},
+            {"Bangkok",        13.7563, 100.5018},
+            {"Seoul",          37.5665, 126.9780},
+            {"Kuala Lumpur",    3.1390, 101.6869},
+            {"Singapore",      1.3521, 103.8198},
+          };
+
+          int idx = city_index;
+          if (idx < 0 || idx >= 10) idx = 0;
+
+          id(weather_city_name) = cities[idx].name;
+          id(weather_latitude) = cities[idx].lat;
+          id(weather_longitude) = cities[idx].lon;
+
+          // Afficher "Chargement..." pendant la requête
+          lv_label_set_text(id(ww_city_label), "Chargement...");
+          lv_label_set_text(id(ww_atmosphere_label), "---");
+      - script.execute: weather_fetch_data
+
+  # =========================================================================
+  # Script : appel API Open-Meteo et mise à jour de l'affichage
+  # =========================================================================
+  - id: weather_fetch_data
+    then:
+      - lambda: !lambda |-
+          ESP_LOGI("weather_widget", "Fetching weather for %s (%.4f, %.4f)",
+                   id(weather_city_name).c_str(),
+                   id(weather_latitude), id(weather_longitude));
+      - http_request.get:
+          url: !lambda |-
+            char url[256];
+            snprintf(url, sizeof(url),
+              "https://api.open-meteo.com/v1/forecast?"
+              "latitude=%.4f&longitude=%.4f"
+              "&current=temperature_2m,weather_code,is_day"
+              "&daily=temperature_2m_min,temperature_2m_max"
+              "&timezone=auto&forecast_days=1",
+              id(weather_latitude), id(weather_longitude));
+            return std::string(url);
+          on_response:
+            then:
+              - lambda: !lambda |-
+                  if (status_code != 200) {
+                    ESP_LOGE("weather_widget", "HTTP error: %d", status_code);
+                    lv_label_set_text(id(ww_city_label), "Erreur réseau");
+                    return;
+                  }
+
+                  // Parser le JSON
+                  // ESPHome http_request donne accès au body via id(http_request).get_string()
+                  // On utilise ArduinoJson pour parser
+
+              - script.execute: weather_parse_and_display
+
+  # =========================================================================
+  # Script : parser la réponse JSON et mettre à jour l'UI
+  # =========================================================================
+  - id: weather_parse_and_display
+    then:
+      - lambda: !lambda |-
+          // Ce script est appelé après réception de la réponse HTTP
+          // Les données sont stockées dans les globals par le callback on_response
+
+          float temp = id(weather_current_temp);
+          float tmin = id(weather_temp_min);
+          float tmax = id(weather_temp_max);
+          int code = id(weather_code);
+          bool is_day = id(weather_is_day);
+
+          // --- Mise à jour du nom de la ville ---
+          lv_label_set_text(id(ww_city_label), id(weather_city_name).c_str());
+
+          // --- Température actuelle ---
+          char temp_buf[16];
+          snprintf(temp_buf, sizeof(temp_buf), "%.0f°C", temp);
+          lv_label_set_text(id(ww_temp_label), temp_buf);
+
+          // --- Min / Max ---
+          char low_buf[16], high_buf[16];
+          snprintf(low_buf, sizeof(low_buf), "L: %.0f°C", tmin);
+          snprintf(high_buf, sizeof(high_buf), "H: %.0f°C", tmax);
+          lv_label_set_text(id(ww_low_label), low_buf);
+          lv_label_set_text(id(ww_high_label), high_buf);
+
+          // --- Description de l'atmosphère ---
+          const char* atmosphere = "Inconnu";
+          if (!is_day && (code == 0 || code == 1)) atmosphere = "Nuit";
+          else if (code == 0 || code == 1) atmosphere = "Ensoleillé";
+          else if (code == 2 || code == 3) atmosphere = "Nuageux";
+          else if (code == 45 || code == 48) atmosphere = "Brouillard";
+          else if ((code >= 51 && code <= 57) || (code >= 61 && code <= 67) || (code >= 80 && code <= 82))
+            atmosphere = "Pluie";
+          else if ((code >= 71 && code <= 77) || (code >= 85 && code <= 86))
+            atmosphere = "Neige";
+          else if (code >= 95 && code <= 99) atmosphere = "Orage";
+          lv_label_set_text(id(ww_atmosphere_label), atmosphere);
+
+          // --- Sélection de l'animation Lottie ---
+          // Cacher toutes les animations
+          lv_obj_add_flag(id(ww_lottie_sunny),   LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(ww_lottie_night),   LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(ww_lottie_cloudy),  LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(ww_lottie_rain),    LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(ww_lottie_snow),    LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(ww_lottie_storm),   LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(ww_lottie_fog),     LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(ww_lottie_wind),    LV_OBJ_FLAG_HIDDEN);
+          lv_obj_add_flag(id(ww_lottie_overcast), LV_OBJ_FLAG_HIDDEN);
+
+          // Sélectionner l'animation appropriée
+          lv_obj_t* active = nullptr;
+
+          if (!is_day && (code == 0 || code == 1)) {
+            active = id(ww_lottie_night);
+          } else if (code == 0 || code == 1) {
+            active = id(ww_lottie_sunny);
+          } else if (code == 2 || code == 3) {
+            active = id(ww_lottie_cloudy);
+          } else if (code == 45 || code == 48) {
+            active = id(ww_lottie_fog);
+          } else if ((code >= 51 && code <= 57) || (code >= 61 && code <= 67) || (code >= 80 && code <= 82)) {
+            active = id(ww_lottie_rain);
+          } else if ((code >= 71 && code <= 77) || (code >= 85 && code <= 86)) {
+            active = id(ww_lottie_snow);
+          } else if (code >= 95 && code <= 99) {
+            active = id(ww_lottie_storm);
+          } else {
+            active = id(ww_lottie_overcast);
+          }
+
+          if (active != nullptr) {
+            lv_obj_clear_flag(active, LV_OBJ_FLAG_HIDDEN);
+
+            // Redémarrer l'animation depuis la frame 0
+            esphome::lvgl::LottieContext *ctx =
+              (esphome::lvgl::LottieContext *)lv_obj_get_user_data(active);
+            if (ctx != nullptr) {
+              esphome::lvgl::lottie_restart(ctx);
+            }
+          }
+
+          // --- Cycle de thème (change la couleur de fond) ---
+          static const lv_color_t theme_colors[][2] = {
+            // {couleur principale, couleur d'accent}
+            {lv_color_hex(0x203A5C), lv_color_hex(0x4096DB)},  // Bleu nuit
+            {lv_color_hex(0x2A3050), lv_color_hex(0x5163B0)},  // Indigo
+            {lv_color_hex(0x18742D), lv_color_hex(0x6A98CF)},  // Vert forêt
+            {lv_color_hex(0x9384DA), lv_color_hex(0xB73A80)},  // Violet/Rose
+          };
+
+          int tidx = id(weather_theme_index) % 4;
+          lv_obj_set_style_bg_color(id(ww_container), theme_colors[tidx][0], LV_PART_MAIN);
+          lv_obj_set_style_bg_grad_color(id(ww_container), theme_colors[tidx][1], LV_PART_MAIN);
+
+          // Avancer le thème pour la prochaine ville
+          id(weather_theme_index) = (id(weather_theme_index) + 1) % 4;
+
+          ESP_LOGI("weather_widget", "Weather updated: %s %.0f°C (%s) code=%d",
+                   id(weather_city_name).c_str(), temp, atmosphere, code);
+
+
+# ---------------------------------------------------------------------------
+# HTTP Request (nécessaire pour les appels API Open-Meteo)
+# ---------------------------------------------------------------------------
+# Note : décommentez si vous n'avez pas déjà http_request dans votre config
+# http_request:
+
+
+# ---------------------------------------------------------------------------
+# LVGL Widget : Weather Widget complet
+# ---------------------------------------------------------------------------
+# Ce bloc doit être placé dans la section 'pages:' de votre config lvgl.
+# Exemple d'intégration :
+#
+#   lvgl:
+#     pages:
+#       - id: weather_page
+#         widgets: !include { file: weather_widget_widgets.yaml }
+#
+# Ou copiez les widgets ci-dessous dans votre page existante.
+# ---------------------------------------------------------------------------
+
+# Voici la définition des widgets à intégrer dans votre page LVGL :
+#
+# IMPORTANT : Ajoutez ces widgets dans une page de votre section 'lvgl:'
+# Exemple complet ci-dessous :
+
+# lvgl:
+#   pages:
+#     - id: weather_page
+#       widgets:
+
+# ┌─────────────────────────────────────────┐
+# │  ww_container (340x200)                  │
+# │  ┌─────────────┬───────────────────────┐ │
+# │  │  Animation  │  City Name            │ │
+# │  │  Lottie     │  25°C                 │ │
+# │  │  (120x120)  │  Ensoleillé           │ │
+# │  │             │  L: 18°C  H: 30°C    │ │
+# │  └─────────────┴───────────────────────┘ │
+# │  ┌─────────────────────────────────────┐ │
+# │  │  Dropdown : [Paris ▼]               │ │
+# │  └─────────────────────────────────────┘ │
+# └─────────────────────────────────────────┘
+
+# ==========================================================================
+# WIDGETS - à copier dans votre section lvgl > pages > widgets
+# ==========================================================================
+#
+#         # --- Conteneur principal du widget météo ---
+#         - obj:
+#             id: ww_container
+#             x: 30
+#             y: 30
+#             width: 340
+#             height: 220
+#             pad_all: 0
+#             radius: 20
+#             bg_color: 0x203A5C
+#             bg_grad_color: 0x4096DB
+#             bg_grad_dir: VER
+#             bg_opa: COVER
+#             border_width: 0
+#             shadow_width: 20
+#             shadow_opa: 40%
+#             shadow_color: 0x000000
+#             widgets:
+#
+#               # === Zone animation Lottie (toutes empilées, une seule visible) ===
+#               - lottie:
+#                   id: ww_lottie_sunny
+#                   src: "/sdcard/weather/clear-day.json"
+#                   hidden: true
+#                   x: 10
+#                   y: 15
+#                   width: 110
+#                   height: 110
+#                   loop: true
+#
+#               - lottie:
+#                   id: ww_lottie_night
+#                   src: "/sdcard/weather/clear-night.json"
+#                   hidden: true
+#                   x: 10
+#                   y: 15
+#                   width: 110
+#                   height: 110
+#                   loop: true
+#
+#               - lottie:
+#                   id: ww_lottie_cloudy
+#                   src: "/sdcard/weather/cloudy.json"
+#                   hidden: true
+#                   x: 10
+#                   y: 15
+#                   width: 110
+#                   height: 110
+#                   loop: true
+#
+#               - lottie:
+#                   id: ww_lottie_rain
+#                   src: "/sdcard/weather/extreme.json"
+#                   hidden: true
+#                   x: 10
+#                   y: 15
+#                   width: 110
+#                   height: 110
+#                   loop: true
+#
+#               - lottie:
+#                   id: ww_lottie_snow
+#                   src: "/sdcard/weather/snow.json"
+#                   hidden: true
+#                   x: 10
+#                   y: 15
+#                   width: 110
+#                   height: 110
+#                   loop: true
+#
+#               - lottie:
+#                   id: ww_lottie_storm
+#                   src: "/sdcard/weather/thunderstorms-day-rain.json"
+#                   hidden: true
+#                   x: 10
+#                   y: 15
+#                   width: 110
+#                   height: 110
+#                   loop: true
+#
+#               - lottie:
+#                   id: ww_lottie_fog
+#                   src: "/sdcard/weather/fog.json"
+#                   hidden: true
+#                   x: 10
+#                   y: 15
+#                   width: 110
+#                   height: 110
+#                   loop: true
+#
+#               - lottie:
+#                   id: ww_lottie_wind
+#                   src: "/sdcard/weather/dust-wind.json"
+#                   hidden: true
+#                   x: 10
+#                   y: 15
+#                   width: 110
+#                   height: 110
+#                   loop: true
+#
+#               - lottie:
+#                   id: ww_lottie_overcast
+#                   src: "/sdcard/weather/overcast.json"
+#                   hidden: true
+#                   x: 10
+#                   y: 15
+#                   width: 110
+#                   height: 110
+#                   loop: true
+#
+#               # === Labels texte (côté droit de l'animation) ===
+#               - label:
+#                   id: ww_city_label
+#                   x: 130
+#                   y: 15
+#                   width: 195
+#                   text: "Chargement..."
+#                   text_color: 0xFFFFFF
+#                   text_font: montserrat_20
+#
+#               - label:
+#                   id: ww_temp_label
+#                   x: 130
+#                   y: 42
+#                   width: 195
+#                   text: "--°C"
+#                   text_color: 0xFFFFFF
+#                   text_font: montserrat_40
+#
+#               - label:
+#                   id: ww_atmosphere_label
+#                   x: 130
+#                   y: 90
+#                   width: 195
+#                   text: "---"
+#                   text_color: 0xDDDDDD
+#                   text_font: montserrat_16
+#
+#               - label:
+#                   id: ww_low_label
+#                   x: 130
+#                   y: 112
+#                   width: 90
+#                   text: "L: --°C"
+#                   text_color: 0x99CCFF
+#                   text_font: montserrat_14
+#
+#               - label:
+#                   id: ww_high_label
+#                   x: 230
+#                   y: 112
+#                   width: 90
+#                   text: "H: --°C"
+#                   text_color: 0xFFCC99
+#                   text_font: montserrat_14
+#
+#               # === Dropdown sélecteur de ville ===
+#               - dropdown:
+#                   id: ww_city_dropdown
+#                   x: 10
+#                   y: 140
+#                   width: 320
+#                   height: 40
+#                   options:
+#                     - "Paris"
+#                     - "London"
+#                     - "Tokyo"
+#                     - "New York"
+#                     - "Sydney"
+#                     - "Taipei"
+#                     - "Bangkok"
+#                     - "Seoul"
+#                     - "Kuala Lumpur"
+#                     - "Singapore"
+#                   selected_index: 0
+#                   bg_color: 0x000000
+#                   bg_opa: 30%
+#                   text_color: 0xFFFFFF
+#                   border_color: 0xFFFFFF
+#                   border_opa: 25%
+#                   radius: 10
+#                   on_value:
+#                     then:
+#                       - script.execute:
+#                           id: weather_select_city
+#                           city_index: !lambda |-
+#                             lv_dropdown_get_selected(id(ww_city_dropdown));
