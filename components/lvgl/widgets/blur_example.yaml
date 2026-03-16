@@ -1,0 +1,626 @@
+# =============================================================================
+# LVGL 9.5 - Blur natif & Effets visuels avancés
+# =============================================================================
+# Nouvelle feature LVGL 9.5 : blur natif sans GPU, disponible sur tous les
+# targets (ESP32-S3, P4, etc.)
+#
+# Propriétés de blur :
+#   blur_radius    : rayon du flou en pixels (0 = désactivé)
+#   blur_backdrop  : true = flou du fond derrière le widget (verre dépoli)
+#                    false = flou du widget lui-même
+#   blur_quality   : SPEED (rapide), PRECISION (haute qualité), AUTO (choix auto)
+#
+# Autres nouvelles propriétés :
+#   bg_main_opa    : opacité de la couleur principale du dégradé
+#   bg_grad_opa    : opacité de la couleur secondaire du dégradé
+#   image_opa      : opacité d'une image
+#   bitmap_mask_src: masque bitmap sur un widget
+#   margin_*       : marges externes (flex/grid)
+#   pad_row/column : espacement rangées/colonnes dans un layout
+# =============================================================================
+
+globals:
+  - id: dark_mode
+    type: bool
+    initial_value: "false"
+
+lvgl:
+  displays:
+    - display_id: my_display
+      pages:
+
+        # =====================================================================
+        # PAGE 1 : Verre Dépoli (Frosted Glass)
+        # backdrop blur = flou du fond visible à travers le widget
+        # =====================================================================
+        - id: page_frosted_glass
+          # Fond coloré pour rendre le blur visible
+          bg_color: 0x1A237E
+          bg_grad_color: 0x7B1FA2
+          bg_grad_dir: VER
+          widgets:
+
+            - label:
+                x: 10
+                y: 10
+                text: "Verre Dépoli (Blur Backdrop)"
+                text_color: 0xFFFFFF
+                text_font: montserrat_18
+
+            # Décorations de fond visibles à travers le verre
+            - obj:
+                x: 30
+                y: 60
+                width: 80
+                height: 80
+                radius: 40
+                bg_color: 0xFF6F00
+                bg_opa: COVER
+
+            - obj:
+                x: 160
+                y: 80
+                width: 120
+                height: 60
+                radius: 8
+                bg_color: 0x00BCD4
+                bg_opa: COVER
+
+            - obj:
+                x: 320
+                y: 55
+                width: 70
+                height: 70
+                radius: 35
+                bg_color: 0x76FF03
+                bg_opa: COVER
+
+            # ---- Carte verre dépoli ----
+            # bg_opa < 100% + blur_backdrop:true = effet frosted glass
+            - obj:
+                id: card_frosted
+                x: 20
+                y: 160
+                width: 440
+                height: 140
+                radius: 16
+                bg_color: 0xFFFFFF
+                bg_opa: 25%
+                blur_radius: 12        # rayon du flou appliqué au fond
+                blur_backdrop: true    # flou du fond DERRIÈRE ce widget
+                blur_quality: AUTO
+                border_width: 1
+                border_color: 0xFFFFFF
+                border_opa: 40%
+                pad_all: 16
+                widgets:
+                  - label:
+                      x: 0
+                      y: 0
+                      text: "Carte Verre Dépoli"
+                      text_color: 0xFFFFFF
+                      text_font: montserrat_20
+                  - label:
+                      x: 0
+                      y: 30
+                      width: 400
+                      text: "blur_radius: 12  |  blur_backdrop: true  |  bg_opa: 25%"
+                      text_color: 0xE0E0E0
+                      text_font: montserrat_14
+
+            # ---- Comparaison : même carte SANS blur ----
+            - obj:
+                x: 20
+                y: 320
+                width: 440
+                height: 90
+                radius: 16
+                bg_color: 0xFFFFFF
+                bg_opa: 25%
+                border_width: 1
+                border_color: 0xFFFFFF
+                border_opa: 40%
+                pad_all: 16
+                widgets:
+                  - label:
+                      x: 0
+                      y: 0
+                      text: "Sans blur (référence)"
+                      text_color: 0xFFFFFF
+                      text_font: montserrat_18
+                  - label:
+                      x: 0
+                      y: 28
+                      text: "blur_radius: 0  (pas de blur)"
+                      text_color: 0xBDBDBD
+                      text_font: montserrat_14
+
+        # =====================================================================
+        # PAGE 2 : Blur sur le widget lui-même (blur_backdrop: false)
+        # =====================================================================
+        - id: page_widget_blur
+          bg_color: 0x121212
+          widgets:
+
+            - label:
+                x: 10
+                y: 10
+                text: "Blur du Widget (blur_backdrop: false)"
+                text_color: 0xFFFFFF
+                text_font: montserrat_18
+
+            # Qualité SPEED
+            - obj:
+                x: 10
+                y: 50
+                width: 140
+                height: 140
+                radius: 8
+                bg_color: 0x2196F3
+                bg_opa: COVER
+                blur_radius: 6
+                blur_backdrop: false
+                blur_quality: SPEED
+                widgets:
+                  - label:
+                      align: CENTER
+                      y: -15
+                      text: "SPEED"
+                      text_color: 0xFFFFFF
+                      text_font: montserrat_16
+                  - label:
+                      align: CENTER
+                      y: 10
+                      text: "blur: 6px"
+                      text_color: 0xE3F2FD
+                      text_font: montserrat_14
+
+            # Qualité AUTO
+            - obj:
+                x: 165
+                y: 50
+                width: 140
+                height: 140
+                radius: 8
+                bg_color: 0x4CAF50
+                bg_opa: COVER
+                blur_radius: 6
+                blur_backdrop: false
+                blur_quality: AUTO
+                widgets:
+                  - label:
+                      align: CENTER
+                      y: -15
+                      text: "AUTO"
+                      text_color: 0xFFFFFF
+                      text_font: montserrat_16
+                  - label:
+                      align: CENTER
+                      y: 10
+                      text: "blur: 6px"
+                      text_color: 0xE8F5E9
+                      text_font: montserrat_14
+
+            # Qualité PRECISION
+            - obj:
+                x: 320
+                y: 50
+                width: 140
+                height: 140
+                radius: 8
+                bg_color: 0xFF5722
+                bg_opa: COVER
+                blur_radius: 6
+                blur_backdrop: false
+                blur_quality: PRECISION
+                widgets:
+                  - label:
+                      align: CENTER
+                      y: -15
+                      text: "PRECISION"
+                      text_color: 0xFFFFFF
+                      text_font: montserrat_16
+                  - label:
+                      align: CENTER
+                      y: 10
+                      text: "blur: 6px"
+                      text_color: 0xFBE9E7
+                      text_font: montserrat_14
+
+            # Différents rayons
+            - label:
+                x: 10
+                y: 210
+                text: "Comparaison rayon :"
+                text_color: 0xAAAAAA
+                text_font: montserrat_16
+
+            - obj:
+                x: 10
+                y: 240
+                width: 90
+                height: 90
+                radius: 45
+                bg_color: 0x9C27B0
+                blur_radius: 2
+                blur_backdrop: false
+                blur_quality: AUTO
+                widgets:
+                  - label:
+                      align: CENTER
+                      text: "2px"
+                      text_color: 0xFFFFFF
+                      text_font: montserrat_14
+
+            - obj:
+                x: 115
+                y: 240
+                width: 90
+                height: 90
+                radius: 45
+                bg_color: 0x9C27B0
+                blur_radius: 6
+                blur_backdrop: false
+                blur_quality: AUTO
+                widgets:
+                  - label:
+                      align: CENTER
+                      text: "6px"
+                      text_color: 0xFFFFFF
+                      text_font: montserrat_14
+
+            - obj:
+                x: 220
+                y: 240
+                width: 90
+                height: 90
+                radius: 45
+                bg_color: 0x9C27B0
+                blur_radius: 12
+                blur_backdrop: false
+                blur_quality: AUTO
+                widgets:
+                  - label:
+                      align: CENTER
+                      text: "12px"
+                      text_color: 0xFFFFFF
+                      text_font: montserrat_14
+
+            - obj:
+                x: 325
+                y: 240
+                width: 90
+                height: 90
+                radius: 45
+                bg_color: 0x9C27B0
+                blur_radius: 20
+                blur_backdrop: false
+                blur_quality: AUTO
+                widgets:
+                  - label:
+                      align: CENTER
+                      text: "20px"
+                      text_color: 0xFFFFFF
+                      text_font: montserrat_14
+
+        # =====================================================================
+        # PAGE 3 : Notification avec backdrop blur + shadow
+        # Cas d'usage réel : overlay modal / notification
+        # =====================================================================
+        - id: page_notification
+          bg_color: 0x0D47A1
+          bg_grad_color: 0x311B92
+          bg_grad_dir: VER
+          widgets:
+
+            - label:
+                x: 10
+                y: 10
+                text: "Notification overlay"
+                text_color: 0xFFFFFF
+                text_font: montserrat_18
+
+            # Fond simulant une page d'interface
+            - obj:
+                x: 10
+                y: 45
+                width: 460
+                height: 200
+                radius: 8
+                bg_color: 0x1565C0
+                bg_opa: COVER
+                border_width: 1
+                border_color: 0x1976D2
+                pad_all: 12
+                widgets:
+                  - label:
+                      x: 0
+                      y: 0
+                      text: "Interface principale"
+                      text_color: 0x90CAF9
+                      text_font: montserrat_16
+                  - label:
+                      x: 0
+                      y: 30
+                      text: "Contenu de la page visible à travers la notification"
+                      text_color: 0x64B5F6
+                      text_font: montserrat_14
+
+            # Overlay "toast" notification avec blur
+            - obj:
+                id: toast_notif
+                align: CENTER
+                y: 50
+                width: 380
+                height: 110
+                radius: 12
+                bg_color: 0xFFFFFF
+                bg_opa: 20%
+                blur_radius: 16
+                blur_backdrop: true
+                blur_quality: AUTO
+                border_width: 1
+                border_color: 0xFFFFFF
+                border_opa: 50%
+                shadow_width: 20
+                shadow_color: 0x000000
+                shadow_opa: 60%
+                shadow_offset_y: 8
+                pad_all: 14
+                widgets:
+                  - label:
+                      x: 0
+                      y: 0
+                      text: "\U000F009E  Nouvelle notification"
+                      text_color: 0xFFFFFF
+                      text_font: montserrat_18
+                  - label:
+                      x: 0
+                      y: 28
+                      width: 340
+                      text: "blur_backdrop:true + shadow + bg_opa:20%"
+                      text_color: 0xE0E0E0
+                      text_font: montserrat_14
+                  - button:
+                      align: BOTTOM_RIGHT
+                      width: 80
+                      height: 32
+                      radius: 16
+                      bg_color: 0x4FC3F7
+                      border_width: 0
+                      widgets:
+                        - label:
+                            align: CENTER
+                            text: "OK"
+                            text_color: 0x000000
+                            text_font: montserrat_14
+
+        # =====================================================================
+        # PAGE 4 : Nouvelles propriétés de style
+        # bg_main_opa, bg_grad_opa, image_opa, margin_*, pad_row/column
+        # =====================================================================
+        - id: page_new_styles
+          bg_color: 0x1C1C1C
+          widgets:
+
+            - label:
+                x: 10
+                y: 5
+                text: "Nouvelles propriétés de style LVGL 9.5"
+                text_color: 0xFFFFFF
+                text_font: montserrat_16
+
+            # bg_main_opa / bg_grad_opa : opacité par arrêt du dégradé
+            - label:
+                x: 10
+                y: 30
+                text: "bg_main_opa + bg_grad_opa"
+                text_color: 0x90CAF9
+                text_font: montserrat_14
+
+            - obj:
+                x: 10
+                y: 55
+                width: 200
+                height: 60
+                radius: 8
+                bg_color: 0xFF5722
+                bg_grad_color: 0x3F51B5
+                bg_grad_dir: HOR
+                bg_main_opa: 100%    # opacité couleur principale = opaque
+                bg_grad_opa: 30%     # opacité couleur de fin = semi-transparent
+                widgets:
+                  - label:
+                      align: CENTER
+                      text: "main:100% grad:30%"
+                      text_color: 0xFFFFFF
+                      text_font: montserrat_12
+
+            - obj:
+                x: 220
+                y: 55
+                width: 200
+                height: 60
+                radius: 8
+                bg_color: 0xFF5722
+                bg_grad_color: 0x3F51B5
+                bg_grad_dir: HOR
+                bg_main_opa: 30%     # début transparent
+                bg_grad_opa: 100%    # fin opaque
+                widgets:
+                  - label:
+                      align: CENTER
+                      text: "main:30% grad:100%"
+                      text_color: 0xFFFFFF
+                      text_font: montserrat_12
+
+            # margin_* : marges externes dans un flex layout
+            - label:
+                x: 10
+                y: 130
+                text: "margin_* dans un layout FLEX"
+                text_color: 0x90CAF9
+                text_font: montserrat_14
+
+            - obj:
+                x: 10
+                y: 155
+                width: 460
+                height: 100
+                radius: 8
+                bg_color: 0x263238
+                border_width: 1
+                border_color: 0x37474F
+                layout:
+                  type: FLEX
+                  flex_flow: ROW
+                  flex_align_main: START
+                  flex_align_cross: CENTER
+                widgets:
+                  - button:
+                      width: 80
+                      height: 40
+                      radius: 6
+                      bg_color: 0x2196F3
+                      border_width: 0
+                      margin_left: 8     # marge gauche
+                      margin_right: 4
+                      widgets:
+                        - label:
+                            align: CENTER
+                            text: "A"
+                            text_color: 0xFFFFFF
+                            text_font: montserrat_16
+                  - button:
+                      width: 80
+                      height: 40
+                      radius: 6
+                      bg_color: 0x4CAF50
+                      border_width: 0
+                      margin_left: 4
+                      margin_right: 4
+                      widgets:
+                        - label:
+                            align: CENTER
+                            text: "B"
+                            text_color: 0xFFFFFF
+                            text_font: montserrat_16
+                  - button:
+                      width: 80
+                      height: 40
+                      radius: 6
+                      bg_color: 0xFF9800
+                      border_width: 0
+                      margin_left: 20    # grande marge gauche
+                      margin_right: 4
+                      widgets:
+                        - label:
+                            align: CENTER
+                            text: "C"
+                            text_color: 0xFFFFFF
+                            text_font: montserrat_16
+
+            # pad_row / pad_column dans un layout GRID
+            - label:
+                x: 10
+                y: 270
+                text: "pad_row + pad_column dans un layout GRID"
+                text_color: 0x90CAF9
+                text_font: montserrat_14
+
+            - obj:
+                x: 10
+                y: 295
+                width: 460
+                height: 140
+                radius: 8
+                bg_color: 0x263238
+                border_width: 1
+                border_color: 0x37474F
+                pad_row: 8        # espace entre rangées
+                pad_column: 12    # espace entre colonnes
+                layout:
+                  type: GRID
+                  grid_columns: [Fr(1), Fr(1), Fr(1)]
+                  grid_rows: [Fr(1), Fr(1)]
+                widgets:
+                  - button:
+                      grid_cell_column_pos: 0
+                      grid_cell_row_pos: 0
+                      grid_cell_column_span: 1
+                      grid_cell_row_span: 1
+                      bg_color: 0xE91E63
+                      border_width: 0
+                      widgets:
+                        - label:
+                            align: CENTER
+                            text: "1"
+                            text_color: 0xFFFFFF
+                  - button:
+                      grid_cell_column_pos: 1
+                      grid_cell_row_pos: 0
+                      bg_color: 0x9C27B0
+                      border_width: 0
+                      widgets:
+                        - label:
+                            align: CENTER
+                            text: "2"
+                            text_color: 0xFFFFFF
+                  - button:
+                      grid_cell_column_pos: 2
+                      grid_cell_row_pos: 0
+                      bg_color: 0x3F51B5
+                      border_width: 0
+                      widgets:
+                        - label:
+                            align: CENTER
+                            text: "3"
+                            text_color: 0xFFFFFF
+                  - button:
+                      grid_cell_column_pos: 0
+                      grid_cell_row_pos: 1
+                      bg_color: 0x009688
+                      border_width: 0
+                      widgets:
+                        - label:
+                            align: CENTER
+                            text: "4"
+                            text_color: 0xFFFFFF
+                  - button:
+                      grid_cell_column_pos: 1
+                      grid_cell_row_pos: 1
+                      bg_color: 0x4CAF50
+                      border_width: 0
+                      widgets:
+                        - label:
+                            align: CENTER
+                            text: "5"
+                            text_color: 0xFFFFFF
+                  - button:
+                      grid_cell_column_pos: 2
+                      grid_cell_row_pos: 1
+                      bg_color: 0xFF5722
+                      border_width: 0
+                      widgets:
+                        - label:
+                            align: CENTER
+                            text: "6"
+                            text_color: 0xFFFFFF
+
+# =============================================================================
+# NOTES D'UTILISATION
+# =============================================================================
+#
+# BLUR PERFORMANCES sur ESP32-S3 :
+#   blur_radius: 1-4   → impact faible sur les FPS
+#   blur_radius: 5-10  → impact modéré (~5-10% FPS)
+#   blur_radius: 15+   → impact notable, utiliser blur_quality: SPEED
+#
+# CONSEIL : blur_backdrop:true est plus gourmand que blur_backdrop:false
+# car il nécessite de rendre le fond avant d'appliquer le blur.
+#
+# COMPATIBILITÉ :
+#   blur_radius, blur_backdrop, blur_quality → LVGL 9.5+
+#   bg_main_opa, bg_grad_opa               → LVGL 9.5+
+#   margin_*                               → LVGL 9.x (tous)
+#   pad_row, pad_column                    → LVGL 9.x (tous)

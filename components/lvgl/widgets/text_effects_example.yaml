@@ -1,0 +1,318 @@
+# =============================================================================
+# LVGL 9.5 - Effets de texte avancés
+# =============================================================================
+# Nouvelles propriétés de texte LVGL 9.5 :
+#
+#   text_outline_stroke_color  : couleur du contour autour des lettres
+#   text_outline_stroke_width  : épaisseur du contour en pixels
+#   text_outline_stroke_opa    : opacité du contour (0-255 ou %)
+#
+# Propriétés existantes rappelées :
+#   text_color, text_opa, text_font, text_letter_space, text_line_space
+#   text_decor : NONE, UNDERLINE, STRIKETHROUGH
+#   text_align : LEFT, CENTER, RIGHT, AUTO
+# =============================================================================
+
+lvgl:
+  displays:
+    - display_id: my_display
+      pages:
+
+        # =====================================================================
+        # PAGE 1 : Contours de texte (text_outline_stroke_*)
+        # =====================================================================
+        - id: page_text_stroke
+          bg_color: 0x121212
+          widgets:
+
+            - label:
+                x: 10
+                y: 8
+                text: "Contour de texte (LVGL 9.5)"
+                text_color: 0xFFFFFF
+                text_font: montserrat_16
+
+            # Titre avec contour blanc épais
+            - label:
+                id: lbl_stroke_1
+                align: TOP_MID
+                y: 45
+                text: "Contour blanc"
+                text_color: 0x1565C0
+                text_font: montserrat_48
+                text_outline_stroke_color: 0xFFFFFF
+                text_outline_stroke_width: 3
+                text_outline_stroke_opa: 100%
+
+            # Titre avec contour coloré
+            - label:
+                align: TOP_MID
+                y: 110
+                text: "Contour coloré"
+                text_color: 0xFFFFFF
+                text_font: montserrat_48
+                text_outline_stroke_color: 0xFF6F00
+                text_outline_stroke_width: 2
+                text_outline_stroke_opa: 100%
+
+            # Contour semi-transparent
+            - label:
+                align: TOP_MID
+                y: 175
+                text: "Contour transparent"
+                text_color: 0xE91E63
+                text_font: montserrat_36
+                text_outline_stroke_color: 0xFFFFFF
+                text_outline_stroke_width: 4
+                text_outline_stroke_opa: 50%
+
+            # Effet néon : texte sombre + contour lumineux
+            - obj:
+                align: TOP_MID
+                y: 240
+                width: 420
+                height: 70
+                radius: 8
+                bg_color: 0x000000
+                border_width: 0
+                widgets:
+                  - label:
+                      align: CENTER
+                      text: "NEON EFFECT"
+                      text_color: 0x1A237E
+                      text_font: montserrat_36
+                      text_outline_stroke_color: 0x00E5FF
+                      text_outline_stroke_width: 2
+                      text_outline_stroke_opa: 100%
+
+            # Effet doré : texte jaune + contour orange foncé
+            - label:
+                align: TOP_MID
+                y: 325
+                text: "Texte Doré"
+                text_color: 0xFFD600
+                text_font: montserrat_48
+                text_outline_stroke_color: 0xBF360C
+                text_outline_stroke_width: 2
+                text_outline_stroke_opa: 100%
+
+        # =====================================================================
+        # PAGE 2 : Comparaison épaisseurs de contour
+        # =====================================================================
+        - id: page_stroke_compare
+          bg_color: 0x0A0A0A
+          widgets:
+
+            - label:
+                x: 10
+                y: 8
+                text: "Comparaison épaisseur contour"
+                text_color: 0x90A4AE
+                text_font: montserrat_14
+
+            # Sans contour
+            - label:
+                x: 20
+                y: 40
+                text: "Sans contour"
+                text_color: 0x4CAF50
+                text_font: montserrat_32
+
+            # 1px
+            - label:
+                x: 20
+                y: 85
+                text: "Contour 1px"
+                text_color: 0x4CAF50
+                text_font: montserrat_32
+                text_outline_stroke_color: 0xFFFFFF
+                text_outline_stroke_width: 1
+                text_outline_stroke_opa: 100%
+
+            # 2px
+            - label:
+                x: 20
+                y: 130
+                text: "Contour 2px"
+                text_color: 0x4CAF50
+                text_font: montserrat_32
+                text_outline_stroke_color: 0xFFFFFF
+                text_outline_stroke_width: 2
+                text_outline_stroke_opa: 100%
+
+            # 3px
+            - label:
+                x: 20
+                y: 175
+                text: "Contour 3px"
+                text_color: 0x4CAF50
+                text_font: montserrat_32
+                text_outline_stroke_color: 0xFFFFFF
+                text_outline_stroke_width: 3
+                text_outline_stroke_opa: 100%
+
+            # 4px
+            - label:
+                x: 20
+                y: 220
+                text: "Contour 4px"
+                text_color: 0x4CAF50
+                text_font: montserrat_32
+                text_outline_stroke_color: 0xFFFFFF
+                text_outline_stroke_width: 4
+                text_outline_stroke_opa: 100%
+
+            # Contour + ombre = profondeur maximale
+            - label:
+                x: 20
+                y: 300
+                text: "Stroke + Shadow"
+                text_color: 0xFFFFFF
+                text_font: montserrat_36
+                text_outline_stroke_color: 0x37474F
+                text_outline_stroke_width: 3
+                text_outline_stroke_opa: 100%
+
+        # =====================================================================
+        # PAGE 3 : LV_STATE_ALT — Thème sombre/clair (LVGL 9.5)
+        # Permet de basculer entre deux apparences sans gérer deux thèmes
+        # =====================================================================
+        - id: page_alt_state
+          bg_color: 0xF5F5F5
+          widgets:
+
+            - label:
+                id: lbl_theme_title
+                x: 10
+                y: 10
+                text: "LV_STATE_ALT : Mode Clair"
+                text_color: 0x212121
+                text_font: montserrat_18
+
+            - label:
+                x: 10
+                y: 38
+                text: "Appuie sur le bouton pour basculer"
+                text_color: 0x757575
+                text_font: montserrat_14
+
+            # Bouton de bascule mode sombre/clair
+            - button:
+                id: btn_toggle_theme
+                x: 10
+                y: 65
+                width: 160
+                height: 40
+                radius: 20
+                bg_color: 0x212121      # couleur mode clair
+                border_width: 0
+                styles:
+                  - state: ALT
+                    bg_color: 0xFFFFFF  # couleur mode sombre
+                    border_width: 1
+                    border_color: 0x444444
+                widgets:
+                  - label:
+                      align: CENTER
+                      id: lbl_toggle_btn
+                      text: "\U000F0D90  Mode sombre"
+                      text_color: 0xFFFFFF
+                      text_font: montserrat_14
+                      styles:
+                        - state: ALT
+                          text_color: 0x212121
+                on_click:
+                  - lvgl.obj.toggle_flag:
+                      id: btn_toggle_theme
+                      flag: ALT
+                  - lvgl.obj.toggle_flag:
+                      id: card_alt_demo
+                      flag: ALT
+                  - lvgl.obj.toggle_flag:
+                      id: lbl_theme_title
+                      flag: ALT
+
+            # Carte qui change d'apparence selon le state ALT
+            - obj:
+                id: card_alt_demo
+                x: 10
+                y: 120
+                width: 460
+                height: 180
+                radius: 12
+                bg_color: 0xFFFFFF     # mode clair
+                border_width: 1
+                border_color: 0xE0E0E0
+                shadow_width: 8
+                shadow_color: 0x000000
+                shadow_opa: 15%
+                shadow_offset_y: 4
+                pad_all: 16
+                styles:
+                  - state: ALT          # mode sombre
+                    bg_color: 0x1E1E1E
+                    border_color: 0x333333
+                    shadow_opa: 30%
+                widgets:
+                  - label:
+                      id: lbl_theme_title
+                      x: 0
+                      y: 0
+                      text: "Carte thème clair"
+                      text_color: 0x212121
+                      text_font: montserrat_18
+                      styles:
+                        - state: ALT
+                          text_color: 0xFFFFFF
+                  - label:
+                      x: 0
+                      y: 30
+                      width: 420
+                      text: "State ALT = pas besoin de deux thèmes séparés.\nUn seul widget, deux apparences."
+                      text_color: 0x616161
+                      text_font: montserrat_14
+                      styles:
+                        - state: ALT
+                          text_color: 0xAAAAAA
+                  - arc:
+                      id: arc_alt
+                      x: 0
+                      y: 80
+                      width: 80
+                      height: 80
+                      value: 65
+                      min_value: 0
+                      max_value: 100
+                      rotation: 135
+                      start_angle: 0
+                      end_angle: 270
+                      adjustable: false
+                      indicator:
+                        arc_color: 0x1565C0
+                        arc_width: 6
+                        styles:
+                          - state: ALT
+                            arc_color: 0x64B5F6
+                      main:
+                        arc_color: 0xE0E0E0
+                        arc_width: 6
+                        styles:
+                          - state: ALT
+                            arc_color: 0x333333
+
+# =============================================================================
+# NOTES
+# =============================================================================
+#
+# text_outline_stroke_* : LVGL 9.5+ uniquement
+#   → Nécessite ThorVG activé (LV_USE_THORVG_INTERNAL)
+#   → Fonctionne sur tous les targets (ESP32-S3, P4, etc.)
+#
+# LV_STATE_ALT : LVGL 9.5+
+#   → Remplace la gestion de deux thèmes séparés
+#   → Basculer avec lvgl.obj.toggle_flag: flag: ALT
+#   → Ou avec lvgl.obj.add_flag/clear_flag: flag: ALT
+#
+# Performance text_outline_stroke sur ESP32-S3 :
+#   → stroke_width: 1-2 : très faible impact
+#   → stroke_width: 3+  : léger impact sur les longs textes

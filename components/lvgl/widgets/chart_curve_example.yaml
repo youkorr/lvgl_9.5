@@ -1,0 +1,487 @@
+# =============================================================================
+# LVGL 9.5 - Chart TYPE CURVE (courbes Bézier lisses)
+# =============================================================================
+# Nouveau type de graphique LVGL 9.5 : LV_CHART_TYPE_CURVE
+# Utilise des courbes Bézier au lieu de segments droits entre les points.
+# Requiert ThorVG activé (LV_USE_THORVG_INTERNAL = 1).
+#
+# Syntaxe :
+#   type: CURVE   (au lieu de LINE, BAR, SCATTER)
+#
+# Toutes les autres propriétés du chart LINE sont compatibles :
+#   series, axis, point_count, update_mode, cursors, etc.
+# =============================================================================
+
+globals:
+  - id: curve_counter
+    type: int
+    initial_value: "0"
+  - id: multi_angle
+    type: float
+    initial_value: "0"
+
+interval:
+  # Mise à jour des courbes animées (200ms)
+  - interval: 200ms
+    then:
+      - lambda: |-
+          id(curve_counter)++;
+          id(multi_angle) += 0.15f;
+          if (id(multi_angle) > 6.28f) id(multi_angle) = 0;
+
+      # Courbe sinusoïdale
+      - lvgl.chart.set_next_value:
+          id: chart_sine_curve
+          series_id: series_sine
+          value: !lambda |-
+            float x = id(curve_counter) * 0.3f;
+            return 50 + (int)(40 * sin(x));
+
+      # Courbe cosinus (déphasée)
+      - lvgl.chart.set_next_value:
+          id: chart_sine_curve
+          series_id: series_cosine
+          value: !lambda |-
+            float x = id(curve_counter) * 0.3f;
+            return 50 + (int)(30 * cos(x + 1.0f));
+
+      # Courbe température simulée
+      - lvgl.chart.set_next_value:
+          id: chart_temp_curve
+          series_id: series_temp
+          value: !lambda |-
+            float base = 21.0f;
+            float noise = sin(id(curve_counter) * 0.4f) * 3.0f +
+                          cos(id(curve_counter) * 0.7f) * 1.5f +
+                          sin(id(curve_counter) * 0.1f) * 2.0f;
+            return (int)(base + noise);
+
+lvgl:
+  displays:
+    - display_id: my_display
+      pages:
+
+        # =====================================================================
+        # PAGE 1 : LINE vs CURVE — comparaison côte à côte
+        # =====================================================================
+        - id: page_compare
+          bg_color: 0x0D0D1A
+          widgets:
+
+            - label:
+                x: 10
+                y: 8
+                text: "LINE vs CURVE (Bézier) — LVGL 9.5"
+                text_color: 0xFFFFFF
+                text_font: montserrat_16
+
+            # Label LINE
+            - label:
+                x: 10
+                y: 32
+                text: "type: LINE"
+                text_color: 0xFF6B6B
+                text_font: montserrat_14
+
+            # Chart LINE (segments droits)
+            - chart:
+                id: chart_line_compare
+                x: 10
+                y: 52
+                width: 460
+                height: 130
+                type: LINE
+                point_count: 16
+                bg_color: 0x0A1628
+                border_width: 1
+                border_color: 0x1A2744
+                div_line_count_hor: 3
+                div_line_count_ver: 8
+                items:
+                  line_width: 2
+                indicator:
+                  radius: 3
+                  bg_color: 0xFF6B6B
+                  border_width: 0
+                axis_primary_y:
+                  min_value: 0
+                  max_value: 100
+                series:
+                  - id: series_line
+                    color: 0xFF6B6B
+                    points: [30, 55, 42, 70, 35, 80, 60, 45, 75, 55, 88, 62, 40, 72, 50, 65]
+
+            # Label CURVE
+            - label:
+                x: 10
+                y: 195
+                text: "type: CURVE  (Bézier)"
+                text_color: 0x64B5F6
+                text_font: montserrat_14
+
+            # Chart CURVE (Bézier — même données)
+            - chart:
+                id: chart_curve_compare
+                x: 10
+                y: 215
+                width: 460
+                height: 130
+                type: CURVE
+                point_count: 16
+                bg_color: 0x0A1628
+                border_width: 1
+                border_color: 0x1A2744
+                div_line_count_hor: 3
+                div_line_count_ver: 8
+                items:
+                  line_width: 2
+                indicator:
+                  radius: 3
+                  bg_color: 0x64B5F6
+                  border_width: 0
+                axis_primary_y:
+                  min_value: 0
+                  max_value: 100
+                series:
+                  - id: series_curve
+                    color: 0x64B5F6
+                    points: [30, 55, 42, 70, 35, 80, 60, 45, 75, 55, 88, 62, 40, 72, 50, 65]
+
+        # =====================================================================
+        # PAGE 2 : Courbe animée avec deux séries (sinus + cosinus)
+        # =====================================================================
+        - id: page_sine_curve
+          bg_color: 0x0A0A14
+          widgets:
+
+            - label:
+                x: 10
+                y: 8
+                text: "Courbes animées (sin + cos)"
+                text_color: 0xFFFFFF
+                text_font: montserrat_16
+
+            - label:
+                id: lbl_curve_fps
+                x: 10
+                y: 32
+                text: "type: CURVE | 2 séries | update: SHIFT"
+                text_color: 0x78909C
+                text_font: montserrat_12
+
+            - chart:
+                id: chart_sine_curve
+                x: 10
+                y: 52
+                width: 460
+                height: 260
+                type: CURVE
+                point_count: 40
+                update_mode: SHIFT
+                bg_color: 0x050510
+                border_width: 1
+                border_color: 0x141428
+                div_line_count_hor: 5
+                div_line_count_ver: 8
+                items:
+                  line_width: 0    # pas de points
+                indicator:
+                  radius: 0        # pas de marqueurs
+                axis_primary_y:
+                  min_value: 0
+                  max_value: 100
+                series:
+                  - id: series_sine
+                    color: 0x00E5FF
+                    points: [50, 62, 73, 81, 85, 85, 81, 73, 62, 50,
+                             38, 27, 19, 15, 15, 19, 27, 38, 50, 62,
+                             73, 81, 85, 85, 81, 73, 62, 50, 38, 27,
+                             19, 15, 15, 19, 27, 38, 50, 62, 73, 81]
+                  - id: series_cosine
+                    color: 0xFF4081
+                    points: [85, 81, 73, 62, 50, 38, 27, 19, 15, 15,
+                             19, 27, 38, 50, 62, 73, 81, 85, 85, 81,
+                             73, 62, 50, 38, 27, 19, 15, 15, 19, 27,
+                             38, 50, 62, 73, 81, 85, 85, 81, 73, 62]
+
+            # Légende
+            - obj:
+                x: 10
+                y: 325
+                width: 460
+                height: 50
+                radius: 6
+                bg_color: 0x141428
+                border_width: 0
+                layout:
+                  type: FLEX
+                  flex_flow: ROW
+                  flex_align_main: SPACE_EVENLY
+                  flex_align_cross: CENTER
+                widgets:
+                  - label:
+                      text: "─── Sinus (00E5FF)"
+                      text_color: 0x00E5FF
+                      text_font: montserrat_14
+                  - label:
+                      text: "─── Cosinus (FF4081)"
+                      text_color: 0xFF4081
+                      text_font: montserrat_14
+
+        # =====================================================================
+        # PAGE 3 : Courbe température + zone remplie (faded area)
+        # =====================================================================
+        - id: page_temp_curve
+          bg_color: 0x0A0A14
+          widgets:
+
+            - label:
+                x: 10
+                y: 8
+                text: "Température — Courbe Bézier lissée"
+                text_color: 0xFFFFFF
+                text_font: montserrat_16
+
+            # Valeur courante
+            - label:
+                id: lbl_temp_now
+                x: 10
+                y: 35
+                text: "--.-°C"
+                text_color: 0xFF6F00
+                text_font: montserrat_28
+
+            # Courbe avec zone remplie
+            - chart:
+                id: chart_temp_curve
+                x: 10
+                y: 80
+                width: 460
+                height: 220
+                type: CURVE
+                point_count: 30
+                update_mode: SHIFT
+                bg_color: 0x050510
+                border_width: 1
+                border_color: 0x141428
+                div_line_count_hor: 5
+                div_line_count_ver: 6
+                items:
+                  line_color: 0xFF6F00
+                  line_width: 2
+                  bg_color: 0xFF6F00    # zone remplie sous la courbe
+                  bg_opa: 25%
+                  bg_grad_color: 0x050510
+                  bg_grad_dir: VER
+                indicator:
+                  radius: 0
+                axis_primary_y:
+                  min_value: 15
+                  max_value: 30
+                series:
+                  - id: series_temp
+                    color: 0xFF6F00
+                    points: [21, 21, 22, 22, 23, 23, 22, 21, 20, 20,
+                             21, 22, 23, 24, 24, 23, 22, 22, 21, 21,
+                             20, 20, 21, 22, 23, 23, 22, 21, 20, 21]
+
+            # Axe temps
+            - obj:
+                x: 10
+                y: 310
+                width: 460
+                height: 30
+                radius: 0
+                bg_color: 0x0A0A14
+                border_width: 0
+                layout:
+                  type: FLEX
+                  flex_flow: ROW
+                  flex_align_main: SPACE_BETWEEN
+                widgets:
+                  - label:
+                      text: "30 min"
+                      text_color: 0x546E7A
+                      text_font: montserrat_12
+                  - label:
+                      text: "20 min"
+                      text_color: 0x546E7A
+                      text_font: montserrat_12
+                  - label:
+                      text: "10 min"
+                      text_color: 0x546E7A
+                      text_font: montserrat_12
+                  - label:
+                      text: "Maintenant"
+                      text_color: 0x546E7A
+                      text_font: montserrat_12
+
+        # =====================================================================
+        # PAGE 4 : Dashboard multi-courbes avec blur + stroke
+        # Combinaison des nouvelles features LVGL 9.5
+        # =====================================================================
+        - id: page_dashboard_9_5
+          bg_color: 0x0D1117
+          widgets:
+
+            - label:
+                x: 10
+                y: 8
+                text: "Dashboard LVGL 9.5"
+                text_color: 0xFFFFFF
+                text_font: montserrat_20
+                text_outline_stroke_color: 0x1565C0
+                text_outline_stroke_width: 1
+                text_outline_stroke_opa: 80%
+
+            # Carte avec blur + chart CURVE
+            - obj:
+                x: 10
+                y: 40
+                width: 460
+                height: 200
+                radius: 12
+                bg_color: 0xFFFFFF
+                bg_opa: 8%
+                blur_radius: 8
+                blur_backdrop: true
+                blur_quality: SPEED
+                border_width: 1
+                border_color: 0xFFFFFF
+                border_opa: 15%
+                pad_all: 8
+                widgets:
+                  - label:
+                      x: 0
+                      y: 0
+                      text: "Consommation — 24h"
+                      text_color: 0xB0BEC5
+                      text_font: montserrat_14
+                  - chart:
+                      x: 0
+                      y: 22
+                      width: 444
+                      height: 160
+                      type: CURVE
+                      point_count: 24
+                      bg_color: 0x00000000
+                      bg_opa: TRANSP
+                      border_width: 0
+                      div_line_count_hor: 3
+                      div_line_count_ver: 6
+                      items:
+                        line_width: 2
+                        bg_color: 0x00BCD4
+                        bg_opa: 20%
+                        bg_grad_color: 0x000000
+                        bg_grad_dir: VER
+                      indicator:
+                        radius: 0
+                      axis_primary_y:
+                        min_value: 0
+                        max_value: 100
+                      series:
+                        - id: series_power
+                          color: 0x00BCD4
+                          points: [20, 18, 15, 12, 10, 8, 12, 25, 45, 60,
+                                   72, 78, 75, 80, 76, 82, 85, 75, 65, 55,
+                                   45, 38, 30, 22]
+
+            # Stats en bas
+            - obj:
+                x: 10
+                y: 255
+                width: 460
+                height: 80
+                radius: 8
+                bg_color: 0x161B22
+                border_width: 1
+                border_color: 0x21262D
+                layout:
+                  type: FLEX
+                  flex_flow: ROW
+                  flex_align_main: SPACE_EVENLY
+                  flex_align_cross: CENTER
+                widgets:
+                  - obj:
+                      width: 100
+                      height: 60
+                      bg_color: 0x00000000
+                      bg_opa: TRANSP
+                      border_width: 0
+                      layout:
+                        type: FLEX
+                        flex_flow: COLUMN
+                        flex_align_main: CENTER
+                        flex_align_cross: CENTER
+                      widgets:
+                        - label:
+                            text: "78 kWh"
+                            text_color: 0x00BCD4
+                            text_font: montserrat_18
+                        - label:
+                            text: "Aujourd'hui"
+                            text_color: 0x546E7A
+                            text_font: montserrat_12
+                  - obj:
+                      width: 100
+                      height: 60
+                      bg_color: 0x00000000
+                      bg_opa: TRANSP
+                      border_width: 0
+                      layout:
+                        type: FLEX
+                        flex_flow: COLUMN
+                        flex_align_main: CENTER
+                        flex_align_cross: CENTER
+                      widgets:
+                        - label:
+                            text: "521 kWh"
+                            text_color: 0x4CAF50
+                            text_font: montserrat_18
+                        - label:
+                            text: "Ce mois"
+                            text_color: 0x546E7A
+                            text_font: montserrat_12
+                  - obj:
+                      width: 100
+                      height: 60
+                      bg_color: 0x00000000
+                      bg_opa: TRANSP
+                      border_width: 0
+                      layout:
+                        type: FLEX
+                        flex_flow: COLUMN
+                        flex_align_main: CENTER
+                        flex_align_cross: CENTER
+                      widgets:
+                        - label:
+                            text: "2.4 kW"
+                            text_color: 0xFF9800
+                            text_font: montserrat_18
+                        - label:
+                            text: "Maintenant"
+                            text_color: 0x546E7A
+                            text_font: montserrat_12
+
+# =============================================================================
+# NOTES
+# =============================================================================
+#
+# type: CURVE vs type: LINE :
+#   LINE   → segments droits entre les points (rapide)
+#   CURVE  → interpolation Bézier (plus beau, nécessite ThorVG)
+#
+# Quand utiliser CURVE :
+#   → Données de capteurs (température, humidité, pression)
+#   → Courbes physiologiques (fréquence cardiaque, respiration)
+#   → Données qui varient naturellement de façon continue
+#
+# Quand garder LINE :
+#   → Données binaires ou à paliers
+#   → Performances critiques (LINE est plus rapide que CURVE)
+#   → Graphiques financiers (les barres et paliers sont intentionnels)
+#
+# Performance sur ESP32-S3 :
+#   CURVE est ~15-20% plus lent que LINE car ThorVG calcule les Bézier.
+#   Avec LV_DRAW_THREAD_STACK_SIZE=48KB et FreeRTOS 1000Hz, c'est fluide.
