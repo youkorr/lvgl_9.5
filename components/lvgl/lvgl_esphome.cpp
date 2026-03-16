@@ -258,15 +258,18 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
 
 void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p) {
   if (!this->is_paused()) {
+    auto w = lv_area_get_width(area);
+    auto h = lv_area_get_height(area);
+    auto bytes = (uint32_t) w * h * LV_COLOR_DEPTH / 8;
     auto now = millis();
     this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
-    auto elapsed = (int) (millis() - now);
+    auto elapsed = (uint32_t) (millis() - now);
     if (elapsed > 20) {
-      ESP_LOGW(TAG, "flush_cb SLOW: area=%d/%d %dx%d took %dms", area->x1, area->y1,
-               lv_area_get_width(area), lv_area_get_height(area), elapsed);
+      uint32_t kbps = elapsed > 0 ? (bytes / elapsed) : 0;  // KB/s  (bytes/ms == KB/s)
+      ESP_LOGW(TAG, "flush_cb SLOW: area=%d/%d %dx%d = %u bytes took %ums (%u KB/s)",
+               area->x1, area->y1, w, h, bytes, elapsed, kbps);
     } else {
-      ESP_LOGV(TAG, "flush_cb: area=%d/%d %dx%d took %dms", area->x1, area->y1,
-               lv_area_get_width(area), lv_area_get_height(area), elapsed);
+      ESP_LOGV(TAG, "flush_cb: area=%d/%d %dx%d took %ums", area->x1, area->y1, w, h, elapsed);
     }
   }
   lv_display_flush_ready(disp_drv);
