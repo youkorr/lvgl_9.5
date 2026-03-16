@@ -287,9 +287,22 @@ async def to_code(configs):
     # ============================================
     # LVGL 9.5 NEW FEATURES
     # ============================================
+    # Software draw complex renderer: enables rounded corners, shadow, blur, and arcs.
+    # Required for shadow_width/shadow_color/blur_radius style properties.
+    df.add_define("LV_DRAW_SW_COMPLEX", "1")
+    # Shadow cache size = 0 : no RAM allocated for shadow caching.
+    # This explicitly prevents the shadow memory leak reported in LVGL v9.2.2
+    # (issue #7835) which caused max_used to climb to ~122 KB on ESP32-S3.
+    # That leak was also fixed upstream in LVGL v9.3.0 via fix(draw_sw): fix memory leaks,
+    # and the shadow subsystem was fully rewritten in v9.5.0 (PR #9331).
+    # Setting this to 0 ensures no caching overhead on memory-constrained MCUs.
+    df.add_define("LV_DRAW_SW_SHADOW_CACHE_SIZE", "0")
     # Native blur & drop shadow - enabled by default in SW renderer
     # Shadow styles (shadow_width, shadow_color, shadow_opa, shadow_spread,
     # shadow_offset_x, shadow_offset_y) work natively on all targets
+    # Arc memory leak (LVGL v9.2.2 issue #7738, ~380 bytes/redraw on ESP32-S3):
+    # Fixed upstream in LVGL v9.3.0 via fix(draw_sw): fix memory leaks, and
+    # arc invalidation area was further improved in v9.5.0 (PR #9302).
     # Bézier curved charts (LV_CHART_TYPE_CURVE) require Vector Graphics (ThorVG above)
     # LV_STATE_ALT - new widget state for dark/light mode switching
     # LV_OBJ_FLAG_RADIO_BUTTON - new flag for radio group behavior
