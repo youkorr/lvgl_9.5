@@ -1,0 +1,390 @@
+# ESPHome LVGL - Exemple rotary_sensitivity (LVGL 9.5)
+# =============================================================================
+# rotary_sensitivity est une propriété de style LVGL qui contrôle combien de
+# "ticks" d'encodeur rotatif sont nécessaires pour déplacer/modifier un widget.
+#
+# Valeur : entier positif
+#   - 1   = sensibilité maximale (1 tick = 1 unité)
+#   - 2   = 2 ticks par unité
+#   - 128 = 128 ticks pour 1 unité (très lent, précision maximale)
+#
+# Widgets compatibles : arc, slider, spinbox, roller, dropdown, list
+#
+# Cet exemple compare côte à côte 3 sensibilités : 1 / 4 / 16
+# et montre l'utilisation avec arc, slider et spinbox.
+#
+# Target display : 480x320
+# =============================================================================
+
+# =============================================================================
+# ENCODEUR ROTATIF PHYSIQUE (adapter les GPIO à votre matériel)
+# =============================================================================
+sensor:
+  - platform: rotary_encoder
+    id: my_encoder
+    pin_a: GPIO4
+    pin_b: GPIO5
+    resolution: 1          # 1 pulse par cran mécanique
+
+binary_sensor:
+  - platform: gpio
+    id: encoder_btn
+    pin:
+      number: GPIO6
+      mode: INPUT_PULLUP
+      inverted: true
+
+# =============================================================================
+# GLOBALS pour les valeurs
+# =============================================================================
+globals:
+  - id: val_fast      # arc sensibilité 1 (rapide)
+    type: int
+    initial_value: "50"
+  - id: val_medium    # slider sensibilité 4
+    type: int
+    initial_value: "50"
+  - id: val_slow      # spinbox sensibilité 16 (précis)
+    type: int
+    initial_value: "50"
+
+# =============================================================================
+# LVGL
+# =============================================================================
+lvgl:
+  # --- Encodeur rotatif ---
+  encoders:
+    - sensor: my_encoder
+      enter_button: encoder_btn
+      long_press_time: 500ms
+      long_press_repeat_time: 100ms
+
+  style_definitions:
+    # Style carte de base
+    - id: style_card
+      bg_color: 0x1E1E2E
+      bg_opa: COVER
+      border_color: 0x444466
+      border_width: 1
+      border_opa: COVER
+      radius: 12
+      pad_all: 10
+
+    # Style titre de section
+    - id: style_title
+      text_color: 0xAABBFF
+      text_font: montserrat_14
+
+    # Style valeur numérique
+    - id: style_value
+      text_color: 0xFFFFFF
+      text_font: montserrat_20
+
+    # Style description
+    - id: style_desc
+      text_color: 0x888888
+      text_font: montserrat_12
+
+    # Focus highlight pour l'encodeur
+    - id: style_focused
+      border_color: 0x00DDFF
+      border_width: 2
+      border_opa: COVER
+
+  theme:
+    obj:
+      styles: style_card
+
+  pages:
+    - id: page_rotary
+      bg_color: 0x12121F
+      bg_opa: COVER
+      widgets:
+
+        # =====================================================================
+        # TITRE PRINCIPAL
+        # =====================================================================
+        - label:
+            x: 0
+            y: 5
+            width: 480
+            text: "rotary_sensitivity — Comparaison de sensibilités"
+            text_align: CENTER
+            text_color: 0xFFFFFF
+            text_font: montserrat_16
+
+        # =====================================================================
+        # CARTE 1 : ARC — sensibilité 1 (rapide, 1 tick = 1 unité)
+        # =====================================================================
+        - obj:
+            id: card_fast
+            styles: style_card
+            x: 10
+            y: 35
+            width: 145
+            height: 260
+            widgets:
+
+              - label:
+                  styles: style_title
+                  x: 0
+                  y: 0
+                  width: 125
+                  text: "ARC Rapide"
+                  text_align: CENTER
+
+              - label:
+                  styles: style_desc
+                  x: 0
+                  y: 20
+                  width: 125
+                  text: "rotary_sensitivity: 1"
+                  text_align: CENTER
+
+              # Arc avec sensibilité maximale
+              - arc:
+                  id: arc_fast
+                  x: 10
+                  y: 45
+                  width: 105
+                  height: 105
+                  value: 50
+                  min_value: 0
+                  max_value: 100
+                  adjustable: true
+                  # 1 tick d'encodeur = 1 unité d'arc
+                  rotary_sensitivity: 1
+                  indicator:
+                    arc_color: 0x00CC88
+                    arc_width: 6
+                  knob:
+                    bg_color: 0x00CC88
+                  main:
+                    arc_color: 0x333344
+                    arc_width: 6
+                  on_value:
+                    - globals.set:
+                        id: val_fast
+                        value: !lambda 'return (int)x;'
+                    - lvgl.label.update:
+                        id: lbl_fast_val
+                        text:
+                          format: "%d"
+                          args: [id(val_fast)]
+
+              - label:
+                  id: lbl_fast_unit
+                  styles: style_desc
+                  x: 0
+                  y: 155
+                  width: 125
+                  text: "Valeur :"
+                  text_align: CENTER
+
+              - label:
+                  id: lbl_fast_val
+                  styles: style_value
+                  x: 0
+                  y: 172
+                  width: 125
+                  text: "50"
+                  text_align: CENTER
+
+              - label:
+                  styles: style_desc
+                  x: 0
+                  y: 200
+                  width: 125
+                  text_align: CENTER
+                  text: "Bon pour\nnavigation\nrapide"
+
+        # =====================================================================
+        # CARTE 2 : SLIDER — sensibilité 4 (medium, 4 ticks = 1 unité)
+        # =====================================================================
+        - obj:
+            id: card_medium
+            styles: style_card
+            x: 167
+            y: 35
+            width: 145
+            height: 260
+            widgets:
+
+              - label:
+                  styles: style_title
+                  x: 0
+                  y: 0
+                  width: 125
+                  text: "SLIDER Moyen"
+                  text_align: CENTER
+
+              - label:
+                  styles: style_desc
+                  x: 0
+                  y: 20
+                  width: 125
+                  text: "rotary_sensitivity: 4"
+                  text_align: CENTER
+
+              # Slider avec sensibilité modérée
+              - slider:
+                  id: slider_medium
+                  x: 45
+                  y: 50
+                  width: 20
+                  height: 110
+                  value: 50
+                  min_value: 0
+                  max_value: 100
+                  # 4 ticks d'encodeur = 1 unité de slider
+                  rotary_sensitivity: 4
+                  indicator:
+                    bg_color: 0xFF9900
+                  knob:
+                    bg_color: 0xFF9900
+                    radius: 10
+                    width: 20
+                    height: 20
+                  main:
+                    bg_color: 0x444455
+                    radius: 5
+                    width: 8
+                  on_value:
+                    - globals.set:
+                        id: val_medium
+                        value: !lambda 'return (int)x;'
+                    - lvgl.label.update:
+                        id: lbl_medium_val
+                        text:
+                          format: "%d"
+                          args: [id(val_medium)]
+
+              - label:
+                  id: lbl_medium_unit
+                  styles: style_desc
+                  x: 0
+                  y: 167
+                  width: 125
+                  text: "Valeur :"
+                  text_align: CENTER
+
+              - label:
+                  id: lbl_medium_val
+                  styles: style_value
+                  x: 0
+                  y: 184
+                  width: 125
+                  text: "50"
+                  text_align: CENTER
+
+              - label:
+                  styles: style_desc
+                  x: 0
+                  y: 210
+                  width: 125
+                  text_align: CENTER
+                  text: "Bon pour\nvolume\nbrigtness"
+
+        # =====================================================================
+        # CARTE 3 : SPINBOX — sensibilité 16 (précis, 16 ticks = 1 unité)
+        # =====================================================================
+        - obj:
+            id: card_slow
+            styles: style_card
+            x: 324
+            y: 35
+            width: 145
+            height: 260
+            widgets:
+
+              - label:
+                  styles: style_title
+                  x: 0
+                  y: 0
+                  width: 125
+                  text: "SPINBOX Précis"
+                  text_align: CENTER
+
+              - label:
+                  styles: style_desc
+                  x: 0
+                  y: 20
+                  width: 125
+                  text: "rotary_sensitivity: 16"
+                  text_align: CENTER
+
+              # Spinbox avec haute précision (difficile à bouger accidentellement)
+              - spinbox:
+                  id: spinbox_slow
+                  x: 5
+                  y: 55
+                  width: 115
+                  height: 45
+                  value: 200
+                  min_value: 0
+                  max_value: 999
+                  step: 1
+                  digits: 3
+                  decimal_separator_position: 0
+                  # 16 ticks d'encodeur = 1 unité — contrôle très précis
+                  rotary_sensitivity: 16
+                  text_font: montserrat_20
+                  text_color: 0xFFFFFF
+                  bg_color: 0x2A2A40
+                  bg_opa: COVER
+                  border_color: 0x555577
+                  border_width: 1
+                  radius: 6
+                  pad_all: 6
+                  on_value:
+                    - lvgl.label.update:
+                        id: lbl_slow_val
+                        text:
+                          format: "%d"
+                          args: [(int)x]
+
+              - label:
+                  styles: style_desc
+                  x: 0
+                  y: 108
+                  width: 125
+                  text: "Valeur brute :"
+                  text_align: CENTER
+
+              - label:
+                  id: lbl_slow_val
+                  styles: style_value
+                  x: 0
+                  y: 125
+                  width: 125
+                  text: "200"
+                  text_align: CENTER
+
+              - label:
+                  styles: style_desc
+                  x: 0
+                  y: 165
+                  width: 125
+                  text_align: CENTER
+                  text: "Bon pour\nsaisie précise\nen ms / Hz"
+
+              - label:
+                  styles: style_desc
+                  x: 0
+                  y: 210
+                  width: 125
+                  text_align: CENTER
+                  text: "16 crans\n= 1 unité"
+
+        # =====================================================================
+        # BARRE DE STATUT : indique le widget en focus
+        # =====================================================================
+        - label:
+            id: lbl_hint
+            x: 0
+            y: 300
+            width: 480
+            text: "Tournez l'encodeur pour modifier  |  Appuyez pour changer de widget"
+            text_align: CENTER
+            text_color: 0x556677
+            text_font: montserrat_12
