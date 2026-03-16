@@ -373,31 +373,20 @@ def stop_value(value):
 lv_images_used = set()
 
 
+
 def image_validator(value):
-    # Accept multiple types:
-    # 1. Image ID          - image: component (image::Image)
-    # 2. SdImageComponent  - storage component (inherits from image::Image)
-    # 3. SvgFile ID        - svg_file: component
-    # 4. String path       - file path starting with "/"
+    # Accepts:
+    # 1. image::Image ID         - image: component (PNG, BMP, GIF, SVG via image:)
+    # 2. storage::SdImageComponent - storage component (inherits from image::Image)
+    # 3. File path string starting with "/" (SD card path)
     #
-    # IMPORTANT: cv.use_id(Image_) accepts BOTH image::Image AND
-    # storage::SdImageComponent because SdImageComponent inherits from Image_.
-    # Calling cv.use_id(SdImageComponent) first causes:
-    #   "ID 'X' of type image::Image doesn't inherit from storage::SdImageComponent"
-    # because ESPHome records the requested type at validation time without
-    # checking, then fails at code generation for plain image::Image IDs.
+    # cv.use_id(Image_) is used for both cases 1 and 2 because
+    # SdImageComponent inherits from Image_ — polymorphism handles both.
+    # Using cv.use_id(SdImageComponent) or cv.use_id(SvgFile) first would
+    # cause ESPHome to record that type at validation time (without checking),
+    # then fail at code generation for plain image::Image IDs.
 
-    # Try svg_file ID first (separate hierarchy, not related to Image_)
-    try:
-        svg_file_class = cg.esphome_ns.namespace("svg_file").class_("SvgFile")
-        result = cv.use_id(svg_file_class)(value)
-        add_lv_use("img", "label")
-        return result
-    except cv.Invalid:
-        pass
-
-    # Try Image_ -- accepts both image::Image and storage::SdImageComponent
-    # (polymorphic: SdImageComponent IS-A Image_)
+    # Try Image_ directly — covers image::Image and storage::SdImageComponent
     try:
         value_id = requires_component("image")(value)
         value_id = cv.use_id(Image_)(value_id)
@@ -407,17 +396,16 @@ def image_validator(value):
     except cv.Invalid:
         pass
 
-    # File path on SD card
+    # File path on SD card (e.g. "/sdcard/icons/bell.png")
     if isinstance(value, str) and value.startswith("/"):
         add_lv_use("img", "label")
         return value
 
     raise cv.Invalid(
         f"Invalid image source: '{value}'. "
-        "Must be an image: ID, a storage sd_image ID, an svg_file ID, "
+        "Expected an image: component ID (or storage sd_image ID), "
         "or a file path starting with '/'"
     )
-
 
 lv_image = LValidator(
     image_validator,
