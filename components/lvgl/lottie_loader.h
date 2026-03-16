@@ -266,10 +266,13 @@ inline bool lottie_launch(LottieContext *ctx) {
     }
 
     ctx->stop_requested = false;
-    ctx->task_handle = xTaskCreateStatic(
+    // Pin ThorVG render task to CPU0 so it doesn't compete with the LVGL main
+    // task (pinned to CPU1 via CONFIG_ESP_MAIN_TASK_AFFINITY_CPU1).
+    // This gives each core a dedicated role: CPU0 = ThorVG, CPU1 = LVGL/ESPHome.
+    ctx->task_handle = xTaskCreateStaticPinnedToCore(
         lottie_load_task, "lottie_anim",
         LOTTIE_TASK_STACK_SIZE / sizeof(StackType_t),
-        ctx, 5, ctx->task_stack, ctx->task_tcb);
+        ctx, 5, ctx->task_stack, ctx->task_tcb, 0 /* CPU0 */);
 
     if (!ctx->task_handle) {
         lottie_free_resources(ctx);

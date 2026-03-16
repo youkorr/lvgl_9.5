@@ -1,3 +1,33 @@
+# ESP32-S3 specific configuration for ThorVG + Lottie example
+# Complements sdkconfig.defaults (base settings applied first)
+
+# PSRAM : Octal SPI @ 80 MHz (max supporté par ESP32-S3)
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
+
+# PSRAM allocation strategy
+CONFIG_SPIRAM_USE_CAPS_ALLOC=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_RODATA=y
+
+# Cache étendu pour Xtensa LX7 : réduit la latence PSRAM et accélère ThorVG
+CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
+CONFIG_ESP32S3_DATA_CACHE_64KB=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+
+# ThorVG rendering nécessite une grande stack (≥48 KB) – allouée en PSRAM
+# La valeur de CONFIG_ESP_MAIN_TASK_STACK_SIZE vient de sdkconfig.defaults (60000)
+# Pas besoin de la redéfinir ici
+
+# FreeRTOS 1000 Hz : scheduler plus réactif pour les tâches de rendu ThorVG
+CONFIG_FREERTOS_HZ=1000
+
+# Optimisation compilateur (redondant avec sdkconfig.defaults mais explicite pour S3)
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+# Place les fonctions LVGL critiques en IRAM (0 latence vs flash SPI)
+CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y
+
+# Affinité CPU : tâche principale sur CPU1, CPU0 libre pour le rendu ThorVG
+CONFIG_ESP_MAIN_TASK_AFFINITY_CPU1=y
