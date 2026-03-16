@@ -10,6 +10,11 @@ from esphome.components.const import (
     CONF_DRAW_ROUNDING,
 )
 from esphome.components.display import Display
+from esphome.components.esp32 import (
+    VARIANT_ESP32P4,
+    add_idf_sdkconfig_option,
+    get_esp32_variant,
+)
 from esphome.components.psram import DOMAIN as PSRAM_DOMAIN
 import esphome.config_validation as cv
 from esphome.const import (
@@ -218,12 +223,20 @@ async def to_code(configs):
     # suppress default enabling of extra widgets
     df.add_define("_LV_KCONFIG_PRESENT")
     # Memory alignment configuration for LVGL 9.5
+    # Aligned with Clyde Stubbs (esphome/esphome PR #12312):
+    #   - ESP32-P4 : 64 bytes (DMA cache line, required for PPA)
+    #   - ESP32 (S3, S2, C3, etc.) : 32 bytes (cache line size, ~10% perf gain)
+    #   - autres plateformes : 1 (pas de contrainte DMA)
+    # lv_malloc_core() alloue déjà en 64 bytes → satisfait la contrainte 32 bytes.
     df.add_define("LV_DRAW_BUF_STRIDE_ALIGN", "1")  # LVGL default
-    # Keep LV_DRAW_BUF_ALIGN at LVGL default (4). Setting higher values
-    # causes crashes because LVGL's internal stack/static buffers can't meet
-    # stricter alignment. The custom lv_malloc_core() already provides 64-byte
-    # aligned heap allocations for the actual draw buffers on ESP32.
-    df.add_define("LV_DRAW_BUF_ALIGN", "4")
+    if CORE.is_esp32:
+        if get_esp32_variant() == VARIANT_ESP32P4:
+            add_idf_sdkconfig_option("CONFIG_LV_DRAW_BUF_ALIGN", 64)
+            df.add_define("LV_DRAW_BUF_ALIGN", "64")
+        else:
+            df.add_define("LV_DRAW_BUF_ALIGN", "32")
+    else:
+        df.add_define("LV_DRAW_BUF_ALIGN", "1")
     use_ppa = config_0.get(CONF_USE_PPA, False)
     if use_ppa:
         # LVGL 9.5 includes the PPA fix (PR #9162) natively.
