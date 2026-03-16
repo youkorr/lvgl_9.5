@@ -248,6 +248,9 @@ async def to_code(configs):
         ppa_dir = Path(__file__).parent / "ppa"
         cg.add_build_flag(f"-I{ppa_dir}")
     df.add_define("LV_USE_STDLIB_MALLOC", "LV_STDLIB_CUSTOM")
+    # Refresh rate: convert fps → ms period (default 30fps = 33ms, max 60fps = 16ms)
+    refr_ms = 1000 // config_0.get(df.CONF_REFRESH_RATE, 30)
+    df.add_define("LV_DEF_REFR_PERIOD", str(refr_ms))
 
     # ============================================
     # THORVG + SVG/LOTTIE SUPPORT (LVGL v9.5+)
@@ -493,6 +496,7 @@ LVGL_SCHEMA = cv.All(
                     df.CONF_DEFAULT_FONT, default="montserrat_14"
                 ): lvalid.lv_font,
                 cv.Optional(df.CONF_FULL_REFRESH, default=False): cv.boolean,
+                cv.Optional(df.CONF_REFRESH_RATE, default=30): cv.int_range(min=1, max=60),
                 cv.Optional(
                     df.CONF_UPDATE_WHEN_DISPLAY_IDLE, default=False
                 ): cv.boolean,
