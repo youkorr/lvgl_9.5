@@ -260,8 +260,14 @@ void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uin
   if (!this->is_paused()) {
     auto now = millis();
     this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
-    ESP_LOGV(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
-             lv_area_get_height(area), (int) (millis() - now));
+    auto elapsed = (int) (millis() - now);
+    if (elapsed > 20) {
+      ESP_LOGW(TAG, "flush_cb SLOW: area=%d/%d %dx%d took %dms", area->x1, area->y1,
+               lv_area_get_width(area), lv_area_get_height(area), elapsed);
+    } else {
+      ESP_LOGV(TAG, "flush_cb: area=%d/%d %dx%d took %dms", area->x1, area->y1,
+               lv_area_get_width(area), lv_area_get_height(area), elapsed);
+    }
   }
   lv_display_flush_ready(disp_drv);
 }
@@ -292,6 +298,7 @@ LVTouchListener::LVTouchListener(uint16_t long_press_time, uint16_t long_press_r
       data->point.x = l->touch_point_.x;
       data->point.y = l->touch_point_.y;
       data->state = LV_INDEV_STATE_PRESSED;
+      ESP_LOGV(TAG, "indev_read: PRESSED x=%d y=%d at %ums", data->point.x, data->point.y, (unsigned) millis());
     } else {
       data->state = LV_INDEV_STATE_RELEASED;
     }
@@ -299,9 +306,16 @@ LVTouchListener::LVTouchListener(uint16_t long_press_time, uint16_t long_press_r
 }
 
 void LVTouchListener::update(const touchscreen::TouchPoints_t &tpoints) {
+  bool was_pressed = this->touch_pressed_;
   this->touch_pressed_ = !this->parent_->is_paused() && !tpoints.empty();
-  if (this->touch_pressed_)
+  if (this->touch_pressed_) {
     this->touch_point_ = tpoints[0];
+    if (!was_pressed) {
+      ESP_LOGD(TAG, "touch DOWN x=%d y=%d at %ums", this->touch_point_.x, this->touch_point_.y, (unsigned) millis());
+    }
+  } else if (was_pressed) {
+    ESP_LOGD(TAG, "touch UP at %ums", (unsigned) millis());
+  }
 }
 #endif  // USE_LVGL_TOUCHSCREEN
 
@@ -652,7 +666,12 @@ void LvglComponent::loop() {
     if (this->paused_ && this->show_snow_)
       this->write_random_();
   } else {
+    auto t0 = millis();
     lv_timer_handler_run_in_period(5);
+    auto elapsed = millis() - t0;
+    if (elapsed > 16) {
+      ESP_LOGW(TAG, "loop: lv_timer_handler took %ums (>16ms)", (unsigned) elapsed);
+    }
   }
 }
 
