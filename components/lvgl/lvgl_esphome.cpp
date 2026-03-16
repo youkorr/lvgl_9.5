@@ -652,7 +652,7 @@ void LvglComponent::loop() {
     if (this->paused_ && this->show_snow_)
       this->write_random_();
   } else {
-    lv_timer_handler();
+    lv_timer_handler_run_in_period(5);
   }
 }
 
