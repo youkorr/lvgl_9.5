@@ -2198,6 +2198,9 @@ image:
 
 lvgl:
   byte_order: little_endian
+  # PPA : accélérateur matériel ESP32-P4 (fill, blend, rotation)
+  # Gain : x9 sur fill, ~30% rendu global, ~40% sur rotation
+  use_ppa: true
   displays:
     - main_display
   touchscreens:

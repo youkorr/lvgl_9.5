@@ -237,6 +237,12 @@ async def to_code(configs):
             df.add_define("LV_DRAW_BUF_ALIGN", "32")
     else:
         df.add_define("LV_DRAW_BUF_ALIGN", "1")
+    # PPA : accélérateur matériel (ESP32-P4 uniquement, CONFIG_SOC_PPA_SUPPORTED)
+    # Activé via use_ppa: true dans le YAML. Sur P4 cela apporte :
+    #   - Fill rectangles : jusqu'à x9 plus rapide
+    #   - Rendu global : ~30% de gain
+    #   - Rotation : ~40% de gain
+    # Sur ESP32-S3 : PPA non supporté matériellement, ne pas activer.
     use_ppa = config_0.get(CONF_USE_PPA, False)
     if use_ppa:
         # LVGL 9.5 includes the PPA fix (PR #9162) natively.
