@@ -111,13 +111,20 @@ void LvglComponent::render_start_cb(lv_event_t *event) {
 lv_event_code_t lv_api_event;     // NOLINT
 lv_event_code_t lv_update_event;  // NOLINT
 void LvglComponent::dump_config() {
+  uint32_t buf_pixels = (uint32_t) this->width_ * this->height_ / this->buffer_frac_;
+  uint32_t buf_bytes = buf_pixels * LV_COLOR_DEPTH / 8;
   ESP_LOGCONFIG(TAG,
                 "LVGL:\n"
                 "  Display width/height: %d x %d\n"
-                "  Buffer size: %zu%%\n"
-                "  Rotation: %d\n"
+                "  Buffer size: %zu%% (%u px / %u bytes)\n"
+                "  Render mode: %s\n"
+                "  Rotation: %d%s\n"
                 "  Draw rounding: %d",
-                this->width_, this->height_, 100 / this->buffer_frac_, this->rotation, (int) this->draw_rounding);
+                this->width_, this->height_, 100 / this->buffer_frac_, buf_pixels, buf_bytes,
+                this->full_refresh_ ? "FULL (every frame redraws whole screen)" : "PARTIAL (dirty areas only)",
+                (int) this->rotation,
+                this->rotate_buf_ != nullptr ? " [software rotation buffer allocated]" : "",
+                (int) this->draw_rounding);
 }
 
 void LvglComponent::set_paused(bool paused, bool show_snow) {
