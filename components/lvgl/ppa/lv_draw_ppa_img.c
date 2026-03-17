@@ -97,7 +97,7 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
 
     /* Output */
     cfg.out.buffer           = dest_buf;
-    cfg.out.buffer_size      = draw_buf->data_size;
+    cfg.out.buffer_size      = LV_ROUND_UP(draw_buf->data_size, LV_DRAW_BUF_ALIGN);
     cfg.out.pic_w            = draw_buf->header.w;
     cfg.out.pic_h            = draw_buf->header.h;
     cfg.out.block_offset_x   = (uint32_t)dest_area.x1;

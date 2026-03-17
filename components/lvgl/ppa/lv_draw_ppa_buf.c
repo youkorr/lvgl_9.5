@@ -34,7 +34,7 @@ void lv_draw_ppa_cache_sync(lv_draw_buf_t * buf)
      * either be a no-op or could crash on non-cacheable regions. */
     if(!esp_ptr_external_ram(buf->data)) return;
 
-    esp_cache_msync(buf->data, buf->data_size,
+    esp_cache_msync(buf->data, LV_ROUND_UP(buf->data_size, LV_DRAW_BUF_ALIGN),
                     ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
 }
 
