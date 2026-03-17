@@ -15,6 +15,14 @@
 #include "esphome/core/entity_base.h"
 #include "esphome/core/helpers.h"
 
+/* application.h unconditionally includes this header (line 52) and uses
+   ESPHOME_ENTITY_BUTTON_COUNT (line 710).  ESPHome only emits that define
+   into defines.h when button entity count > 0.  Provide a safe fallback
+   so builds without button entities still compile. */
+#ifndef ESPHOME_ENTITY_BUTTON_COUNT
+#define ESPHOME_ENTITY_BUTTON_COUNT 1
+#endif
+
 namespace esphome {
 namespace button {
 
