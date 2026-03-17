@@ -15,14 +15,6 @@
 #include "esphome/core/entity_base.h"
 #include "esphome/core/helpers.h"
 
-// Fallback: if ESPHome codegen did not emit ESPHOME_ENTITY_BUTTON_COUNT into
-// defines.h (happens when no button: entries exist in the YAML), provide a
-// safe minimum value of 1 so that application.h:710 compiles correctly.
-// The #ifndef ensures we never override the real value when buttons ARE used.
-#ifndef ESPHOME_ENTITY_BUTTON_COUNT
-#define ESPHOME_ENTITY_BUTTON_COUNT 1
-#endif
-
 namespace esphome {
 namespace button {
 
