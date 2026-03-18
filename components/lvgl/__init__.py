@@ -171,12 +171,18 @@ def final_validation(config_list):
         if CORE.is_esp32 and buffer_frac > 0.5 and PSRAM_DOMAIN not in global_config:
             df.LOGGER.warning("buffer_size: may need to be reduced without PSRAM")
         for image_id in lv_images_used:
-            path = global_config.get_path_for_id(image_id)[:-1]
-            image_conf = global_config.get_config_for_path(path)
-            if image_conf[CONF_TYPE] in ("RGBA", "RGB24"):
-                raise cv.Invalid(
-                    "Using RGBA or RGB24 in image config not compatible with LVGL", path
-                )
+            try:
+                path = global_config.get_path_for_id(image_id)[:-1]
+                image_conf = global_config.get_config_for_path(path)
+                if image_conf.get(CONF_TYPE) in ("RGBA", "RGB24"):
+                    raise cv.Invalid(
+                        "Using RGBA or RGB24 in image config not compatible with LVGL",
+                        path,
+                    )
+            except (KeyError, IndexError):
+                # SD card images (SdImageComponent) don't have the same config
+                # structure as embedded images, skip validation for them
+                pass
         for w in focused_widgets:
             path = global_config.get_path_for_id(w)
             widget_conf = global_config.get_config_for_path(path[:-1])
