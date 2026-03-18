@@ -392,6 +392,35 @@ def is_svg_file(file):
         return "<svg" in str(f.read(1024))
 
 
+def _resolve_local_file(value):
+    """Resolve a local file path, trying multiple locations.
+
+    Handles absolute paths by also checking relative to the ESPHome config directory.
+    For example, '/images/win.png' will also be tried as 'images/win.png' relative
+    to the config directory (e.g. /config/esphome/images/win.png).
+    """
+    # First try the path as-is (works for relative paths and existing absolute paths)
+    try:
+        return cv.file_(value)
+    except cv.Invalid:
+        pass
+
+    # If absolute path doesn't exist, try as relative to config directory
+    if value.startswith("/"):
+        relative_value = value.lstrip("/")
+        try:
+            return cv.file_(relative_value)
+        except cv.Invalid:
+            pass
+
+    # Nothing found - raise error with helpful message
+    config_path = CORE.relative_config_path(value.lstrip("/")) if value.startswith("/") else CORE.relative_config_path(value)
+    raise cv.Invalid(
+        f"Could not find file '{value}'. Please make sure it exists "
+        f"(looked for: {value} and {config_path})"
+    )
+
+
 def validate_file_shorthand(value):
     value = cv.string_strict(value)
     parts = value.strip().split(":")
@@ -404,13 +433,13 @@ def validate_file_shorthand(value):
     if value.startswith("http://") or value.startswith("https://"):
         return download_image(value)
 
-    value = cv.file_(value)
+    value = _resolve_local_file(value)
     return local_path(value)
 
 
 LOCAL_SCHEMA = cv.All(
     {
-        cv.Required(CONF_PATH): cv.file_,
+        cv.Required(CONF_PATH): _resolve_local_file,
     },
     local_path,
 )
