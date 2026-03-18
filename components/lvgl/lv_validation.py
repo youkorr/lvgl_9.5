@@ -374,37 +374,27 @@ lv_images_used = set()
 
 
 def image_validator(value):
-    # Accept multiple types:
+    # Accept:
     # 1. Image_ ID - matches both embedded image (image:) and SdImageComponent (storage:)
     #    since SdImageComponent inherits from image::Image
-    # 2. SvgFile ID - embedded SVG from svg_file: component
-    # 3. String path - file on SD card (e.g., "/sdcard/icons/wifi.svg")
+    # 2. String path - file on SD card (e.g., "/sdcard/icons/wifi.svg")
+    #
+    # Note: SVG files use the separate 'svg' widget type, not the image widget.
+    # Note: cv.use_id() defers type checking to ESPHome's final ID resolution,
+    # so try/except with multiple cv.use_id calls does NOT work for type
+    # disambiguation - only one cv.use_id call should be made.
 
-    # Try svg_file ID first (separate type hierarchy)
-    try:
-        svg_file_class = cg.esphome_ns.namespace("svg_file").class_("SvgFile")
-        result = cv.use_id(svg_file_class)(value)
-        add_lv_use("img", "label")
-        return result
-    except cv.Invalid:
-        pass
-
-    # Try Image_ ID - this matches both regular image::Image and
-    # storage::SdImageComponent (which inherits from image::Image)
-    try:
-        value_id = cv.use_id(Image_)(value)
-        lv_images_used.add(value_id)
-        add_lv_use("img", "label")
-        return value_id
-    except cv.Invalid:
-        pass
-
-    # If all ID resolutions failed and it's a string starting with "/", treat as file path
+    # If it's a file path on the device filesystem, return as-is
     if isinstance(value, str) and value.startswith("/"):
         add_lv_use("img", "label")
         return value
 
-    raise cv.Invalid(f"Invalid image source: {value}. Must be an image/sd_image/svg_file ID or a file path starting with '/'")
+    # Use Image_ as the type - matches both regular image::Image and
+    # storage::SdImageComponent (which inherits from image::Image)
+    value_id = cv.use_id(Image_)(value)
+    lv_images_used.add(value_id)
+    add_lv_use("img", "label")
+    return value_id
 
 
 
