@@ -437,6 +437,15 @@ async def to_code(configs):
         if canonical in _ALL_CANONICAL_WIDGETS:
             _used_canonical.add(canonical)
 
+    # lv_theme_default.c always references lv_button_class and lv_buttonmatrix_class
+    # (the guards in the LVGL 9.5 theme code are insufficient). These widgets must
+    # be compiled whenever the default theme is active to avoid linker errors.
+    if "THEME_DEFAULT" in helpers.lv_uses:
+        _used_canonical.add("BTN")
+        _used_canonical.add("BTNMATRIX")
+        # Also add to lv_uses so the build filter includes their source files
+        helpers.add_lv_use("btn", "btnmatrix")
+
     # Set LV_USE_*=1 for used widgets, LV_USE_*=0 for unused (canonical names only)
     for widget in _ALL_CANONICAL_WIDGETS:
         df.add_define(f"LV_USE_{widget}", "1" if widget in _used_canonical else "0")
