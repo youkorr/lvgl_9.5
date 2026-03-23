@@ -1,6 +1,8 @@
 from esphome import automation
 import esphome.codegen as cg
-from esphome.components.image import DOMAIN as IMAGE_DOMAIN
+# Avoid importing the image component module at top level, which would force
+# USE_IMAGE to be defined even when the user doesn't use images.
+IMAGE_DOMAIN = "image"
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_COLOR,

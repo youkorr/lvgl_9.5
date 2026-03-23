@@ -2,10 +2,8 @@ import re
 from typing import Any
 
 import esphome.codegen as cg
-from esphome.components import image
 from esphome.components.color import CONF_HEX, ColorStruct, from_rgbw
 from esphome.components.font import Font
-from esphome.components.image import Image_
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_ARGS,
@@ -385,11 +383,13 @@ def image_validator(value):
 
     # Try Image_ first - covers both standard images AND SdImageComponent
     try:
+        from esphome.components.image import Image_
+
         value_id = cv.use_id(Image_)(value)
         lv_images_used.add(value_id)
         add_lv_use("img", "label")
         return value_id
-    except cv.Invalid:
+    except (cv.Invalid, ImportError):
         pass
 
     # Try SdImageComponent explicitly (in case Image_ check fails)
@@ -423,13 +423,17 @@ def image_validator(value):
     )
 
 
+# Construct image::Image* type without importing the image component module,
+# which would force USE_IMAGE to be defined even when image is not used.
+_image_ptr_type = cg.esphome_ns.namespace("image").class_("Image").operator("ptr")
+
 lv_image = LValidator(
     image_validator,
-    image.Image_.operator("ptr"),
+    _image_ptr_type,
 )
 lv_image_list = LValidator(
     cv.ensure_list(image_validator),
-    cg.std_vector.template(image.Image_.operator("ptr")),
+    cg.std_vector.template(_image_ptr_type),
 )
 lv_bool = LValidator(cv.boolean, cg.bool_, retmapper=literal)
 
