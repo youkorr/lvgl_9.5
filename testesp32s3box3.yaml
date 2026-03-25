@@ -24,11 +24,6 @@ esp32:
       CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
 
 logger:
-  level: DEBUG
-  logs:
-    lvgl: DEBUG
-    display: DEBUG
-    ili9xxx: DEBUG
 
 api:
   encryption:
@@ -107,7 +102,7 @@ display:
 
 lvgl:
   buffer_size: 100%
-  byte_order: little_endian
+  byte_order: big_endian
   displays:
     - my_display
   touchscreens:
