@@ -437,6 +437,36 @@ async def to_code(configs):
         if canonical in _ALL_CANONICAL_WIDGETS:
             _used_canonical.add(canonical)
 
+    # LVGL internal widget dependencies: some widgets require others at compile time.
+    # e.g. lv_image.h has #error if LV_USE_LABEL is not enabled.
+    _WIDGET_DEPS = {
+        "IMG": {"LABEL"},
+        "ANIMIMG": {"LABEL", "IMG"},
+        "IMGBTN": {"LABEL", "IMG"},
+        "DROPDOWN": {"LABEL"},
+        "ROLLER": {"LABEL"},
+        "SPINNER": {"ARC"},
+        "SPINBOX": {"TEXTAREA"},
+        "TEXTAREA": {"LABEL"},
+        "KEYBOARD": {"TEXTAREA", "LABEL", "BTNMATRIX"},
+        "LIST": {"LABEL", "BTN"},
+        "MSGBOX": {"LABEL", "BTN"},
+        "TABVIEW": {"BTN"},
+        "WIN": {"BTN"},
+        "MENU": {"LABEL", "BTN"},
+    }
+    # Resolve transitive dependencies
+    _resolved = True
+    while _resolved:
+        _resolved = False
+        for widget in list(_used_canonical):
+            for dep in _WIDGET_DEPS.get(widget, set()):
+                if dep not in _used_canonical:
+                    _used_canonical.add(dep)
+                    # Also add to lv_uses so the build filter includes the source files
+                    helpers.lv_uses.add(dep.lower())
+                    _resolved = True
+
     # Set LV_USE_*=1 for used widgets, LV_USE_*=0 for unused (canonical names only)
     for widget in _ALL_CANONICAL_WIDGETS:
         df.add_define(f"LV_USE_{widget}", "1" if widget in _used_canonical else "0")
