@@ -1,0 +1,158 @@
+substitutions:
+  name: testesp32s3box3
+  friendly_name: Test ESP32-S3-BOX-3
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  min_version: 2025.2.0
+  platformio_options:
+    board_build.flash_mode: dio
+
+esp32:
+  board: esp32-s3-devkitc-1
+  flash_size: 16MB
+  cpu_frequency: 240MHz
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+
+logger:
+
+api:
+  encryption:
+    key: ""
+
+ota:
+  - platform: esphome
+    password: ""
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Test-S3BOX3 Fallback"
+    password: ""
+
+captive_portal:
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/youkorr/lvgl_9.5
+      ref: claude/fix-lvgl-esp32s3-Llg2P
+    components: [lvgl]
+    refresh: always
+
+output:
+  - platform: ledc
+    pin: GPIO47
+    id: backlight_output
+
+light:
+  - platform: monochromatic
+    id: led
+    name: LCD Backlight
+    entity_category: config
+    output: backlight_output
+    restore_mode: ALWAYS_ON
+    default_transition_length: 250ms
+
+i2c:
+  - id: bus_a
+    sda: GPIO08
+    scl: GPIO18
+    scan: false
+    sda_pullup_enabled: true
+    scl_pullup_enabled: true
+    frequency: 100kHz
+
+touchscreen:
+  platform: gt911
+  i2c_id: bus_a
+  id: gt911_touchscreen
+  update_interval: 50ms
+
+spi:
+  clk_pin: 7
+  mosi_pin: 6
+
+display:
+  - platform: ili9xxx
+    id: my_display
+    model: S3BOX
+    data_rate: 40MHz
+    cs_pin: 5
+    dc_pin: 4
+    reset_pin:
+      number: 48
+      inverted: true
+    update_interval: never
+    invert_colors: false
+
+lvgl:
+  buffer_size: 100%
+  byte_order: little_endian
+  displays:
+    - my_display
+  touchscreens:
+    - gt911_touchscreen
+  pages:
+    - id: main_page
+      bg_color: 0x000000
+      widgets:
+        # Header bar
+        - obj:
+            width: 320
+            height: 40
+            align: TOP_MID
+            bg_color: 0x2196F3
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "ESP32-S3-BOX-3 Test"
+                  text_color: 0xFFFFFF
+
+        # Big centered label
+        - label:
+            id: main_label
+            align: CENTER
+            text: "LVGL fonctionne !"
+            text_color: 0xFFFFFF
+            text_font: montserrat_20
+
+        # Test button
+        - button:
+            id: test_btn
+            align: BOTTOM_MID
+            y: -30
+            width: 200
+            height: 50
+            bg_color: 0x4CAF50
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Appuyer ici"
+                  text_color: 0xFFFFFF
+            on_click:
+              then:
+                - lvgl.label.update:
+                    id: main_label
+                    text: "Bouton OK !"
+
+        # Small status label at bottom
+        - label:
+            align: BOTTOM_MID
+            y: -5
+            text: "Touch + Display OK"
+            text_color: 0x888888
