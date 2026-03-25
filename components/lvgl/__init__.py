@@ -420,11 +420,17 @@ async def to_code(configs):
         "TABLE", "TABVIEW", "TEXTAREA", "TILEVIEW", "WIN",
     }
 
+    # Names that collide with ESPHome component defines (e.g. USE_IMAGE is
+    # owned by the image component).  LVGL must not emit these; the
+    # USE_LVGL_<name> define (always emitted) is sufficient.
+    _ESPHOME_COMPONENT_DEFINES = {"IMAGE", "SWITCH", "BUTTON"}
+
     # Add ESPHome-specific defines; add LV_USE_* only for non-widget entries
     for use in helpers.lv_uses:
         upper = use.upper()
         cg.add_define(f"USE_LVGL_{upper}")
-        cg.add_define(f"USE_{upper}")
+        if upper not in _ESPHOME_COMPONENT_DEFINES:
+            cg.add_define(f"USE_{upper}")
         canonical = _TO_CANONICAL.get(upper, upper)
         if canonical not in _ALL_CANONICAL_WIDGETS:
             # Non-widget entry (e.g. LOG, THEME_DEFAULT, USER_DATA)
@@ -436,6 +442,36 @@ async def to_code(configs):
         canonical = _TO_CANONICAL.get(use.upper(), use.upper())
         if canonical in _ALL_CANONICAL_WIDGETS:
             _used_canonical.add(canonical)
+
+    # LVGL internal widget dependencies: some widgets require others at compile time.
+    # e.g. lv_image.h has #error if LV_USE_LABEL is not enabled.
+    _WIDGET_DEPS = {
+        "IMG": {"LABEL"},
+        "ANIMIMG": {"LABEL", "IMG"},
+        "IMGBTN": {"LABEL", "IMG"},
+        "DROPDOWN": {"LABEL"},
+        "ROLLER": {"LABEL"},
+        "SPINNER": {"ARC"},
+        "SPINBOX": {"TEXTAREA"},
+        "TEXTAREA": {"LABEL"},
+        "KEYBOARD": {"TEXTAREA", "LABEL", "BTNMATRIX"},
+        "LIST": {"LABEL", "BTN"},
+        "MSGBOX": {"LABEL", "BTN"},
+        "TABVIEW": {"BTN"},
+        "WIN": {"BTN"},
+        "MENU": {"LABEL", "BTN"},
+    }
+    # Resolve transitive dependencies
+    _resolved = True
+    while _resolved:
+        _resolved = False
+        for widget in list(_used_canonical):
+            for dep in _WIDGET_DEPS.get(widget, set()):
+                if dep not in _used_canonical:
+                    _used_canonical.add(dep)
+                    # Also add to lv_uses so the build filter includes the source files
+                    helpers.lv_uses.add(dep.lower())
+                    _resolved = True
 
     # Set LV_USE_*=1 for used widgets, LV_USE_*=0 for unused (canonical names only)
     for widget in _ALL_CANONICAL_WIDGETS:

@@ -4,9 +4,9 @@
 #ifdef USE_BINARY_SENSOR
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #endif  // USE_BINARY_SENSOR
-#ifdef USE_IMAGE
+#if defined(USE_LVGL_IMAGE) && defined(USE_IMAGE)
 #include "esphome/components/image/image.h"
-#endif  // USE_LVGL_IMAGE
+#endif  // USE_LVGL_IMAGE && USE_IMAGE
 #ifdef USE_LVGL_ROTARY_ENCODER
 #include "esphome/components/rotary_encoder/rotary_encoder.h"
 #endif  // USE_LVGL_ROTARY_ENCODER
@@ -72,7 +72,7 @@ inline void lv_style_set_text_font(lv_style_t *style, const font::Font *font) {
   lv_style_set_text_font(style, font->get_lv_font());
 }
 #endif
-#ifdef USE_IMAGE
+#if defined(USE_LVGL_IMAGE) && defined(USE_IMAGE)
 // Shortcut / overload, so that the source of an image can easily be updated
 // from within a lambda.
 inline void lv_image_set_src(lv_obj_t *obj, esphome::image::Image *image) {
@@ -82,8 +82,8 @@ inline void lv_image_set_src(lv_obj_t *obj, esphome::image::Image *image) {
 inline void lv_obj_set_style_bg_image_src(lv_obj_t *obj, esphome::image::Image *image, lv_style_selector_t selector) {
   lv_obj_set_style_bg_image_src(obj, image->get_lv_image_dsc(), selector);
 }
-#endif  // USE_LVGL_IMAGE
-#ifdef USE_LVGL_ANIMIMG
+#endif  // USE_LVGL_IMAGE && USE_IMAGE
+#if defined(USE_LVGL_ANIMIMG) && defined(USE_IMAGE)
 inline void lv_animimg_set_src(lv_obj_t *img, std::vector<image::Image *> images) {
   auto *dsc = static_cast<std::vector<lv_image_dsc_t *> *>(lv_obj_get_user_data(img));
   if (dsc == nullptr) {
@@ -97,7 +97,7 @@ inline void lv_animimg_set_src(lv_obj_t *img, std::vector<image::Image *> images
   }
   lv_animimg_set_src(img, (const void **) dsc->data(), dsc->size());
 }
-#endif  // USE_LVGL_ANIMIMG
+#endif  // USE_LVGL_ANIMIMG && USE_IMAGE
 
 #ifdef USE_LVGL_METER
 int16_t lv_get_needle_angle_for_value(lv_obj_t *obj, int value);

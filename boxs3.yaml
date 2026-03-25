@@ -1186,15 +1186,11 @@ storage:
 
 external_components:
 
-  - source: github://pr#12312
-    components: [font]
-    refresh: 1h    
-    
   - source:
       type: git
       url: https://github.com/youkorr/lvgl_9.5
       ref: claude/fix-lvgl-padding-issue-P6MgM
-    components: [lvgl, image]
+    components: [lvgl, image, font]
     refresh: always   
 
   - source:

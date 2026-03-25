@@ -238,15 +238,11 @@ external_components:
     components: [mipi_dsi]
     refresh: always
 
-  - source: github://pr#12312
-    components: [font]
-    refresh: 1h    
-    
   - source:
       type: git
       url: https://github.com/youkorr/lvgl_9.4
       ref: main
-    components: [lvgl, image]
+    components: [lvgl, image, font]
     refresh: always   
 
   - source:
