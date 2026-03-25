@@ -11,6 +11,9 @@ lv_uses = {
     "STYLE",
     "FONT_PLACEHOLDER",
     "THEME_DEFAULT",
+    # LABEL must always be enabled: lvgl.h unconditionally includes lv_image.h
+    # which has a compile-time #error requiring LV_USE_LABEL=1.
+    "LABEL",
 }
 
 
