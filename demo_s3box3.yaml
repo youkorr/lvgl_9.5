@@ -466,9 +466,9 @@ lvgl:
         # ── LED indicators ──
         - obj:
             x: 8
-            y: 166
+            y: 162
             width: 304
-            height: 65
+            height: 38
             styles: style_card
             widgets:
               - label:
@@ -517,6 +517,39 @@ lvgl:
                     arc_color: 0x64B5F6
                     arc_width: 4
                     arc_rounded: true
+
+        # ── Navigation buttons ──
+        - button:
+            x: 8
+            y: 204
+            width: 148
+            height: 34
+            bg_color: 0x546E7A
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "<  Dashboard"
+            on_click:
+              - lvgl.page.show:
+                  id: page_dashboard
+                  animation: MOVE_RIGHT
+                  time: 300ms
+
+        - button:
+            x: 164
+            y: 204
+            width: 148
+            height: 34
+            bg_color: 0x546E7A
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Selectors  >"
+            on_click:
+              - lvgl.page.show:
+                  id: page_selector
+                  animation: MOVE_LEFT
+                  time: 300ms
 
     # ═══════════════ PAGE 3 : Roller / Dropdown ═══════════════
     - id: page_selector
