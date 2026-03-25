@@ -639,9 +639,104 @@ lvgl:
             widgets:
               - label:
                   align: CENTER
-                  text: "Controls  >"
+                  text: "Lottie  >"
             on_click:
               - lvgl.page.show:
-                  id: page_controls
+                  id: page_lottie
                   animation: MOVE_LEFT
+                  time: 300ms
+
+    # ═══════════════ PAGE 4 : Lottie Animations ═══════════════
+    - id: page_lottie
+      styles: style_page
+      widgets:
+        # ── Header ──
+        - obj:
+            width: 320
+            height: 32
+            align: TOP_MID
+            styles: style_header
+            pad_left: 8
+            pad_right: 8
+            widgets:
+              - label:
+                  align: LEFT_MID
+                  text: "Lottie"
+                  text_font: montserrat_16
+                  text_color: 0xFFAB40
+
+        # ── Lottie animation ──
+        - lottie:
+            id: lottie_anim
+            align: TOP_MID
+            y: 36
+            src: "/sdcard/animation.json"
+            width: 120
+            height: 120
+            loop: true
+            auto_start: true
+
+        # ── Control buttons ──
+        - obj:
+            x: 8
+            y: 160
+            width: 304
+            height: 36
+            bg_opa: 0%
+            border_width: 0
+            pad_all: 0
+            layout:
+              type: FLEX
+              flex_flow: ROW
+              flex_align_main: SPACE_EVENLY
+              flex_align_cross: CENTER
+            widgets:
+              - button:
+                  width: 90
+                  height: 34
+                  bg_color: 0x4CAF50
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "Play"
+                  on_click:
+                    - lvgl.lottie.start: lottie_anim
+
+              - button:
+                  width: 90
+                  height: 34
+                  bg_color: 0xFFA726
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "Pause"
+                  on_click:
+                    - lvgl.lottie.pause: lottie_anim
+
+              - button:
+                  width: 90
+                  height: 34
+                  bg_color: 0xF44336
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "Stop"
+                  on_click:
+                    - lvgl.lottie.stop: lottie_anim
+
+        # ── Navigation ──
+        - button:
+            x: 60
+            y: 200
+            width: 200
+            height: 36
+            bg_color: 0x546E7A
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "<  Selectors"
+            on_click:
+              - lvgl.page.show:
+                  id: page_selector
+                  animation: MOVE_RIGHT
                   time: 300ms
