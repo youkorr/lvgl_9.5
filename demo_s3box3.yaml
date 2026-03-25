@@ -132,13 +132,19 @@ sensor:
         - lvgl.label.update:
             id: lbl_psram
             text: !lambda |-
-              int used = (int)(100.0 - (x / 8388608.0 * 100.0));
+              int used = (int)(100.0 - (x / 16777216.0 * 100.0));
+              if (used < 0) used = 0;
+              if (used > 100) used = 100;
               char buf[8];
               snprintf(buf, sizeof(buf), "%d%%", used);
               return std::string(buf);
         - lvgl.arc.update:
             id: arc_psram
-            value: !lambda "return (int)(100.0 - (x / 8388608.0 * 100.0));"
+            value: !lambda |-
+              int v = (int)(100.0 - (x / 16777216.0 * 100.0));
+              if (v < 0) v = 0;
+              if (v > 100) v = 100;
+              return v;
 
   - platform: wifi_signal
     id: wifi_rssi
