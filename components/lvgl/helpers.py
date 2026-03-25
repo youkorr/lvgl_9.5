@@ -14,6 +14,10 @@ lv_uses = {
     # LABEL must always be enabled: lvgl.h unconditionally includes lv_image.h
     # which has a compile-time #error requiring LV_USE_LABEL=1.
     "LABEL",
+    # BTN and BTNMATRIX must always be enabled: lv_theme_default.c
+    # unconditionally references lv_button_class and lv_buttonmatrix_class.
+    "BTN",
+    "BTNMATRIX",
 }
 
 
