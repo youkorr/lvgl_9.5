@@ -1,0 +1,648 @@
+substitutions:
+  name: demo-s3box3
+  friendly_name: Demo ESP32-S3-BOX-3
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  min_version: 2025.2.0
+  platformio_options:
+    board_build.flash_mode: dio
+
+esp32:
+  board: esp32-s3-devkitc-1
+  flash_size: 16MB
+  cpu_frequency: 240MHz
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+
+logger:
+
+api:
+  encryption:
+    key: ""
+
+ota:
+  - platform: esphome
+    password: ""
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Demo-S3BOX3 Fallback"
+    password: ""
+
+captive_portal:
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/youkorr/lvgl_9.5
+      ref: claude/fix-lvgl-esp32s3-Llg2P
+    components: [lvgl]
+    refresh: always
+
+output:
+  - platform: ledc
+    pin: GPIO47
+    id: backlight_output
+
+light:
+  - platform: monochromatic
+    id: led
+    name: LCD Backlight
+    entity_category: config
+    output: backlight_output
+    restore_mode: ALWAYS_ON
+    default_transition_length: 250ms
+
+i2c:
+  - id: bus_a
+    sda: GPIO08
+    scl: GPIO18
+    scan: false
+    sda_pullup_enabled: true
+    scl_pullup_enabled: true
+    frequency: 100kHz
+
+touchscreen:
+  platform: gt911
+  i2c_id: bus_a
+  id: gt911_touchscreen
+  update_interval: 50ms
+
+binary_sensor:
+  - platform: gpio
+    id: top_left_button
+    pin:
+      number: GPIO0
+      mode: INPUT_PULLUP
+      inverted: true
+      ignore_strapping_warning: true
+    on_press:
+      - lvgl.page.next:
+
+spi:
+  clk_pin: 7
+  mosi_pin: 6
+
+display:
+  - platform: ili9xxx
+    id: my_display
+    model: S3BOX
+    data_rate: 40MHz
+    cs_pin: 5
+    dc_pin: 4
+    reset_pin:
+      number: 48
+      inverted: true
+    update_interval: never
+    invert_colors: false
+
+sensor:
+  - platform: uptime
+    id: uptime_sensor
+    update_interval: 1s
+    on_value:
+      - lvgl.label.update:
+          id: lbl_uptime
+          text: !lambda |-
+            int s = (int)x;
+            int h = s / 3600; s %= 3600;
+            int m = s / 60; s %= 60;
+            char buf[16];
+            snprintf(buf, sizeof(buf), "%02d:%02d:%02d", h, m, s);
+            return std::string(buf);
+
+  - platform: wifi_signal
+    id: wifi_rssi
+    update_interval: 10s
+    on_value:
+      - lvgl.label.update:
+          id: lbl_wifi
+          text: !lambda |-
+            char buf[16];
+            snprintf(buf, sizeof(buf), "%.0f dBm", x);
+            return std::string(buf);
+      - lvgl.bar.update:
+          id: bar_wifi
+          value: !lambda "return (int)(100 + x);"
+
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: "CET-1CEST,M3.5.0,M10.5.0/3"
+    on_time_sync:
+      - lvgl.label.update:
+          id: lbl_clock
+          text: !lambda |-
+            auto t = id(sntp_time).now();
+            char buf[16];
+            snprintf(buf, sizeof(buf), "%02d:%02d", t.hour, t.minute);
+            return std::string(buf);
+    on_time:
+      - seconds: 0
+        then:
+          - lvgl.label.update:
+              id: lbl_clock
+              text: !lambda |-
+                auto t = id(sntp_time).now();
+                char buf[16];
+                snprintf(buf, sizeof(buf), "%02d:%02d", t.hour, t.minute);
+                return std::string(buf);
+
+# ─────────────────── LVGL ───────────────────
+lvgl:
+  buffer_size: 100%
+  byte_order: big_endian
+  displays:
+    - my_display
+  touchscreens:
+    - gt911_touchscreen
+
+  theme:
+    button:
+      default:
+        bg_color: 0x2196F3
+        radius: 8
+        shadow_width: 4
+        shadow_color: 0x000000
+        shadow_opa: 40%
+        text_color: 0xFFFFFF
+      pressed:
+        bg_color: 0x1565C0
+        shadow_width: 1
+
+  style_definitions:
+    - id: style_header
+      bg_color: 0x1A1A2E
+      bg_opa: 100%
+      text_color: 0xE0E0E0
+      pad_all: 4
+    - id: style_card
+      bg_color: 0x16213E
+      bg_opa: 100%
+      radius: 12
+      border_width: 1
+      border_color: 0x2A3A5C
+      pad_all: 8
+    - id: style_page
+      bg_color: 0x0F0F23
+      bg_opa: 100%
+
+  pages:
+    # ═══════════════ PAGE 1 : Dashboard ═══════════════
+    - id: page_dashboard
+      styles: style_page
+      widgets:
+        # ── Header bar ──
+        - obj:
+            width: 320
+            height: 32
+            align: TOP_MID
+            styles: style_header
+            pad_left: 8
+            pad_right: 8
+            widgets:
+              - label:
+                  id: lbl_clock
+                  align: LEFT_MID
+                  text: "--:--"
+                  text_font: montserrat_20
+                  text_color: 0x64B5F6
+              - label:
+                  id: lbl_wifi
+                  align: RIGHT_MID
+                  text: "-- dBm"
+                  text_color: 0x81C784
+
+        # ── Uptime card ──
+        - obj:
+            x: 8
+            y: 40
+            width: 148
+            height: 70
+            styles: style_card
+            widgets:
+              - label:
+                  align: TOP_LEFT
+                  text: "UPTIME"
+                  text_color: 0x888888
+                  text_font: montserrat_10
+              - label:
+                  id: lbl_uptime
+                  align: CENTER
+                  y: 6
+                  text: "00:00:00"
+                  text_font: montserrat_20
+                  text_color: 0x4FC3F7
+
+        # ── WiFi signal card ──
+        - obj:
+            x: 164
+            y: 40
+            width: 148
+            height: 70
+            styles: style_card
+            widgets:
+              - label:
+                  align: TOP_LEFT
+                  text: "WIFI SIGNAL"
+                  text_color: 0x888888
+                  text_font: montserrat_10
+              - bar:
+                  id: bar_wifi
+                  align: CENTER
+                  y: 8
+                  width: 120
+                  height: 12
+                  min_value: 0
+                  max_value: 100
+                  value: 50
+                  bg_color: 0x1A1A2E
+                  indicator:
+                    bg_color: 0x66BB6A
+
+        # ── Arc gauge ──
+        - arc:
+            id: arc_demo
+            x: 8
+            y: 118
+            width: 110
+            height: 110
+            min_value: 0
+            max_value: 100
+            value: 72
+            start_angle: 135
+            end_angle: 45
+            bg_opa: 0%
+            arc_color: 0x263238
+            arc_width: 8
+            indicator:
+              arc_color: 0xFF7043
+              arc_width: 8
+              arc_rounded: true
+            knob:
+              bg_color: 0xFF7043
+              radius: 0x7FFF
+              pad_all: 3
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "72%"
+                  text_color: 0xFF7043
+                  text_font: montserrat_20
+
+        # ── Control buttons ──
+        - obj:
+            x: 126
+            y: 118
+            width: 186
+            height: 110
+            styles: style_card
+            border_width: 0
+            bg_opa: 0%
+            pad_all: 0
+            widgets:
+              - button:
+                  x: 0
+                  y: 0
+                  width: 88
+                  height: 50
+                  bg_color: 0x4CAF50
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "ON"
+                  on_click:
+                    - light.turn_on:
+                        id: led
+                        brightness: 100%
+
+              - button:
+                  x: 96
+                  y: 0
+                  width: 88
+                  height: 50
+                  bg_color: 0xF44336
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "OFF"
+                  on_click:
+                    - light.turn_on:
+                        id: led
+                        brightness: 20%
+
+              - button:
+                  x: 0
+                  y: 58
+                  width: 184
+                  height: 50
+                  bg_color: 0x7C4DFF
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "Page suivante  >"
+                  on_click:
+                    - lvgl.page.next:
+                        animation: MOVE_LEFT
+                        time: 300ms
+
+    # ═══════════════ PAGE 2 : Controls ═══════════════
+    - id: page_controls
+      styles: style_page
+      widgets:
+        # ── Header ──
+        - obj:
+            width: 320
+            height: 32
+            align: TOP_MID
+            styles: style_header
+            pad_left: 8
+            widgets:
+              - label:
+                  align: LEFT_MID
+                  text: "Controls"
+                  text_font: montserrat_16
+                  text_color: 0xCE93D8
+
+        # ── Brightness slider ──
+        - obj:
+            x: 8
+            y: 40
+            width: 304
+            height: 55
+            styles: style_card
+            widgets:
+              - label:
+                  x: 0
+                  align: TOP_LEFT
+                  text: "Brightness"
+                  text_color: 0xB0B0B0
+                  text_font: montserrat_10
+              - slider:
+                  id: slider_brightness
+                  align: BOTTOM_MID
+                  y: -4
+                  width: 280
+                  height: 10
+                  min_value: 10
+                  max_value: 100
+                  value: 80
+                  bg_color: 0x263238
+                  indicator:
+                    bg_color: 0xFFCA28
+                  knob:
+                    bg_color: 0xFFCA28
+                    radius: 0x7FFF
+                    pad_all: 4
+                  on_value:
+                    - light.turn_on:
+                        id: led
+                        brightness: !lambda "return x / 100.0;"
+
+        # ── Switches row ──
+        - obj:
+            x: 8
+            y: 103
+            width: 148
+            height: 55
+            styles: style_card
+            widgets:
+              - label:
+                  align: TOP_LEFT
+                  text: "Mode Auto"
+                  text_color: 0xB0B0B0
+                  text_font: montserrat_10
+              - switch:
+                  id: sw_auto
+                  align: BOTTOM_MID
+                  y: -4
+                  indicator:
+                    bg_color: 0x4CAF50
+                    checked:
+                      bg_color: 0x4CAF50
+                  knob:
+                    bg_color: 0xFFFFFF
+                    radius: 0x7FFF
+
+        - obj:
+            x: 164
+            y: 103
+            width: 148
+            height: 55
+            styles: style_card
+            widgets:
+              - label:
+                  align: TOP_LEFT
+                  text: "Night Mode"
+                  text_color: 0xB0B0B0
+                  text_font: montserrat_10
+              - switch:
+                  id: sw_night
+                  align: BOTTOM_MID
+                  y: -4
+                  indicator:
+                    bg_color: 0x5C6BC0
+                    checked:
+                      bg_color: 0x5C6BC0
+                  knob:
+                    bg_color: 0xFFFFFF
+                    radius: 0x7FFF
+
+        # ── LED indicators ──
+        - obj:
+            x: 8
+            y: 166
+            width: 304
+            height: 65
+            styles: style_card
+            widgets:
+              - label:
+                  align: TOP_LEFT
+                  text: "Status LEDs"
+                  text_color: 0xB0B0B0
+                  text_font: montserrat_10
+              - led:
+                  id: led_green
+                  x: 30
+                  align: BOTTOM_MID
+                  y: -8
+                  width: 24
+                  height: 24
+                  color: 0x4CAF50
+                  brightness: 100%
+              - led:
+                  id: led_yellow
+                  x: -30
+                  align: BOTTOM_MID
+                  y: -8
+                  width: 24
+                  height: 24
+                  color: 0xFFCA28
+                  brightness: 60%
+              - led:
+                  id: led_red
+                  x: -90
+                  align: BOTTOM_MID
+                  y: -8
+                  width: 24
+                  height: 24
+                  color: 0xF44336
+                  brightness: 30%
+              - spinner:
+                  x: 90
+                  align: BOTTOM_MID
+                  y: -2
+                  width: 32
+                  height: 32
+                  arc_length: 120
+                  spin_time: 1500ms
+                  arc_color: 0x1A1A2E
+                  arc_width: 4
+                  indicator:
+                    arc_color: 0x64B5F6
+                    arc_width: 4
+                    arc_rounded: true
+
+    # ═══════════════ PAGE 3 : Roller / Dropdown ═══════════════
+    - id: page_selector
+      styles: style_page
+      widgets:
+        # ── Header ──
+        - obj:
+            width: 320
+            height: 32
+            align: TOP_MID
+            styles: style_header
+            pad_left: 8
+            widgets:
+              - label:
+                  align: LEFT_MID
+                  text: "Selectors"
+                  text_font: montserrat_16
+                  text_color: 0x80CBC4
+
+        # ── Roller ──
+        - obj:
+            x: 8
+            y: 40
+            width: 148
+            height: 130
+            styles: style_card
+            widgets:
+              - label:
+                  align: TOP_LEFT
+                  text: "Room"
+                  text_color: 0xB0B0B0
+                  text_font: montserrat_10
+              - roller:
+                  id: roller_room
+                  align: BOTTOM_MID
+                  y: -4
+                  width: 130
+                  height: 95
+                  options:
+                    - Salon
+                    - Chambre
+                    - Cuisine
+                    - Bureau
+                    - Garage
+                    - Jardin
+                  visible_row_count: 3
+                  selected_index: 0
+                  bg_color: 0x0F0F23
+                  text_color: 0x607D8B
+                  selected:
+                    bg_color: 0x1E88E5
+                    text_color: 0xFFFFFF
+
+        # ── Dropdown + Bar ──
+        - obj:
+            x: 164
+            y: 40
+            width: 148
+            height: 130
+            styles: style_card
+            widgets:
+              - label:
+                  align: TOP_LEFT
+                  text: "Scene"
+                  text_color: 0xB0B0B0
+                  text_font: montserrat_10
+              - dropdown:
+                  id: dd_scene
+                  align: TOP_MID
+                  y: 18
+                  width: 130
+                  options:
+                    - "Relax"
+                    - "Movie"
+                    - "Party"
+                    - "Reading"
+                    - "Sleep"
+                  bg_color: 0x1A1A2E
+                  text_color: 0xE0E0E0
+                  border_color: 0x2A3A5C
+                  indicator:
+                    text_color: 0x64B5F6
+              - bar:
+                  id: bar_scene
+                  align: BOTTOM_MID
+                  y: -8
+                  width: 130
+                  height: 20
+                  min_value: 0
+                  max_value: 100
+                  value: 65
+                  bg_color: 0x263238
+                  radius: 4
+                  indicator:
+                    bg_color: 0x26A69A
+                    radius: 4
+
+        # ── Navigation buttons ──
+        - button:
+            x: 8
+            y: 185
+            width: 148
+            height: 44
+            bg_color: 0x546E7A
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "<  Dashboard"
+            on_click:
+              - lvgl.page.show:
+                  id: page_dashboard
+                  animation: MOVE_RIGHT
+                  time: 300ms
+
+        - button:
+            x: 164
+            y: 185
+            width: 148
+            height: 44
+            bg_color: 0x546E7A
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Controls  >"
+            on_click:
+              - lvgl.page.show:
+                  id: page_controls
+                  animation: MOVE_LEFT
+                  time: 300ms
