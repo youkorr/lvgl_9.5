@@ -112,13 +112,13 @@ display:
     invert_colors: false
 
 debug:
-  update_interval: 5s
 
 sensor:
   - platform: debug
     free:
       name: "Free Heap"
       id: sensor_free_heap
+      update_interval: 5s
       on_value:
         - lvgl.label.update:
             id: lbl_heap
