@@ -260,9 +260,24 @@ void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uin
   if (!this->is_paused()) {
     auto now = millis();
     if (this->flush_count_++ < 5) {
-      ESP_LOGI(TAG, "flush_cb #%d: area=%d,%d -> %d,%d (%dx%d)", this->flush_count_,
-               area->x1, area->y1, area->x2, area->y2,
-               lv_area_get_width(area), lv_area_get_height(area));
+      auto *pixels = reinterpret_cast<uint16_t *>(color_p);
+      auto width = lv_area_get_width(area);
+      auto height = lv_area_get_height(area);
+      // Sample pixels at corners and center to check actual rendered content
+      auto total = width * height;
+      uint16_t p0 = pixels[0];                          // top-left
+      uint16_t p1 = pixels[width - 1];                  // top-right
+      uint16_t pc = pixels[total / 2 + width / 2];      // center
+      uint16_t pe = pixels[total - 1];                   // bottom-right
+      // Count non-zero (non-black) pixels in first row
+      int nonzero = 0;
+      for (int i = 0; i < width && i < 320; i++) {
+        if (pixels[i] != 0)
+          nonzero++;
+      }
+      ESP_LOGI(TAG, "flush_cb #%d: area=%d,%d -> %d,%d (%dx%d) px[0]=0x%04X px[TR]=0x%04X px[C]=0x%04X px[BR]=0x%04X nonzero_row0=%d",
+               this->flush_count_, area->x1, area->y1, area->x2, area->y2,
+               width, height, p0, p1, pc, pe, nonzero);
     }
     this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
     ESP_LOGV(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
