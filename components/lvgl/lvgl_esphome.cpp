@@ -259,6 +259,11 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
 void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p) {
   if (!this->is_paused()) {
     auto now = millis();
+    if (this->flush_count_++ < 5) {
+      ESP_LOGI(TAG, "flush_cb #%d: area=%d,%d -> %d,%d (%dx%d)", this->flush_count_,
+               area->x1, area->y1, area->x2, area->y2,
+               lv_area_get_width(area), lv_area_get_height(area));
+    }
     this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
     ESP_LOGV(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
              lv_area_get_height(area), (int) (millis() - now));
@@ -556,6 +561,7 @@ LvglComponent::LvglComponent(std::vector<display::Display *> displays, float buf
 }
 
 void LvglComponent::setup() {
+  ESP_LOGI(TAG, "LVGL setup() starting");
   auto *display = this->displays_[0];
   auto rounding = this->draw_rounding;
   // cater for displays with dimensions that don't divide by the required rounding
@@ -589,6 +595,8 @@ void LvglComponent::setup() {
     return;
   }
   this->draw_buf_ = static_cast<uint8_t *>(buffer);
+  ESP_LOGI(TAG, "Buffer allocated: %d bytes, display: %dx%d, frac: %d, pages: %zu",
+           (int) buf_bytes, this->width_, this->height_, (int) frac, this->pages_.size());
   lv_display_set_resolution(this->disp_, this->width_, this->height_);
   lv_display_set_color_format(this->disp_, LV_COLOR_FORMAT_RGB565);
   // CRITICAL: Set user_data BEFORE flush_cb, as flush_cb uses user_data
@@ -628,6 +636,7 @@ void LvglComponent::setup() {
   // Rotation will be handled by our drawing function, so reset the display rotation.
   for (auto *disp : this->displays_)
     disp->set_rotation(display::DISPLAY_ROTATION_0_DEGREES);
+  ESP_LOGI(TAG, "Showing page 0 of %zu pages", this->pages_.size());
   this->show_page(0, LV_SCR_LOAD_ANIM_NONE, 0);
   lv_display_trigger_activity(this->disp_);
 
@@ -636,6 +645,7 @@ void LvglComponent::setup() {
   lv_display_set_buffers(this->disp_, this->draw_buf_, nullptr, this->buf_bytes_,
                          this->full_refresh_ ? LV_DISPLAY_RENDER_MODE_FULL : LV_DISPLAY_RENDER_MODE_PARTIAL);
   this->buffers_configured_ = true;
+  ESP_LOGI(TAG, "LVGL setup() complete - buffers configured, rendering enabled");
 }
 
 void LvglComponent::update() {

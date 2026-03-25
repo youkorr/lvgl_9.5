@@ -24,6 +24,11 @@ esp32:
       CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
 
 logger:
+  level: DEBUG
+  logs:
+    lvgl: DEBUG
+    display: DEBUG
+    ili9xxx: DEBUG
 
 api:
   encryption:
