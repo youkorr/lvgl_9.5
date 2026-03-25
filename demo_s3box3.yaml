@@ -111,20 +111,35 @@ display:
     update_interval: never
     invert_colors: false
 
+debug:
+  update_interval: 5s
+
 sensor:
-  - platform: uptime
-    id: uptime_sensor
-    update_interval: 1s
-    on_value:
-      - lvgl.label.update:
-          id: lbl_uptime
-          text: !lambda |-
-            int s = (int)x;
-            int h = s / 3600; s %= 3600;
-            int m = s / 60; s %= 60;
-            char buf[16];
-            snprintf(buf, sizeof(buf), "%02d:%02d:%02d", h, m, s);
-            return std::string(buf);
+  - platform: debug
+    free:
+      name: "Free Heap"
+      id: sensor_free_heap
+      on_value:
+        - lvgl.label.update:
+            id: lbl_heap
+            text: !lambda |-
+              char buf[16];
+              snprintf(buf, sizeof(buf), "%d KB", (int)(x / 1024));
+              return std::string(buf);
+    psram:
+      name: "Free PSRAM"
+      id: sensor_free_psram
+      on_value:
+        - lvgl.label.update:
+            id: lbl_psram
+            text: !lambda |-
+              int used = (int)(100.0 - (x / 8388608.0 * 100.0));
+              char buf[8];
+              snprintf(buf, sizeof(buf), "%d%%", used);
+              return std::string(buf);
+        - lvgl.arc.update:
+            id: arc_psram
+            value: !lambda "return (int)(100.0 - (x / 8388608.0 * 100.0));"
 
   - platform: wifi_signal
     id: wifi_rssi
@@ -228,7 +243,7 @@ lvgl:
                   text: "-- dBm"
                   text_color: 0x81C784
 
-        # ── Uptime card ──
+        # ── Free Heap card ──
         - obj:
             x: 8
             y: 40
@@ -238,14 +253,14 @@ lvgl:
             widgets:
               - label:
                   align: TOP_LEFT
-                  text: "UPTIME"
+                  text: "FREE HEAP"
                   text_color: 0x888888
                   text_font: montserrat_10
               - label:
-                  id: lbl_uptime
+                  id: lbl_heap
                   align: CENTER
                   y: 6
-                  text: "00:00:00"
+                  text: "-- KB"
                   text_font: montserrat_20
                   text_color: 0x4FC3F7
 
@@ -275,34 +290,35 @@ lvgl:
                   indicator:
                     bg_color: 0x66BB6A
 
-        # ── Arc gauge ──
+        # ── PSRAM usage gauge ──
         - arc:
-            id: arc_demo
+            id: arc_psram
             x: 8
             y: 118
             width: 110
             height: 110
             min_value: 0
             max_value: 100
-            value: 72
+            value: 0
             start_angle: 135
             end_angle: 45
             bg_opa: 0%
             arc_color: 0x263238
             arc_width: 8
             indicator:
-              arc_color: 0xFF7043
+              arc_color: 0x26A69A
               arc_width: 8
               arc_rounded: true
             knob:
-              bg_color: 0xFF7043
+              bg_color: 0x26A69A
               radius: 0x7FFF
               pad_all: 3
             widgets:
               - label:
+                  id: lbl_psram
                   align: CENTER
-                  text: "72%"
-                  text_color: 0xFF7043
+                  text: "--%"
+                  text_color: 0x26A69A
                   text_font: montserrat_20
 
         # ── Control buttons ──
@@ -419,7 +435,7 @@ lvgl:
             x: 8
             y: 103
             width: 148
-            height: 55
+            height: 70
             styles: style_card
             widgets:
               - label:
@@ -430,7 +446,7 @@ lvgl:
               - switch:
                   id: sw_auto
                   align: BOTTOM_MID
-                  y: -4
+                  y: -8
                   indicator:
                     bg_color: 0x4CAF50
                     checked:
@@ -443,7 +459,7 @@ lvgl:
             x: 164
             y: 103
             width: 148
-            height: 55
+            height: 70
             styles: style_card
             widgets:
               - label:
@@ -454,7 +470,7 @@ lvgl:
               - switch:
                   id: sw_night
                   align: BOTTOM_MID
-                  y: -4
+                  y: -8
                   indicator:
                     bg_color: 0x5C6BC0
                     checked:
@@ -466,7 +482,7 @@ lvgl:
         # ── Navigation buttons ──
         - button:
             x: 8
-            y: 166
+            y: 186
             width: 148
             height: 44
             bg_color: 0x546E7A
@@ -482,7 +498,7 @@ lvgl:
 
         - button:
             x: 164
-            y: 166
+            y: 186
             width: 148
             height: 44
             bg_color: 0x546E7A
