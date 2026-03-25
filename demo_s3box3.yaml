@@ -118,7 +118,6 @@ sensor:
     free:
       name: "Free Heap"
       id: sensor_free_heap
-      update_interval: 5s
       on_value:
         - lvgl.label.update:
             id: lbl_heap
