@@ -420,11 +420,17 @@ async def to_code(configs):
         "TABLE", "TABVIEW", "TEXTAREA", "TILEVIEW", "WIN",
     }
 
+    # Names that collide with ESPHome component defines (e.g. USE_IMAGE is
+    # owned by the image component).  LVGL must not emit these; the
+    # USE_LVGL_<name> define (always emitted) is sufficient.
+    _ESPHOME_COMPONENT_DEFINES = {"IMAGE"}
+
     # Add ESPHome-specific defines; add LV_USE_* only for non-widget entries
     for use in helpers.lv_uses:
         upper = use.upper()
         cg.add_define(f"USE_LVGL_{upper}")
-        cg.add_define(f"USE_{upper}")
+        if upper not in _ESPHOME_COMPONENT_DEFINES:
+            cg.add_define(f"USE_{upper}")
         canonical = _TO_CANONICAL.get(upper, upper)
         if canonical not in _ALL_CANONICAL_WIDGETS:
             # Non-widget entry (e.g. LOG, THEME_DEFAULT, USER_DATA)
