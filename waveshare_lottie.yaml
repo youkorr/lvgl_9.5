@@ -238,15 +238,11 @@ external_components:
     components: [mipi_dsi]
     refresh: always
 
-  - source: github://pr#12312
-    components: [font]
-    refresh: 1h    
-    
   - source:
       type: git
       url: https://github.com/youkorr/lvgl_9.4
       ref: claude/fix-lottie-reload-issue-ARogJ #claude/fix-lvgl-hidden-property-WQgoC #claude/fix-lvgl-hidden-property-JyQ89 #claude/fix-lottie-widget-z9ydW #claude/fix-lottie-crash-VcRU1 #claude/fix-lvgl-widgets-Ag1yK #claude/fix-lvgl-rendering-performance-xauVV
-    components: [lvgl, image]
+    components: [lvgl, image, font]
     refresh: always   
 
   - source:
