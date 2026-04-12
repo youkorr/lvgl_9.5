@@ -8,6 +8,29 @@ Produces 4 variants matching the voice_assistant pipeline states:
   - claude_orb_thinking.json   (rotation, Claude orange)
   - claude_orb_replying.json   (wave-like, warm gold)
 
+LIVE-REACTIVE PROPERTIES (option C — Lottie expressions)
+--------------------------------------------------------
+
+Each orb exposes 3 named layers with expression-driven properties that can be
+updated at runtime via `tvg_lottie_animation_assign(anim, layer, ix, var, val)`.
+The JS expressions declare the variables with a default of 0.0 so the orb
+still looks correct when nothing is being assigned (e.g. during idle).
+
+  Layer name          ix   var       Effect on the orb
+  ------------------  ---  --------  ---------------------------------------
+  orb_reactive_core   201  bass      Core scale (pump: 100 → 100+bass*60)
+  orb_reactive_glow   202  mid       Glow opacity (breath: 60 → 60+mid*40)
+  orb_reactive_bloom  203  treble    Bloom scale (shimmer: 95 → 95+treble*25)
+
+Callers can assign values in [0.0, 1.0] (unclamped — the expression soft-caps
+the final visual output). A value of 0.0 restores the "resting" look.
+
+Build requirement: thorvg must be built with
+  CONFIG_THORVG_LOTTIE_EXPRESSIONS_SUPPORT=y
+
+Without it, the expressions are ignored and the orbs fall back to their
+static keyframe values (which are tuned to look good on their own).
+
 Output directory: ../sdcard_assets/claude/
 """
 
@@ -15,13 +38,26 @@ import json
 import os
 from copy import deepcopy
 
-# ---------- Helpers ----------
+# ---------- Constants ----------
 
 SIZE = 400  # canvas size (square)
 CENTER = SIZE / 2
 FPS = 60
 DUR = 300  # frames (5 s at 60fps)
 
+# Reactive property indexes — referenced from the ESPHome YAML fragment.
+# Must be unique within the file. Keep in sync with README.
+IX_CORE_SCALE = 201
+IX_GLOW_OPACITY = 202
+IX_BLOOM_SCALE = 203
+
+# Reactive layer names (targeted by thorvg assign() layer argument).
+LAYER_CORE = "orb_reactive_core"
+LAYER_GLOW = "orb_reactive_glow"
+LAYER_BLOOM = "orb_reactive_bloom"
+
+
+# ---------- Helpers ----------
 
 def rgb(hexstr, a=1.0):
     """Convert #RRGGBB to normalized [r,g,b,a]."""
@@ -45,6 +81,43 @@ def anim(keyframes):
     return {"a": 1, "k": k}
 
 
+def reactive_scale(ix, var_name, base=100, gain=60):
+    """
+    Expression-driven 3D scale property.
+
+    Declares `var` with default 0.0 then computes [base+var*gain, base+var*gain, 100].
+    Can be patched at runtime via assign(layer, ix, var_name, value).
+    """
+    code = (
+        f"var {var_name}=0.0;"
+        f"var s={base}+{var_name}*{gain};"
+        f"[s,s,100];"
+    )
+    return {
+        "a": 0,
+        "k": [base, base, 100],
+        "ix": ix,
+        "x": code,
+    }
+
+
+def reactive_opacity(ix, var_name, base=60, gain=40):
+    """
+    Expression-driven opacity (scalar 0-100).
+    """
+    code = (
+        f"var {var_name}=0.0;"
+        f"var o={base}+{var_name}*{gain};"
+        f"o;"
+    )
+    return {
+        "a": 0,
+        "k": base,
+        "ix": ix,
+        "x": code,
+    }
+
+
 def transform(pos=None, scale=100, rot=0, opacity=100, anchor=(0, 0)):
     return {
         "o": opacity if isinstance(opacity, dict) else static(opacity),
@@ -52,6 +125,26 @@ def transform(pos=None, scale=100, rot=0, opacity=100, anchor=(0, 0)):
         "p": static([pos[0], pos[1], 0]) if pos else static([CENTER, CENTER, 0]),
         "a": static([anchor[0], anchor[1], 0]),
         "s": scale if isinstance(scale, dict) else static([scale, scale, 100]),
+    }
+
+
+def reactive_transform(
+    pos=None,
+    scale_ix=None, scale_var=None, scale_base=100, scale_gain=60,
+    opacity_ix=None, opacity_var=None, opacity_base=100, opacity_gain=0,
+    rot=0,
+):
+    """Build a transform dict where scale and/or opacity are expression-driven."""
+    s = (reactive_scale(scale_ix, scale_var, scale_base, scale_gain)
+         if scale_ix is not None else static([scale_base, scale_base, 100]))
+    o = (reactive_opacity(opacity_ix, opacity_var, opacity_base, opacity_gain)
+         if opacity_ix is not None else static(opacity_base))
+    return {
+        "o": o,
+        "r": rot if isinstance(rot, dict) else static(rot),
+        "p": static([pos[0], pos[1], 0]) if pos else static([CENTER, CENTER, 0]),
+        "a": static([0, 0, 0]),
+        "s": s,
     }
 
 
@@ -109,6 +202,20 @@ def shape_layer(ind, name, shapes, tr):
 def filled_circle_layer(ind, name, diameter, color, opacity_anim=None, scale_anim=None):
     shapes = [group([ellipse(diameter, diameter), fill(color), shape_transform()], name)]
     tr = transform(opacity=opacity_anim or 100, scale=scale_anim or 100)
+    return shape_layer(ind, name, shapes, tr)
+
+
+def reactive_circle_layer(ind, name, diameter, color,
+                          scale_ix=None, scale_var=None, scale_base=100, scale_gain=60,
+                          opacity_ix=None, opacity_var=None, opacity_base=100, opacity_gain=0):
+    """Filled circle layer with expression-driven scale and/or opacity."""
+    shapes = [group([ellipse(diameter, diameter), fill(color), shape_transform()], name)]
+    tr = reactive_transform(
+        scale_ix=scale_ix, scale_var=scale_var,
+        scale_base=scale_base, scale_gain=scale_gain,
+        opacity_ix=opacity_ix, opacity_var=opacity_var,
+        opacity_base=opacity_base, opacity_gain=opacity_gain,
+    )
     return shape_layer(ind, name, shapes, tr)
 
 
@@ -207,25 +314,28 @@ def build_orb(name, palette, rot_period=300, breath_period=180, pulse_period=60)
         ind_counter[0] -= 1
         return ind_counter[0]
 
-    # --- Background bloom (soft, large, breathing) ---
-    layers.append(filled_circle_layer(
-        next_ind(), "outer_bloom", 380, bloom,
-        opacity_anim=anim([(0, 60), (breath_period // 2, 90), (breath_period, 60)]),
-        scale_anim=breathe(88, 110, breath_period),
+    # --- REACTIVE: Background bloom (treble-driven scale shimmer) ---
+    # Expression: scale = 95 + treble*25 (base shimmer at 95%, grows on highs)
+    layers.append(reactive_circle_layer(
+        next_ind(), LAYER_BLOOM, 380, bloom,
+        scale_ix=IX_BLOOM_SCALE, scale_var="treble", scale_base=95, scale_gain=25,
+        opacity_base=75,
     ))
 
-    # --- Mid glow ---
-    layers.append(filled_circle_layer(
-        next_ind(), "mid_glow", 300, glow,
-        opacity_anim=anim([(0, 80), (breath_period // 2, 100), (breath_period, 80)]),
-        scale_anim=breathe(94, 106, breath_period),
+    # --- REACTIVE: Mid glow (mid-driven opacity breath) ---
+    # Expression: opacity = 60 + mid*40 (breath on speech mid-band)
+    layers.append(reactive_circle_layer(
+        next_ind(), LAYER_GLOW, 300, glow,
+        scale_base=100,
+        opacity_ix=IX_GLOW_OPACITY, opacity_var="mid", opacity_base=60, opacity_gain=40,
     ))
 
-    # --- Inner core (bright center) ---
-    layers.append(filled_circle_layer(
-        next_ind(), "inner_core", 180, core,
-        opacity_anim=pulse_opacity(70, 100, pulse_period),
-        scale_anim=breathe(92, 108, pulse_period * 2),
+    # --- REACTIVE: Inner core (bass-driven scale pump) ---
+    # Expression: scale = 100 + bass*60 (pumps hard on low-frequency content)
+    layers.append(reactive_circle_layer(
+        next_ind(), LAYER_CORE, 180, core,
+        scale_ix=IX_CORE_SCALE, scale_var="bass", scale_base=100, scale_gain=60,
+        opacity_base=90,
     ))
 
     # --- Wireframe: latitudes (horizontal ellipses) ---
@@ -242,7 +352,6 @@ def build_orb(name, palette, rot_period=300, breath_period=180, pulse_period=60)
     for i, (w, h, sw) in enumerate(latitudes):
         col = ring_bright if i in (0, 3, 6) else ring
         op = 85 if i == 3 else 70
-        # very slight counter-rotation gives organic motion
         rot_a = rotate_cw(rot_period) if i % 2 == 0 else rotate_ccw(int(rot_period * 1.2))
         rot_a = deepcopy(rot_a)
         if rot_a["k"][-1]["t"] > DUR:
@@ -361,6 +470,11 @@ def main():
         print(f"  wrote {path}  ({size_kb:.1f} KB)")
 
     print("done.")
+    print()
+    print("Reactive binding map (use with tvg_lottie_animation_assign):")
+    print(f"  layer={LAYER_CORE!r:30s} ix={IX_CORE_SCALE}  var='bass'   -> core scale")
+    print(f"  layer={LAYER_GLOW!r:30s} ix={IX_GLOW_OPACITY}  var='mid'    -> glow opacity")
+    print(f"  layer={LAYER_BLOOM!r:30s} ix={IX_BLOOM_SCALE}  var='treble' -> bloom scale")
 
 
 if __name__ == "__main__":

@@ -7,9 +7,16 @@
 #  up the Claude voice-assistant UI with:
 #
 #    - 4 Lottie orb animations (idle / listening / thinking / replying)
-#    - Voice-reactive pulsing driven by the custom claude_audio_level component
+#    - Voice-reactive pulsing driven by FFT band decomposition
+#      (bass → core scale, mid → glow opacity, treble → bloom scale)
 #    - State transitions tied to voice_assistant pipeline triggers
 #    - A pseudo-audio pulse during TTS playback (while Claude speaks)
+#
+#  Architecture:
+#
+#    mic → i2s_audio → claude_audio_level (FFT 3-band)
+#        → sensor on_value → claude_lottie.assign(layer, ix, var, val)
+#        → thorvg LottieAnimation expression engine → orb reacts at ~30 Hz
 #
 #  Pre-requisites:
 #
@@ -20,79 +27,139 @@
 #         /sdcard/claude/claude_orb_replying.json
 #
 #    2. Ensure your `external_components:` block includes the local components
-#       directory so ESPHome picks up `claude_audio_level`:
+#       directory:
 #
 #         external_components:
 #           - source:
 #               type: local
 #               path: components
-#             components: [claude_audio_level]
+#             components: [claude_audio_level, claude_lottie_control]
 #             refresh: always
 #
 #    3. You already have a working voice_assistant + i2s microphone setup.
-#       (If not, see p4mini.yaml for a reference.)
 #
-#  Then copy the sections below into your config, adapting IDs where noted.
+#    4. CONFIG_THORVG_LOTTIE_EXPRESSIONS_SUPPORT=y is automatically enabled
+#       by the claude_lottie_control component (adds ~1.5 MB JerryScript).
 #
 ################################################################################
 
 
 # ===============================================================================
-# SECTION 1 — Custom component declaration (external_components)
+# SECTION 1 — Custom component declarations (external_components)
 # ===============================================================================
-# Add this entry to your existing `external_components:` list.
+# Add these entries to your existing `external_components:` list.
 
 external_components:
   - source:
       type: local
       path: components
-    components: [claude_audio_level]
+    components: [claude_audio_level, claude_lottie_control]
     refresh: always
 
 
 # ===============================================================================
-# SECTION 2 — Audio level sensor
+# SECTION 2 — Audio level sensors (FFT 3-band)
 # ===============================================================================
-# Taps into your existing microphone (esp32_microphone) and publishes a
-# smoothed RMS value at ~30 Hz. The `on_value:` handler drives the Lottie
-# widget's transform_scale so the orb grows/shrinks with your voice.
+# Three sensors on the same microphone, each computing one FFT band.
+# The on_value handlers push values into the Lottie expression engine
+# via claude_lottie.assign — this sets the named variable used inside
+# the expression attached to the corresponding transform property.
+#
+# Expression variables in the orb JSON files:
+#   orb_reactive_core  → s: ix=201, var=bass   (scale = 100 + bass*60)
+#   orb_reactive_glow  → o: ix=202, var=mid    (opacity = 60 + mid*40)
+#   orb_reactive_bloom → s: ix=203, var=treble  (scale = 95 + treble*25)
 #
 # NOTE: This assumes your mic ID is `esp32_microphone`. Adapt if different.
 
 sensor:
   - platform: claude_audio_level
-    id: claude_mic_level
-    name: "Claude Mic Level"
-    internal: true                 # hide from Home Assistant UI
+    id: claude_bass
+    name: "Claude Bass"
+    internal: true
     microphone: esp32_microphone
-    update_interval: 33ms          # ~30 Hz, smooth enough for animation
-    smoothing: 0.55                # 0 = no smoothing, 0.99 = very smooth
-    scale: 4.0                     # amplify RMS (speech sits around 0.05–0.2)
+    band: bass
+    update_interval: 33ms
+    smoothing: 0.55
+    scale: 4.0
     auto_start: true
     on_value:
       then:
-        # Only react while the listening orb is visible; avoids fighting
-        # the TTS pseudo-pulse during replying state.
         - if:
             condition:
-              lambda: 'return id(claude_state) == 1;'  # 1 = listening
+              lambda: 'return id(claude_state) == 1;'
             then:
-              - lvgl.widget.update:
-                  id: claude_orb_listening
-                  transform_scale: !lambda |-
-                    // 256 = 1.0x in LVGL scale units (0.5 .. 1.8)
-                    float s = 1.0f + x * 0.8f;
-                    if (s > 1.8f) s = 1.8f;
-                    if (s < 0.6f) s = 0.6f;
-                    return (int)(s * 256);
+              - claude_lottie.assign:
+                  id: orb_ctl_listening
+                  layer: orb_reactive_core
+                  ix: 201
+                  var: bass
+                  val: !lambda 'return x;'
+
+  - platform: claude_audio_level
+    id: claude_mid
+    name: "Claude Mid"
+    internal: true
+    microphone: esp32_microphone
+    band: mid
+    update_interval: 33ms
+    smoothing: 0.55
+    scale: 3.5
+    auto_start: true
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(claude_state) == 1;'
+            then:
+              - claude_lottie.assign:
+                  id: orb_ctl_listening
+                  layer: orb_reactive_glow
+                  ix: 202
+                  var: mid
+                  val: !lambda 'return x;'
+
+  - platform: claude_audio_level
+    id: claude_treble
+    name: "Claude Treble"
+    internal: true
+    microphone: esp32_microphone
+    band: treble
+    update_interval: 33ms
+    smoothing: 0.55
+    scale: 3.0
+    auto_start: true
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(claude_state) == 1;'
+            then:
+              - claude_lottie.assign:
+                  id: orb_ctl_listening
+                  layer: orb_reactive_bloom
+                  ix: 203
+                  var: treble
+                  val: !lambda 'return x;'
 
 
 # ===============================================================================
-# SECTION 3 — State machine global
+# SECTION 3 — Lottie control components
 # ===============================================================================
-# Simple integer global that tracks which orb should be visible. Used by
-# Section 2's on_value handler to avoid racing with the TTS pulse.
-#
+# One claude_lottie_control per lottie widget that needs runtime expression
+# variable updates. Each binds to an existing lv_lottie widget by id.
+
+claude_lottie_control:
+  - id: orb_ctl_listening
+    lottie_id: claude_orb_listening
+
+  - id: orb_ctl_replying
+    lottie_id: claude_orb_replying
+
+
+# ===============================================================================
+# SECTION 4 — State machine global
+# ===============================================================================
 #   0 = idle / not_ready    1 = listening
 #   2 = thinking            3 = replying        4 = error
 
@@ -104,38 +171,51 @@ globals:
 
 
 # ===============================================================================
-# SECTION 4 — TTS pseudo-pulse interval
+# SECTION 5 — TTS pseudo-pulse interval
 # ===============================================================================
 # While Claude is speaking (replying state), the microphone can't be used
-# for reactivity (it would feedback). Instead we drive the orb with a
-# sinusoidal modulation that looks "alive" and syncs roughly to speech cadence.
+# for reactivity (it would feedback). Instead we drive the expression
+# variables with a sinusoidal modulation that looks "alive".
 
 interval:
   - interval: 40ms
     then:
       - if:
           condition:
-            lambda: 'return id(claude_state) == 3;'  # replying
+            lambda: 'return id(claude_state) == 3;'
           then:
-            - lvgl.widget.update:
-                id: claude_orb_replying
-                transform_scale: !lambda |-
-                  // Two overlaid sines at speech-like frequencies
+            # Synthesize fake bass/mid/treble from overlaid sines
+            - claude_lottie.assign:
+                id: orb_ctl_replying
+                layer: orb_reactive_core
+                ix: 201
+                var: bass
+                val: !lambda |-
                   float t = millis() * 0.001f;
-                  float a = sinf(t * 9.4f) * 0.15f;
-                  float b = sinf(t * 14.1f) * 0.08f;
-                  float s = 1.1f + a + b;
-                  return (int)(s * 256);
+                  return 0.5f + sinf(t * 9.4f) * 0.3f;
+            - claude_lottie.assign:
+                id: orb_ctl_replying
+                layer: orb_reactive_glow
+                ix: 202
+                var: mid
+                val: !lambda |-
+                  float t = millis() * 0.001f;
+                  return 0.4f + sinf(t * 14.1f) * 0.25f;
+            - claude_lottie.assign:
+                id: orb_ctl_replying
+                layer: orb_reactive_bloom
+                ix: 203
+                var: treble
+                val: !lambda |-
+                  float t = millis() * 0.001f;
+                  return 0.3f + sinf(t * 7.3f) * 0.2f;
 
 
 # ===============================================================================
-# SECTION 5 — Voice assistant triggers
+# SECTION 6 — Voice assistant triggers
 # ===============================================================================
 # MERGE these handlers into your existing `voice_assistant:` block. Do NOT
 # duplicate the top-level `voice_assistant:` key — copy only the handler lines.
-#
-# Your existing on_end handler should be preserved and extended; the snippet
-# below shows the full set for clarity.
 
 voice_assistant:
   # ... keep your existing microphone / media_player / wake-word config ...
@@ -144,23 +224,24 @@ voice_assistant:
     - globals.set: { id: claude_state, value: "0" }
     - lvgl.widget.show: claude_orb_idle
     - lvgl.widget.hide: [claude_orb_listening, claude_orb_thinking, claude_orb_replying, claude_orb_error]
-    # ... your existing actions (e.g. micro_wake_word.start) ...
 
   on_listening:
     - globals.set: { id: claude_state, value: "1" }
     - lvgl.page.show: claude_page
     - lvgl.widget.hide: [claude_orb_idle, claude_orb_thinking, claude_orb_replying, claude_orb_error]
     - lvgl.widget.show: claude_orb_listening
+    # Zero out expression variables so the orb starts at rest
+    - claude_lottie.assign: { id: orb_ctl_listening, layer: orb_reactive_core,  ix: 201, var: bass,   val: 0.0 }
+    - claude_lottie.assign: { id: orb_ctl_listening, layer: orb_reactive_glow,  ix: 202, var: mid,    val: 0.0 }
+    - claude_lottie.assign: { id: orb_ctl_listening, layer: orb_reactive_bloom, ix: 203, var: treble, val: 0.0 }
     - lvgl.label.update:
         id: claude_status_label
         text: "À l'écoute..."
         text_color: 0xB6FFB0
 
   on_stt_vad_start:
-    # User started actually speaking — give a visual kick
-    - lvgl.widget.update:
-        id: claude_orb_listening
-        transform_scale: 307           # 1.2x bump
+    # User started actually speaking — give a visual kick to the core
+    - claude_lottie.assign: { id: orb_ctl_listening, layer: orb_reactive_core, ix: 201, var: bass, val: 0.8 }
 
   on_stt_end:
     - globals.set: { id: claude_state, value: "2" }
@@ -175,6 +256,10 @@ voice_assistant:
     - globals.set: { id: claude_state, value: "3" }
     - lvgl.widget.hide: claude_orb_thinking
     - lvgl.widget.show: claude_orb_replying
+    # Initialize expression variables for the replying orb
+    - claude_lottie.assign: { id: orb_ctl_replying, layer: orb_reactive_core,  ix: 201, var: bass,   val: 0.3 }
+    - claude_lottie.assign: { id: orb_ctl_replying, layer: orb_reactive_glow,  ix: 202, var: mid,    val: 0.3 }
+    - claude_lottie.assign: { id: orb_ctl_replying, layer: orb_reactive_bloom, ix: 203, var: treble, val: 0.2 }
     - lvgl.label.update:
         id: claude_status_label
         text: "Claude répond"
@@ -188,7 +273,6 @@ voice_assistant:
         id: claude_status_label
         text: "Dis « OK Nabu »"
         text_color: 0x888892
-    # ... your existing on_end actions (wait_until, micro_wake_word.start) ...
 
   on_error:
     - globals.set: { id: claude_state, value: "4" }
@@ -205,21 +289,18 @@ voice_assistant:
 
 
 # ===============================================================================
-# SECTION 6 — LVGL page with the 4 orbs
+# SECTION 7 — LVGL page with the 4 orbs
 # ===============================================================================
 # Add this page to your existing `lvgl: pages:` list. It renders all 4 orbs
 # at the same center position, stacked, and hides/shows them based on state.
-#
-# The orbs load from the SD card at /sdcard/claude/*.json — make sure those
-# files exist (see scripts/generate_claude_orbs.py in this repo).
 
 lvgl:
   pages:
     - id: claude_page
-      bg_color: 0x0A0810        # deep near-black violet, like the mockup
+      bg_color: 0x0A0810
       widgets:
 
-        # ----- Background decorative glow (optional, subtle) -----
+        # ----- Background decorative glow -----
         - obj:
             id: claude_bg_glow
             align: CENTER
@@ -277,8 +358,6 @@ lvgl:
             width: 400
             height: 400
 
-        # Reuse the "replying" gold orb as the error indicator, tinted red
-        # via a temporary LVGL style (or add a 5th Lottie if you prefer).
         - lottie:
             id: claude_orb_error
             src: "/sdcard/claude/claude_orb_replying.json"
@@ -329,10 +408,8 @@ lvgl:
 
 
 # ===============================================================================
-# SECTION 7 — Keep the time label in sync (optional)
+# SECTION 8 — Keep the time label in sync (optional)
 # ===============================================================================
-# If you already have a `time:` component, add this handler to update the
-# brand-bar clock every minute.
 
 time:
   - platform: homeassistant
@@ -352,15 +429,23 @@ time:
 
 
 ################################################################################
-#  Done. Full reactivity chain:
+#  Full reactivity chain (Option C — Lottie Expressions with JerryScript):
 #
-#    mic -> i2s_audio -> claude_audio_level.cpp RMS -> sensor -> on_value
-#        -> lvgl.widget.update transform_scale -> orb pulses at ~30 Hz
+#    mic → i2s_audio → claude_audio_level (FFT 256-pt)
+#        → 3 band sensors (bass / mid / treble) → on_value
+#        → claude_lottie.assign(layer, ix, var, val)
+#        → thorvg LottieAnimation::assign() → JerryScript expression eval
+#        → orb reactive layers scale/opacity change in real time at ~30 Hz
+#
+#  Expression variables embedded in the orb JSON files:
+#    orb_reactive_core   s: var bass=0.0;   scale = 100 + bass*60
+#    orb_reactive_glow   o: var mid=0.0;    opacity = 60 + mid*40
+#    orb_reactive_bloom  s: var treble=0.0; scale = 95 + treble*25
 #
 #  State machine (driven by voice_assistant triggers + claude_state global):
 #
-#    idle  -(on_listening)->  listening  -(on_stt_end)->  thinking
-#          <-(on_end)- replying  <-(on_tts_start)-  thinking
-#          <-(on_error)-  error  ->  idle (after 2s)
+#    idle -(on_listening)-> listening -(on_stt_end)-> thinking
+#         <-(on_end)- replying <-(on_tts_start)- thinking
+#         <-(on_error)- error -> idle (after 2s)
 #
 ################################################################################
