@@ -85,11 +85,15 @@ def reactive_scale(ix, var_name, base=100, gain=60):
     """
     Expression-driven 3D scale property.
 
-    Declares `var` with default 0.0 then computes [base+var*gain, base+var*gain, 100].
+    Uses `var <name>;` (declaration without assignment) so that if buildWritables
+    has already injected the value via jerry_object_set_sz, it is NOT overwritten.
+    The `||0` fallback handles the case where assign() was never called.
+
     Can be patched at runtime via assign(layer, ix, var_name, value).
     """
     code = (
-        f"var {var_name}=0.0;"
+        f"var {var_name};"
+        f"{var_name}={var_name}||0;"
         f"var s={base}+{var_name}*{gain};"
         f"[s,s,100];"
     )
@@ -104,9 +108,12 @@ def reactive_scale(ix, var_name, base=100, gain=60):
 def reactive_opacity(ix, var_name, base=60, gain=40):
     """
     Expression-driven opacity (scalar 0-100).
+
+    Same pattern as reactive_scale: `var <name>;` + `||0` fallback.
     """
     code = (
-        f"var {var_name}=0.0;"
+        f"var {var_name};"
+        f"{var_name}={var_name}||0;"
         f"var o={base}+{var_name}*{gain};"
         f"o;"
     )
