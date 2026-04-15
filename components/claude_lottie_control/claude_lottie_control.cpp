@@ -37,55 +37,48 @@ Tvg_Animation *ClaudeLottieControl::get_animation() {
 }  // namespace esphome
 
 // ============================================================================
-// Shim: missing tvg_lottie_animation_{assign,gen_slot} C wrappers.
+// Stub: tvg_lottie_animation_{assign,gen_slot}
 //
-// LVGL 9.5's bundled thorvg_capi.cpp doesn't export these two wrappers, but
-// the underlying C++ methods tvg::LottieAnimation::{assign, gen(slot)} ARE
-// linkable in the compiled library (proven by tvg_lottie_animation_new()
-// successfully calling LottieAnimation::gen() from the same TU).
+// LVGL 9.5's bundled thorvg is compiled WITHOUT
+// THORVG_LOTTIE_EXPRESSIONS_SUPPORT. Both the C wrappers
+// (tvg_lottie_animation_{assign,gen_slot}) AND the underlying C++ methods
+// (tvg::LottieAnimation::{assign, gen(slot)}) are absent from the library
+// — confirmed by a linker error on the C++ mangled symbol.
 //
-// We forward-declare tvg::LottieAnimation with just the two public methods we
-// need and call them via reinterpret_cast on the Tvg_Animation* handle. The
-// Itanium C++ ABI resolves the mangled symbols at link time without requiring
-// the full class layout.
+// Turn the YAML actions into no-ops so the build can link. The Lottie
+// animation still plays its loop normally — it just can't be modulated at
+// runtime via ExtendScript expressions.
 //
-// Defined in this TU (not a separate file) to guarantee it's part of the
-// build — a standalone claude_lottie_shim.cpp sibling was not being picked up
-// by ESPHome's external_components source-copy step.
+// To enable real reactivity, either:
+//   (a) rebuild LVGL's bundled thorvg with
+//       -DTHORVG_LOTTIE_EXPRESSIONS_SUPPORT and pull in JerryScript, or
+//   (b) drive reactivity from YAML via LVGL transforms
+//       (lv_obj_set_style_transform_scale on the lottie widget, modulated
+//        by the FFT sensor values).
 // ============================================================================
 
-namespace tvg {
-
-enum class Result : uint8_t {
-  Success = 0,
-  InvalidArguments,
-  InsufficientCondition,
-  FailedAllocation,
-  MemoryCorruption,
-  NonSupport,
-  Unknown,
-};
-
-class LottieAnimation {
- public:
-  uint32_t gen(const char *slot) noexcept;
-  Result assign(const char *layer, uint32_t ix, const char *var, float val);
-};
-
-}  // namespace tvg
-
-extern "C" uint32_t tvg_lottie_animation_gen_slot(Tvg_Animation *animation, const char *slot) {
-  if (animation == nullptr || slot == nullptr) return 0;
-  return reinterpret_cast<tvg::LottieAnimation *>(animation)->gen(slot);
+static bool tvg_stub_warned = false;
+static void tvg_stub_warn_once() {
+  if (!tvg_stub_warned) {
+    ESP_LOGW("claude_lottie",
+             "tvg_lottie_animation_assign/gen_slot are STUBS — LVGL's bundled "
+             "thorvg has no expressions support. Orb animation plays but will "
+             "NOT react to FFT. See claude_lottie_control.cpp header comment.");
+    tvg_stub_warned = true;
+  }
 }
 
-extern "C" Tvg_Result tvg_lottie_animation_assign(Tvg_Animation *animation, const char *layer,
-                                                   uint32_t ix, const char *var, float val) {
-  if (animation == nullptr || layer == nullptr || var == nullptr) {
-    return TVG_RESULT_INVALID_ARGUMENT;
-  }
-  auto r = reinterpret_cast<tvg::LottieAnimation *>(animation)->assign(layer, ix, var, val);
-  return static_cast<Tvg_Result>(r);
+extern "C" uint32_t tvg_lottie_animation_gen_slot(Tvg_Animation * /*animation*/,
+                                                   const char * /*slot*/) {
+  tvg_stub_warn_once();
+  return 0;  // slot id 0 = "no slot"
+}
+
+extern "C" Tvg_Result tvg_lottie_animation_assign(Tvg_Animation * /*animation*/,
+                                                   const char * /*layer*/, uint32_t /*ix*/,
+                                                   const char * /*var*/, float /*val*/) {
+  tvg_stub_warn_once();
+  return TVG_RESULT_NOT_SUPPORTED;
 }
 
 #endif  // LV_USE_LOTTIE
