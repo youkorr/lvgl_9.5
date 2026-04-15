@@ -88,7 +88,7 @@ class AssignAction : public Action<Ts...> {
   TEMPLATABLE_VALUE(std::string, var_name)
   TEMPLATABLE_VALUE(float, val)
 
-  void play(Ts... x) override {
+  void play(const Ts &...x) override {
     auto anim = this->parent_->get_animation();
     if (anim == nullptr) return;
     const std::string layer = this->layer_.value(x...);
@@ -109,7 +109,7 @@ class GenSlotAction : public Action<Ts...> {
 
   TEMPLATABLE_VALUE(std::string, slot_json)
 
-  void play(Ts... x) override {
+  void play(const Ts &...x) override {
     auto anim = this->parent_->get_animation();
     if (anim == nullptr) return;
     const std::string slot = this->slot_json_.value(x...);
@@ -128,7 +128,7 @@ class ApplySlotAction : public Action<Ts...> {
 
   TEMPLATABLE_VALUE(uint32_t, slot_id)
 
-  void play(Ts... x) override {
+  void play(const Ts &...x) override {
     auto anim = this->parent_->get_animation();
     if (anim == nullptr) return;
     tvg_lottie_animation_apply_slot(anim, this->slot_id_.value(x...));
@@ -145,7 +145,7 @@ class DelSlotAction : public Action<Ts...> {
 
   TEMPLATABLE_VALUE(uint32_t, slot_id)
 
-  void play(Ts... x) override {
+  void play(const Ts &...x) override {
     auto anim = this->parent_->get_animation();
     if (anim == nullptr) return;
     tvg_lottie_animation_del_slot(anim, this->slot_id_.value(x...));
@@ -164,7 +164,7 @@ class TweenAction : public Action<Ts...> {
   TEMPLATABLE_VALUE(float, to)
   TEMPLATABLE_VALUE(float, progress)
 
-  void play(Ts... x) override {
+  void play(const Ts &...x) override {
     auto anim = this->parent_->get_animation();
     if (anim == nullptr) return;
     tvg_lottie_animation_tween(anim,
@@ -184,7 +184,7 @@ class SetMarkerAction : public Action<Ts...> {
 
   TEMPLATABLE_VALUE(std::string, marker)
 
-  void play(Ts... x) override {
+  void play(const Ts &...x) override {
     auto anim = this->parent_->get_animation();
     if (anim == nullptr) return;
     const std::string m = this->marker_.value(x...);
@@ -202,7 +202,7 @@ class SetQualityAction : public Action<Ts...> {
 
   TEMPLATABLE_VALUE(uint8_t, quality)
 
-  void play(Ts... x) override {
+  void play(const Ts &...x) override {
     auto anim = this->parent_->get_animation();
     if (anim == nullptr) return;
     tvg_lottie_animation_set_quality(anim, this->quality_.value(x...));
