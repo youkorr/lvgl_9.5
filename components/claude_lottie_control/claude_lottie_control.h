@@ -51,7 +51,12 @@ class ClaudeLottieControl : public Component {
   /// This is the same handle that the C API expects for the
   /// tvg_lottie_animation_* functions. Can be called at any time — the field
   /// is refreshed by lv_lottie_set_src_*() after parsing.
-  Tvg_Animation get_animation();
+  ///
+  /// NOTE: LVGL's bundled thorvg_capi.h declares `typedef struct _Tvg_Animation
+  /// Tvg_Animation;` (opaque struct), so the caller-visible handle type is
+  /// `Tvg_Animation *`. This differs from upstream thorvg's C API, which
+  /// typedefs `Tvg_Animation` as the pointer itself.
+  Tvg_Animation *get_animation();
 
  protected:
   lv_obj_t *target_obj_{nullptr};

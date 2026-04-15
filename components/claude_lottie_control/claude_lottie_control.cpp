@@ -26,11 +26,11 @@ void ClaudeLottieControl::dump_config() {
   }
 }
 
-Tvg_Animation ClaudeLottieControl::get_animation() {
+Tvg_Animation *ClaudeLottieControl::get_animation() {
   if (this->target_obj_ == nullptr) return nullptr;
-  // lv_lottie_t layout: exposes tvg_canvas, tvg_anim (Tvg_Animation), anim (LVGL).
+  // lv_lottie_t layout: exposes tvg_canvas, tvg_anim (Tvg_Animation *), anim (LVGL).
   auto *lottie = reinterpret_cast<lv_lottie_t *>(this->target_obj_);
-  return reinterpret_cast<Tvg_Animation>(lottie->tvg_anim);
+  return reinterpret_cast<Tvg_Animation *>(lottie->tvg_anim);
 }
 
 }  // namespace claude_lottie_control
