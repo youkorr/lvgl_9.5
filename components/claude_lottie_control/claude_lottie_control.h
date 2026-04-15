@@ -23,12 +23,14 @@
 // tvg_lottie_animation_set_{marker,quality}.
 #include <src/libs/thorvg/thorvg_capi.h>
 
-// LVGL 9.5's bundled thorvg_capi.h does not declare
-// tvg_lottie_animation_assign() nor tvg_lottie_animation_gen_slot(), even
-// though the compiled thorvg library (built from src/libs/thorvg/) exports
-// them. Forward-declare them with the bundled-thorvg convention where
-// `Tvg_Animation` is the opaque struct and the handle parameter is
-// `Tvg_Animation *`.
+// LVGL 9.5's bundled thorvg_capi.cpp does not export C wrappers for
+// tvg_lottie_animation_assign() or tvg_lottie_animation_gen_slot(), even
+// though the underlying C++ methods tvg::LottieAnimation::{assign, gen(slot)}
+// are present in the compiled library. We forward-declare the C signatures
+// here (using the bundled-thorvg convention where `Tvg_Animation` is the
+// opaque struct and the handle parameter is `Tvg_Animation *`) and provide
+// matching definitions in claude_lottie_shim.cpp that bridge to the C++
+// class directly.
 extern "C" {
 uint32_t tvg_lottie_animation_gen_slot(Tvg_Animation *animation, const char *slot);
 Tvg_Result tvg_lottie_animation_assign(Tvg_Animation *animation, const char *layer, uint32_t ix,
