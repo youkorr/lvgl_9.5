@@ -17,10 +17,11 @@
 
 #include <string>
 
-// thorvg C API bindings — public header shipped by the thorvg component.
+// thorvg C API bindings — LVGL ships thorvg in-tree at src/libs/thorvg.
+// This is the same path components/lvgl/svg_loader.h uses for the SVG widget.
 // Provides tvg_lottie_animation_{gen,apply,del}_slot, tvg_lottie_animation_assign,
 // tvg_lottie_animation_tween, tvg_lottie_animation_set_{marker,quality}.
-#include <thorvg_capi.h>
+#include <src/libs/thorvg/thorvg_capi.h>
 
 namespace esphome {
 namespace claude_lottie_control {
