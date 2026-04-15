@@ -1,49 +1,101 @@
 ################################################################################
-#  Claude Voice Assistant — YAML fragments for waveshare (3).yaml
+#  Claude Voice Assistant — fragments prêts à copier dans waveshare (3).yaml
 ################################################################################
 #
-#  HOW TO USE:
-#    Copy each numbered SECTION below into the corresponding top-level key
-#    in your `waveshare (3).yaml`. Do NOT duplicate top-level keys — merge
-#    the entries into the existing block.
+#  INSTRUCTIONS : copie chaque bloc ci-dessous dans la section correspondante
+#  de ton waveshare (3).yaml. Ne duplique PAS les clés de premier niveau :
+#  fusionne les entrées dans les blocs existants.
 #
-#  Architecture (Option C — Lottie Expressions + JerryScript):
-#
-#    mic → i2s_audio → claude_audio_level (FFT 3-band)
-#        → sensor on_value → claude_lottie.assign(layer, ix, var, val)
-#        → thorvg LottieAnimation expression engine → orb reacts at ~30 Hz
-#
-#  Pre-requisites:
-#
-#    1. Copy the generated Lottie files to your SD card:
-#         /sdcard/claude/claude_orb_idle.json
-#         /sdcard/claude/claude_orb_listening.json
-#         /sdcard/claude/claude_orb_thinking.json
-#         /sdcard/claude/claude_orb_replying.json
-#
-#    2. You have a working i2s_audio + microphone + speaker + media_player.
-#
-#    3. CONFIG_THORVG_LOTTIE_EXPRESSIONS_SUPPORT=y is auto-enabled by the
-#       claude_lottie_control component (adds ~1.5 MB JerryScript).
+#  Ordre de priorité pour l'intégration :
+#    1. external_components    (ajouter les composants claude_*)
+#    2. globals                (ajouter claude_state)
+#    3. speaker                (ajouter mp4_resampling_speaker si besoin)
+#    4. micro_wake_word        (bloc entier — waveshare ne l'a pas)
+#    5. voice_assistant        (bloc entier — waveshare ne l'a pas)
+#    6. claude_lottie_control  (bloc entier — nouveau)
+#    7. sensor                 (ajouter les 3 sensors FFT)
+#    8. interval               (ajouter le pseudo-pulse TTS)
+#    9. lvgl.pages             (ajouter la page claude_page)
 #
 ################################################################################
 
 
 # ==============================================================================
-# SECTION 1 — external_components
+# BLOC 1 — external_components
 # ==============================================================================
-# ADD these entries to your existing `external_components:` list.
-# Do NOT create a second `external_components:` key.
+# REMPLACE ta ligne actuelle :
+#   components: [lvgl, image, font]
+# PAR celle-ci (on ajoute juste claude_audio_level et claude_lottie_control) :
 
-#  - source:
-#      type: local
-#      path: components
-#    components: [claude_audio_level, claude_lottie_control]
-#    refresh: always
+# external_components:
+#   - source:
+#       type: git
+#       url: https://github.com/youkorr/lvgl_9.5
+#       ref: claude/home-assistant-integration-6apll
+#     components: [lvgl, image, font, claude_audio_level, claude_lottie_control]
+#     refresh: always
 
 
 # ==============================================================================
-# SECTION 2 — micro_wake_word (NEW block — waveshare (3).yaml does not have one)
+# BLOC 2 — globals (AJOUTE cette entrée à ta liste globals: existante)
+# ==============================================================================
+
+# - id: claude_state
+#   type: int
+#   restore_value: no
+#   initial_value: "0"
+
+
+# ==============================================================================
+# BLOC 3 — speaker (AJOUTE un 3ème canal pour mp4_player)
+# ==============================================================================
+# Dans ton bloc speaker:, ajoute la source mp4_mixing_input au mixer ET
+# ajoute le resampler mp4_resampling_speaker. Ton bloc speaker: devient :
+
+# speaker:
+#   - platform: i2s_audio
+#     id: esp32_speaker
+#     i2s_audio_id: audio_bus
+#     i2s_dout_pin: GPIO9
+#     audio_dac: es8311_dac
+#     dac_type: external
+#     channel: stereo
+#     buffer_duration: 100ms
+#     bits_per_sample: 16bit
+#     sample_rate: 48000
+#
+#   - platform: mixer
+#     id: mixing_speaker
+#     output_speaker: esp32_speaker
+#     source_speakers:
+#       - id: announcement_mixing_input
+#         timeout: never
+#       - id: media_mixing_input
+#         timeout: never
+#       - id: mp4_mixing_input             # ← AJOUT
+#         timeout: never
+#
+#   - platform: resampler
+#     id: announcement_resampling_speaker
+#     output_speaker: announcement_mixing_input
+#     sample_rate: 48000
+#     bits_per_sample: 16
+#
+#   - platform: resampler
+#     id: media_resampling_speaker
+#     output_speaker: media_mixing_input
+#     sample_rate: 48000
+#     bits_per_sample: 16
+#
+#   - platform: resampler                  # ← AJOUT
+#     id: mp4_resampling_speaker
+#     output_speaker: mp4_mixing_input
+#     sample_rate: 48000
+#     bits_per_sample: 16
+
+
+# ==============================================================================
+# BLOC 4 — micro_wake_word (BLOC ENTIER NOUVEAU à la racine du yaml)
 # ==============================================================================
 
 micro_wake_word:
@@ -58,11 +110,8 @@ micro_wake_word:
 
 
 # ==============================================================================
-# SECTION 3 — voice_assistant (NEW block — waveshare (3).yaml does not have one)
+# BLOC 5 — voice_assistant (BLOC ENTIER NOUVEAU à la racine du yaml)
 # ==============================================================================
-# Complete voice_assistant configuration with Claude orb state management.
-# The I2S bus is half-duplex (shared between mic 16 kHz and speaker 48 kHz),
-# so on_end waits for announcements/media to finish before restarting the mic.
 
 voice_assistant:
   microphone: esp32_microphone
@@ -95,7 +144,6 @@ voice_assistant:
     - lvgl.widget.hide: claude_orb_thinking
     - lvgl.widget.hide: claude_orb_replying
     - lvgl.widget.show: claude_orb_listening
-    # Zero out expression variables so the orb starts at rest
     - claude_lottie.assign:
         id: orb_ctl_listening
         layer: orb_reactive_core
@@ -120,7 +168,6 @@ voice_assistant:
         text_color: 0xB6FFB0
 
   on_stt_vad_start:
-    # User started speaking — give a visual kick to the core
     - claude_lottie.assign:
         id: orb_ctl_listening
         layer: orb_reactive_core
@@ -145,7 +192,6 @@ voice_assistant:
         value: "3"
     - lvgl.widget.hide: claude_orb_thinking
     - lvgl.widget.show: claude_orb_replying
-    # Initialize expression variables for the replying orb
     - claude_lottie.assign:
         id: orb_ctl_replying
         layer: orb_reactive_core
@@ -181,7 +227,6 @@ voice_assistant:
         id: claude_status_label
         text: "Dis « OK Nabu »"
         text_color: 0x888892
-    # Wait for I2S bus to be free before restarting the mic for wake word
     - wait_until:
         condition:
           media_player.is_announcing:
@@ -214,26 +259,12 @@ voice_assistant:
         id: claude_status_label
         text: "Dis « OK Nabu »"
         text_color: 0x888892
-    # Restart wake word after error recovery
     - micro_wake_word.start:
 
 
 # ==============================================================================
-# SECTION 4 — globals
+# BLOC 6 — claude_lottie_control (BLOC ENTIER NOUVEAU à la racine du yaml)
 # ==============================================================================
-# ADD this entry to your existing `globals:` list.
-
-#  - id: claude_state
-#    type: int
-#    restore_value: no
-#    initial_value: "0"
-
-
-# ==============================================================================
-# SECTION 5 — claude_lottie_control
-# ==============================================================================
-# NEW top-level block. One instance per lottie widget that needs runtime
-# expression variable updates.
 
 claude_lottie_control:
   - id: orb_ctl_listening
@@ -244,278 +275,228 @@ claude_lottie_control:
 
 
 # ==============================================================================
-# SECTION 6 — sensor (FFT 3-band audio level)
+# BLOC 7 — sensor (AJOUTE ces 3 entrées à ta liste sensor: existante)
 # ==============================================================================
-# ADD these entries to your existing `sensor:` list.
 
-#  - platform: claude_audio_level
-#    id: claude_bass
-#    name: "Claude Bass"
-#    internal: true
-#    microphone: esp32_microphone
-#    band: bass
-#    update_interval: 33ms
-#    smoothing: 0.55
-#    scale: 4.0
-#    auto_start: true
-#    on_value:
-#      then:
-#        - if:
-#            condition:
-#              lambda: 'return id(claude_state) == 1;'
-#            then:
-#              - claude_lottie.assign:
-#                  id: orb_ctl_listening
-#                  layer: orb_reactive_core
-#                  ix: 201
-#                  var: bass
-#                  val: !lambda 'return x;'
+# - platform: claude_audio_level
+#   id: claude_bass
+#   name: "Claude Bass"
+#   internal: true
+#   microphone: esp32_microphone
+#   band: bass
+#   update_interval: 33ms
+#   smoothing: 0.55
+#   scale: 4.0
+#   auto_start: true
+#   on_value:
+#     then:
+#       - if:
+#           condition:
+#             lambda: 'return id(claude_state) == 1;'
+#           then:
+#             - claude_lottie.assign:
+#                 id: orb_ctl_listening
+#                 layer: orb_reactive_core
+#                 ix: 201
+#                 var: bass
+#                 val: !lambda 'return x;'
 #
-#  - platform: claude_audio_level
-#    id: claude_mid
-#    name: "Claude Mid"
-#    internal: true
-#    microphone: esp32_microphone
-#    band: mid
-#    update_interval: 33ms
-#    smoothing: 0.55
-#    scale: 3.5
-#    auto_start: true
-#    on_value:
-#      then:
-#        - if:
-#            condition:
-#              lambda: 'return id(claude_state) == 1;'
-#            then:
-#              - claude_lottie.assign:
-#                  id: orb_ctl_listening
-#                  layer: orb_reactive_glow
-#                  ix: 202
-#                  var: mid
-#                  val: !lambda 'return x;'
+# - platform: claude_audio_level
+#   id: claude_mid
+#   name: "Claude Mid"
+#   internal: true
+#   microphone: esp32_microphone
+#   band: mid
+#   update_interval: 33ms
+#   smoothing: 0.55
+#   scale: 3.5
+#   auto_start: true
+#   on_value:
+#     then:
+#       - if:
+#           condition:
+#             lambda: 'return id(claude_state) == 1;'
+#           then:
+#             - claude_lottie.assign:
+#                 id: orb_ctl_listening
+#                 layer: orb_reactive_glow
+#                 ix: 202
+#                 var: mid
+#                 val: !lambda 'return x;'
 #
-#  - platform: claude_audio_level
-#    id: claude_treble
-#    name: "Claude Treble"
-#    internal: true
-#    microphone: esp32_microphone
-#    band: treble
-#    update_interval: 33ms
-#    smoothing: 0.55
-#    scale: 3.0
-#    auto_start: true
-#    on_value:
-#      then:
-#        - if:
-#            condition:
-#              lambda: 'return id(claude_state) == 1;'
-#            then:
-#              - claude_lottie.assign:
-#                  id: orb_ctl_listening
-#                  layer: orb_reactive_bloom
-#                  ix: 203
-#                  var: treble
-#                  val: !lambda 'return x;'
-
-
-# ==============================================================================
-# SECTION 7 — interval (TTS pseudo-pulse)
-# ==============================================================================
-# ADD this entry to your existing `interval:` list.
-# While Claude is speaking, the mic can't be used (half-duplex), so we
-# drive the expression variables with sinusoidal modulation instead.
-
-#  - interval: 40ms
-#    then:
-#      - if:
-#          condition:
-#            lambda: 'return id(claude_state) == 3;'
-#          then:
-#            - claude_lottie.assign:
-#                id: orb_ctl_replying
-#                layer: orb_reactive_core
-#                ix: 201
-#                var: bass
-#                val: !lambda |-
-#                  float t = millis() * 0.001f;
-#                  return 0.5f + sinf(t * 9.4f) * 0.3f;
-#            - claude_lottie.assign:
-#                id: orb_ctl_replying
-#                layer: orb_reactive_glow
-#                ix: 202
-#                var: mid
-#                val: !lambda |-
-#                  float t = millis() * 0.001f;
-#                  return 0.4f + sinf(t * 14.1f) * 0.25f;
-#            - claude_lottie.assign:
-#                id: orb_ctl_replying
-#                layer: orb_reactive_bloom
-#                ix: 203
-#                var: treble
-#                val: !lambda |-
-#                  float t = millis() * 0.001f;
-#                  return 0.3f + sinf(t * 7.3f) * 0.2f;
+# - platform: claude_audio_level
+#   id: claude_treble
+#   name: "Claude Treble"
+#   internal: true
+#   microphone: esp32_microphone
+#   band: treble
+#   update_interval: 33ms
+#   smoothing: 0.55
+#   scale: 3.0
+#   auto_start: true
+#   on_value:
+#     then:
+#       - if:
+#           condition:
+#             lambda: 'return id(claude_state) == 1;'
+#           then:
+#             - claude_lottie.assign:
+#                 id: orb_ctl_listening
+#                 layer: orb_reactive_bloom
+#                 ix: 203
+#                 var: treble
+#                 val: !lambda 'return x;'
 
 
 # ==============================================================================
-# SECTION 8 — lvgl page (Claude orb UI)
+# BLOC 8 — interval (AJOUTE cette entrée à ta liste interval: existante)
 # ==============================================================================
-# ADD this page to your existing `lvgl: pages:` list.
-# 4 stacked Lottie orbs (only one visible at a time). Error state reuses the
-# idle orb with a red status label — saves 640 KB PSRAM vs a 5th widget.
+# Pulse sinusoïdal quand Claude parle (le mic est bloqué par le half-duplex).
 
-#      - id: claude_page
-#        bg_color: 0x0A0810
-#        widgets:
-#
-#          # ----- Background decorative glow -----
-#          - obj:
-#              id: claude_bg_glow
-#              align: CENTER
-#              width: 700
-#              height: 700
-#              radius: 350
-#              bg_color: 0xD97757
-#              bg_opa: 12
-#              border_width: 0
-#              shadow_width: 60
-#              shadow_color: 0xD97757
-#              shadow_opa: 30
-#
-#          # ----- Idle orb (also shown during error state) -----
-#          - lottie:
-#              id: claude_orb_idle
-#              src: "/sdcard/claude/claude_orb_idle.json"
-#              loop: true
-#              auto_start: true
-#              align: CENTER
-#              y: -20
-#              width: 400
-#              height: 400
-#
-#          # ----- Listening orb (voice-reactive via FFT) -----
-#          - lottie:
-#              id: claude_orb_listening
-#              src: "/sdcard/claude/claude_orb_listening.json"
-#              loop: true
-#              auto_start: true
-#              hidden: true
-#              align: CENTER
-#              y: -20
-#              width: 400
-#              height: 400
-#
-#          # ----- Thinking orb -----
-#          - lottie:
-#              id: claude_orb_thinking
-#              src: "/sdcard/claude/claude_orb_thinking.json"
-#              loop: true
-#              auto_start: true
-#              hidden: true
-#              align: CENTER
-#              y: -20
-#              width: 400
-#              height: 400
-#
-#          # ----- Replying orb (pseudo-pulse driven via sinusoidal modulation) -----
-#          - lottie:
-#              id: claude_orb_replying
-#              src: "/sdcard/claude/claude_orb_replying.json"
-#              loop: true
-#              auto_start: true
-#              hidden: true
-#              align: CENTER
-#              y: -20
-#              width: 400
-#              height: 400
-#
-#          # ----- Status text under the orb -----
-#          - label:
-#              id: claude_status_label
-#              text: "Dis « OK Nabu »"
-#              align: CENTER
-#              y: 230
-#              text_font: montserrat_20
-#              text_color: 0x888892
-#
-#          # ----- Top bar: Claude branding -----
-#          - label:
-#              id: claude_brand_label
-#              text: "Claude"
-#              align: TOP_LEFT
-#              x: 24
-#              y: 20
-#              text_font: montserrat_16
-#              text_color: 0xD97757
-#
-#          # ----- Top bar: time -----
-#          - label:
-#              id: claude_time_label
-#              text: "--:--"
-#              align: TOP_RIGHT
-#              x: -24
-#              y: 20
-#              text_font: montserrat_18
-#              text_color: 0xF5F5F7
-#
-#          # ----- Bottom hint -----
-#          - label:
-#              id: claude_hint_label
-#              text: "Touche l'orbe pour interrompre"
-#              align: BOTTOM_MID
-#              y: -20
-#              text_font: montserrat_14
-#              text_color: 0x4A4A52
+# - interval: 40ms
+#   then:
+#     - if:
+#         condition:
+#           lambda: 'return id(claude_state) == 3;'
+#         then:
+#           - claude_lottie.assign:
+#               id: orb_ctl_replying
+#               layer: orb_reactive_core
+#               ix: 201
+#               var: bass
+#               val: !lambda |-
+#                 float t = millis() * 0.001f;
+#                 return 0.5f + sinf(t * 9.4f) * 0.3f;
+#           - claude_lottie.assign:
+#               id: orb_ctl_replying
+#               layer: orb_reactive_glow
+#               ix: 202
+#               var: mid
+#               val: !lambda |-
+#                 float t = millis() * 0.001f;
+#                 return 0.4f + sinf(t * 14.1f) * 0.25f;
+#           - claude_lottie.assign:
+#               id: orb_ctl_replying
+#               layer: orb_reactive_bloom
+#               ix: 203
+#               var: treble
+#               val: !lambda |-
+#                 float t = millis() * 0.001f;
+#                 return 0.3f + sinf(t * 7.3f) * 0.2f;
 
 
 # ==============================================================================
-# SECTION 9 — time (keep time label in sync)
+# BLOC 9 — lvgl: pages (AJOUTE cette page à ta liste lvgl: pages: existante)
 # ==============================================================================
-# ADD these handlers to your existing `time:` block's `on_time_sync` and
-# `on_time` sections (or add a new `on_time` entry).
 
-# In your `homeassistant_time` on_time_sync, add:
-#        - lvgl.label.update:
-#            id: claude_time_label
-#            text: !lambda 'return id(homeassistant_time).now().strftime("%H:%M");'
+# - id: claude_page
+#   bg_color: 0x0A0810
+#   widgets:
+#     - obj:
+#         id: claude_bg_glow
+#         align: CENTER
+#         width: 700
+#         height: 700
+#         radius: 350
+#         bg_color: 0xD97757
+#         bg_opa: 12
+#         border_width: 0
+#         shadow_width: 60
+#         shadow_color: 0xD97757
+#         shadow_opa: 30
 #
-# In your `homeassistant_time` on_time (the every-second handler), add:
-#          - lvgl.label.update:
-#              id: claude_time_label
-#              text: !lambda 'return id(homeassistant_time).now().strftime("%H:%M");'
+#     - lottie:
+#         id: claude_orb_idle
+#         src: "/sdcard/claude/claude_orb_idle.json"
+#         loop: true
+#         auto_start: true
+#         align: CENTER
+#         y: -20
+#         width: 400
+#         height: 400
+#
+#     - lottie:
+#         id: claude_orb_listening
+#         src: "/sdcard/claude/claude_orb_listening.json"
+#         loop: true
+#         auto_start: true
+#         hidden: true
+#         align: CENTER
+#         y: -20
+#         width: 400
+#         height: 400
+#
+#     - lottie:
+#         id: claude_orb_thinking
+#         src: "/sdcard/claude/claude_orb_thinking.json"
+#         loop: true
+#         auto_start: true
+#         hidden: true
+#         align: CENTER
+#         y: -20
+#         width: 400
+#         height: 400
+#
+#     - lottie:
+#         id: claude_orb_replying
+#         src: "/sdcard/claude/claude_orb_replying.json"
+#         loop: true
+#         auto_start: true
+#         hidden: true
+#         align: CENTER
+#         y: -20
+#         width: 400
+#         height: 400
+#
+#     - label:
+#         id: claude_status_label
+#         text: "Dis « OK Nabu »"
+#         align: CENTER
+#         y: 230
+#         text_font: montserrat_20
+#         text_color: 0x888892
+#
+#     - label:
+#         id: claude_brand_label
+#         text: "Claude"
+#         align: TOP_LEFT
+#         x: 24
+#         y: 20
+#         text_font: montserrat_16
+#         text_color: 0xD97757
+#
+#     - label:
+#         id: claude_time_label
+#         text: "--:--"
+#         align: TOP_RIGHT
+#         x: -24
+#         y: 20
+#         text_font: montserrat_18
+#         text_color: 0xF5F5F7
+#
+#     - label:
+#         id: claude_hint_label
+#         text: "Touche l'orbe pour interrompre"
+#         align: BOTTOM_MID
+#         y: -20
+#         text_font: montserrat_14
+#         text_color: 0x4A4A52
 
 
 ################################################################################
-#  State machine (driven by voice_assistant triggers + claude_state global):
+#  Résumé visuel de l'état :
 #
-#    0 = idle / not_ready
-#    1 = listening        (FFT sensors → orb_ctl_listening)
-#    2 = thinking
-#    3 = replying         (sinusoidal pseudo-pulse → orb_ctl_replying)
-#    4 = error            (idle orb + red status label, auto-recover 3s)
+#    claude_state = 0  → idle          (claude_orb_idle visible)
+#    claude_state = 1  → listening     (claude_orb_listening + FFT réactif)
+#    claude_state = 2  → thinking      (claude_orb_thinking, anim keyframe)
+#    claude_state = 3  → replying      (claude_orb_replying + pulse sinus)
+#    claude_state = 4  → error         (idle orb + label rouge 3s)
 #
-#    idle ──(on_listening)──► listening ──(on_stt_end)──► thinking
-#      ▲                                                     │
-#      │                                              (on_tts_start)
-#      │                                                     ▼
-#      └────(on_end)────── replying ◄────────────────────────┘
-#      └────(on_error)──── error ──(3s)──► idle
-#
-#  Reactivity chain:
-#
-#    mic → i2s_audio → claude_audio_level (FFT 256-pt, Hann window)
-#        → 3 band sensors (bass / mid / treble) → on_value
-#        → claude_lottie.assign(layer, ix, var, val)
-#        → thorvg LottieAnimation::assign() → JerryScript expression eval
-#        → orb reactive layers scale/opacity at ~30 Hz
-#
-#  Expression variables embedded in the orb JSON files:
-#    orb_reactive_core   s: var bass   → scale = 100 + bass*60
-#    orb_reactive_glow   o: var mid    → opacity = 60 + mid*40
-#    orb_reactive_bloom  s: var treble → scale = 95 + treble*25
-#
-#  Memory budget for 4 Lottie orbs @ 400×400:
-#    4 × 400 × 400 × 4 bytes (ARGB8888) = 2.56 MB PSRAM
-#    (ESP32-P4 has 32 MB PSRAM → ~8% usage for orbs alone)
+#  Fichiers à copier sur la carte SD :
+#    /sdcard/claude/claude_orb_idle.json
+#    /sdcard/claude/claude_orb_listening.json
+#    /sdcard/claude/claude_orb_thinking.json
+#    /sdcard/claude/claude_orb_replying.json
+#  (générés par scripts/generate_claude_orbs.py, déjà dans sdcard_assets/claude/)
 #
 ################################################################################
