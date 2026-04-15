@@ -261,9 +261,9 @@ external_components:
   - source:
       type: git
       url: https://github.com/youkorr/lvgl_9.5
-      ref: main #claude/enable-lvgl-dma-buffers-EexZ1 #claude/ppa-image-rotation-8WBWG #claude/fix-lvgl-tabs-zLguv #claude/fix-lvgl-esp32s3-Llg2P  #claude/add-lvgl-blur-gradient-yPjdv #claude/fix-esphome-image-loading-PEqnC # claude/add-lvgl-blur-gradient-yPjdv #claude/add-esp32s3-support-NSS37 #claude/fix-callback-timing-MAJoa #claude/fix-lottie-reload-issue-ARogJ #claude/fix-lvgl-hidden-property-WQgoC #claude/fix-lvgl-hidden-property-JyQ89 #claude/fix-lottie-widget-z9ydW #claude/fix-lottie-crash-VcRU1 #claude/fix-lvgl-widgets-Ag1yK #claude/fix-lvgl-rendering-performance-xauVV
-    components: [lvgl, image, font]
-    refresh: always   
+      ref: claude/home-assistant-integration-6apll
+    components: [lvgl, image, font, claude_audio_level, claude_lottie_control]
+    refresh: always
 
   #- source:
       #type: git
@@ -711,13 +711,117 @@ voice_assistant:
   auto_gain: 31dBFS
   volume_multiplier: 2.0
   conversation_timeout: 300s
+
+  on_client_connected:
+    - globals.set:
+        id: claude_state
+        value: "0"
+    - lvgl.widget.show: claude_orb_idle
+    - lvgl.widget.hide: claude_orb_listening
+    - lvgl.widget.hide: claude_orb_thinking
+    - lvgl.widget.hide: claude_orb_replying
+    - micro_wake_word.start:
+
+  on_client_disconnected:
+    - micro_wake_word.stop:
+
+  on_listening:
+    - globals.set:
+        id: claude_state
+        value: "1"
+    - lvgl.page.show: claude_page
+    - lvgl.widget.hide: claude_orb_idle
+    - lvgl.widget.hide: claude_orb_thinking
+    - lvgl.widget.hide: claude_orb_replying
+    - lvgl.widget.show: claude_orb_listening
+    - claude_lottie.assign:
+        id: orb_ctl_listening
+        layer: orb_reactive_core
+        ix: 201
+        var: bass
+        val: 0.0
+    - claude_lottie.assign:
+        id: orb_ctl_listening
+        layer: orb_reactive_glow
+        ix: 202
+        var: mid
+        val: 0.0
+    - claude_lottie.assign:
+        id: orb_ctl_listening
+        layer: orb_reactive_bloom
+        ix: 203
+        var: treble
+        val: 0.0
+    - lvgl.label.update:
+        id: claude_status_label
+        text: "À l'écoute..."
+        text_color: 0xB6FFB0
+
+  on_stt_vad_start:
+    - claude_lottie.assign:
+        id: orb_ctl_listening
+        layer: orb_reactive_core
+        ix: 201
+        var: bass
+        val: 0.8
+
+  on_stt_end:
+    - globals.set:
+        id: claude_state
+        value: "2"
+    - lvgl.widget.hide: claude_orb_listening
+    - lvgl.widget.show: claude_orb_thinking
+    - lvgl.label.update:
+        id: claude_status_label
+        text: "Claude réfléchit..."
+        text_color: 0xFFD6C2
+
+  on_tts_start:
+    - globals.set:
+        id: claude_state
+        value: "3"
+    - lvgl.widget.hide: claude_orb_thinking
+    - lvgl.widget.show: claude_orb_replying
+    - claude_lottie.assign:
+        id: orb_ctl_replying
+        layer: orb_reactive_core
+        ix: 201
+        var: bass
+        val: 0.3
+    - claude_lottie.assign:
+        id: orb_ctl_replying
+        layer: orb_reactive_glow
+        ix: 202
+        var: mid
+        val: 0.3
+    - claude_lottie.assign:
+        id: orb_ctl_replying
+        layer: orb_reactive_bloom
+        ix: 203
+        var: treble
+        val: 0.2
+    - lvgl.label.update:
+        id: claude_status_label
+        text: "Claude répond"
+        text_color: 0xFFECB0
+
   on_end:
-    # Wait a short amount of time to see if an announcement starts
+    - globals.set:
+        id: claude_state
+        value: "0"
+    - lvgl.widget.hide: claude_orb_listening
+    - lvgl.widget.hide: claude_orb_thinking
+    - lvgl.widget.hide: claude_orb_replying
+    - lvgl.widget.show: claude_orb_idle
+    - lvgl.label.update:
+        id: claude_status_label
+        text: "Dis « OK Nabu »"
+        text_color: 0x888892
+    # Wait for I2S bus to be free before restarting the mic
     - wait_until:
         condition:
           - media_player.is_announcing:
         timeout: 0.5s
-    # Announcement is finished and the I2S bus is free
     - wait_until:
         - and:
             - not:
@@ -725,10 +829,36 @@ voice_assistant:
             - not:
                 media_player.is_playing:
     - micro_wake_word.start:
-  on_client_connected:
+
+  on_error:
+    - globals.set:
+        id: claude_state
+        value: "4"
+    - lvgl.widget.hide: claude_orb_listening
+    - lvgl.widget.hide: claude_orb_thinking
+    - lvgl.widget.hide: claude_orb_replying
+    - lvgl.widget.show: claude_orb_idle
+    - lvgl.label.update:
+        id: claude_status_label
+        text: "Erreur"
+        text_color: 0xFF6666
+    - delay: 3s
+    - globals.set:
+        id: claude_state
+        value: "0"
+    - lvgl.label.update:
+        id: claude_status_label
+        text: "Dis « OK Nabu »"
+        text_color: 0x888892
     - micro_wake_word.start:
-  on_client_disconnected:
-    - micro_wake_word.stop:
+
+# Claude orb runtime controller — drives JerryScript expression variables
+claude_lottie_control:
+  - id: orb_ctl_listening
+    lottie_id: claude_orb_listening
+
+  - id: orb_ctl_replying
+    lottie_id: claude_orb_replying
 
 
 
@@ -1062,7 +1192,76 @@ script:
 ##############################################################################################################################
 sensor:
 
-      
+  # ---- Claude voice assistant: FFT 3-band audio level (bass / mid / treble) ----
+  - platform: claude_audio_level
+    id: claude_bass
+    name: "Claude Bass"
+    internal: true
+    microphone: esp32_microphone
+    band: bass
+    update_interval: 33ms
+    smoothing: 0.55
+    scale: 4.0
+    auto_start: true
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(claude_state) == 1;'
+            then:
+              - claude_lottie.assign:
+                  id: orb_ctl_listening
+                  layer: orb_reactive_core
+                  ix: 201
+                  var: bass
+                  val: !lambda 'return x;'
+
+  - platform: claude_audio_level
+    id: claude_mid
+    name: "Claude Mid"
+    internal: true
+    microphone: esp32_microphone
+    band: mid
+    update_interval: 33ms
+    smoothing: 0.55
+    scale: 3.5
+    auto_start: true
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(claude_state) == 1;'
+            then:
+              - claude_lottie.assign:
+                  id: orb_ctl_listening
+                  layer: orb_reactive_glow
+                  ix: 202
+                  var: mid
+                  val: !lambda 'return x;'
+
+  - platform: claude_audio_level
+    id: claude_treble
+    name: "Claude Treble"
+    internal: true
+    microphone: esp32_microphone
+    band: treble
+    update_interval: 33ms
+    smoothing: 0.55
+    scale: 3.0
+    auto_start: true
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(claude_state) == 1;'
+            then:
+              - claude_lottie.assign:
+                  id: orb_ctl_listening
+                  layer: orb_reactive_bloom
+                  ix: 203
+                  var: treble
+                  val: !lambda 'return x;'
+
   - platform: template
     name: "Enrolled Faces"
     icon: "mdi:face-man"
@@ -1564,6 +1763,12 @@ switch:
     restore_mode: ALWAYS_OFF 
 
 globals:
+
+  # Claude voice assistant state: 0=idle, 1=listening, 2=thinking, 3=replying, 4=error
+  - id: claude_state
+    type: int
+    restore_value: no
+    initial_value: "0"
 
   - id: rotation_angle
     type: int
@@ -2943,6 +3148,102 @@ lvgl:
 
 
   pages:
+      # ==========================================================
+      # Claude voice assistant page — 4 Lottie orbs + status label
+      # ==========================================================
+      - id: claude_page
+        bg_color: 0x0A0810
+        widgets:
+          - obj:
+              id: claude_bg_glow
+              align: CENTER
+              width: 700
+              height: 700
+              radius: 350
+              bg_color: 0xD97757
+              bg_opa: 12
+              border_width: 0
+              shadow_width: 60
+              shadow_color: 0xD97757
+              shadow_opa: 30
+
+          - lottie:
+              id: claude_orb_idle
+              src: "/sdcard/claude/claude_orb_idle.json"
+              loop: true
+              auto_start: true
+              align: CENTER
+              y: -20
+              width: 400
+              height: 400
+
+          - lottie:
+              id: claude_orb_listening
+              src: "/sdcard/claude/claude_orb_listening.json"
+              loop: true
+              auto_start: true
+              hidden: true
+              align: CENTER
+              y: -20
+              width: 400
+              height: 400
+
+          - lottie:
+              id: claude_orb_thinking
+              src: "/sdcard/claude/claude_orb_thinking.json"
+              loop: true
+              auto_start: true
+              hidden: true
+              align: CENTER
+              y: -20
+              width: 400
+              height: 400
+
+          - lottie:
+              id: claude_orb_replying
+              src: "/sdcard/claude/claude_orb_replying.json"
+              loop: true
+              auto_start: true
+              hidden: true
+              align: CENTER
+              y: -20
+              width: 400
+              height: 400
+
+          - label:
+              id: claude_status_label
+              text: "Dis « OK Nabu »"
+              align: CENTER
+              y: 230
+              text_font: montserrat_20
+              text_color: 0x888892
+
+          - label:
+              id: claude_brand_label
+              text: "Claude"
+              align: TOP_LEFT
+              x: 24
+              y: 20
+              text_font: montserrat_16
+              text_color: 0xD97757
+
+          - label:
+              id: claude_time_label
+              text: "--:--"
+              align: TOP_RIGHT
+              x: -24
+              y: 20
+              text_font: montserrat_18
+              text_color: 0xF5F5F7
+
+          - label:
+              id: claude_hint_label
+              text: "Touche l'orbe pour interrompre"
+              align: BOTTOM_MID
+              y: -20
+              text_font: montserrat_14
+              text_color: 0x4A4A52
+
       - id: page_home
         bg_color: color_black
         on_load:
@@ -2950,9 +3251,9 @@ lvgl:
             - lvgl.image.update:
                 id: update_wallpaper
                 src: peaceful
-            - script.execute: update_weather_display  
-            
-        widgets:        
+            - script.execute: update_weather_display
+
+        widgets:
           # Fond d'écran sombre
           - obj:
               id: background
@@ -6595,6 +6896,38 @@ lvgl:
 ####################################################################################################################################################################################################
 
 interval:
+  # Pulse sinusoïdal quand Claude parle (mic bloqué par I2S half-duplex)
+  - interval: 40ms
+    then:
+      - if:
+          condition:
+            lambda: 'return id(claude_state) == 3;'
+          then:
+            - claude_lottie.assign:
+                id: orb_ctl_replying
+                layer: orb_reactive_core
+                ix: 201
+                var: bass
+                val: !lambda |-
+                  float t = millis() * 0.001f;
+                  return 0.5f + sinf(t * 9.4f) * 0.3f;
+            - claude_lottie.assign:
+                id: orb_ctl_replying
+                layer: orb_reactive_glow
+                ix: 202
+                var: mid
+                val: !lambda |-
+                  float t = millis() * 0.001f;
+                  return 0.4f + sinf(t * 14.1f) * 0.25f;
+            - claude_lottie.assign:
+                id: orb_ctl_replying
+                layer: orb_reactive_bloom
+                ix: 203
+                var: treble
+                val: !lambda |-
+                  float t = millis() * 0.001f;
+                  return 0.3f + sinf(t * 7.3f) * 0.2f;
+
   - interval: 60s
     then:
       - lambda: |-
