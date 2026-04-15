@@ -19,9 +19,21 @@
 
 // thorvg C API bindings — LVGL ships thorvg in-tree at src/libs/thorvg.
 // This is the same path components/lvgl/svg_loader.h uses for the SVG widget.
-// Provides tvg_lottie_animation_{gen,apply,del}_slot, tvg_lottie_animation_assign,
-// tvg_lottie_animation_tween, tvg_lottie_animation_set_{marker,quality}.
+// Provides tvg_lottie_animation_{apply,del}_slot, tvg_lottie_animation_tween,
+// tvg_lottie_animation_set_{marker,quality}.
 #include <src/libs/thorvg/thorvg_capi.h>
+
+// LVGL 9.5's bundled thorvg_capi.h does not declare
+// tvg_lottie_animation_assign() nor tvg_lottie_animation_gen_slot(), even
+// though the compiled thorvg library (built from src/libs/thorvg/) exports
+// them. Forward-declare them with the bundled-thorvg convention where
+// `Tvg_Animation` is the opaque struct and the handle parameter is
+// `Tvg_Animation *`.
+extern "C" {
+uint32_t tvg_lottie_animation_gen_slot(Tvg_Animation *animation, const char *slot);
+Tvg_Result tvg_lottie_animation_assign(Tvg_Animation *animation, const char *layer, uint32_t ix,
+                                       const char *var, float val);
+}
 
 namespace esphome {
 namespace claude_lottie_control {
