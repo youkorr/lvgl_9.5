@@ -139,34 +139,42 @@ claude_spectrum:
 #   - SPEAKING  : synthetic voice-like bars (no mic / no FFT, ~free CPU)
 #   - IDLE      : slow breathing pattern    (low amplitude, all bars in sync)
 #
+# IMPORTANT — also navigate to the page that hosts the orb canvas every time
+# the spectrum becomes visually relevant. Otherwise the mode flips correctly
+# but the user is still looking at another LVGL page and sees nothing change.
+# Replace `nfs_dashboard` with whatever page id you put `orb_canvas` on.
+#
 # Wire it from your voice_assistant: block:
 #
 #   voice_assistant:
 #     # ... your existing options ...
 #
 #     on_listening:
+#       - lvgl.page.show: nfs_dashboard
 #       - claude_spectrum.set_listening:
 #           id: orb_spectrum
 #     on_tts_stream_start:
+#       - lvgl.page.show: nfs_dashboard
 #       - claude_spectrum.set_speaking:
 #           id: orb_spectrum
 #     on_tts_stream_end:
 #       - claude_spectrum.set_listening:
 #           id: orb_spectrum
 #     on_end:
+#       - lvgl.page.show: nfs_dashboard
 #       - claude_spectrum.set_idle:
 #           id: orb_spectrum
 #
 # If your project uses the media_player for announcements (which mutes the
 # mic via on_announcement: → micro_wake_word.stop / voice_assistant.stop),
-# also flip to SPEAKING when an announcement starts and back to LISTENING
-# when it ends — same actions, hooked from media_player on_announcement /
-# on_idle:
+# also flip to SPEAKING + show the page when an announcement starts, and
+# back to LISTENING when it ends:
 #
 #   media_player:
 #     - platform: speaker
 #       # ...
 #       on_announcement:
+#         - lvgl.page.show: nfs_dashboard
 #         - claude_spectrum.set_speaking:
 #             id: orb_spectrum
 #       on_idle:
