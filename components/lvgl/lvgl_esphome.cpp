@@ -37,6 +37,15 @@ static bool ppa_rotate_display_buf(const void *src, void *dst, int32_t w, int32_
   if (s_display_srm_client == nullptr || w < 2 || h < 2)
     return false;
 
+  // ESP32-P4 PPA requires both buffer address and buffer_size to be aligned
+  // to the data cache line size (64 bytes). If inputs aren't aligned, fall
+  // back to software rotation rather than flood the log with PPA errors.
+  constexpr uintptr_t CACHE_LINE = 64;
+  if ((reinterpret_cast<uintptr_t>(src) & (CACHE_LINE - 1)) != 0)
+    return false;
+  if ((reinterpret_cast<uintptr_t>(dst) & (CACHE_LINE - 1)) != 0)
+    return false;
+
   ppa_srm_rotation_angle_t ppa_angle;
   int32_t out_w, out_h;
   switch (rot) {
@@ -67,6 +76,9 @@ static bool ppa_rotate_display_buf(const void *src, void *dst, int32_t w, int32_
   constexpr size_t BPP = 2;
 #endif
 
+  size_t out_bytes = (size_t) out_w * out_h * BPP;
+  size_t aligned_out_bytes = (out_bytes + CACHE_LINE - 1) & ~(CACHE_LINE - 1);
+
   ppa_srm_oper_config_t cfg = {};
   cfg.in.buffer = (void *) src;
   cfg.in.pic_w = w;
@@ -75,7 +87,7 @@ static bool ppa_rotate_display_buf(const void *src, void *dst, int32_t w, int32_
   cfg.in.block_h = h;
   cfg.in.srm_cm = PPA_CM;
   cfg.out.buffer = dst;
-  cfg.out.buffer_size = (size_t) out_w * out_h * BPP;
+  cfg.out.buffer_size = aligned_out_bytes;
   cfg.out.pic_w = out_w;
   cfg.out.pic_h = out_h;
   cfg.out.srm_cm = PPA_CM;
@@ -87,7 +99,11 @@ static bool ppa_rotate_display_buf(const void *src, void *dst, int32_t w, int32_
 
   esp_err_t ret = ppa_do_scale_rotate_mirror(s_display_srm_client, &cfg);
   if (ret != ESP_OK) {
-    ESP_LOGW(TAG, "PPA display rotation failed (err=%d), falling back to SW", ret);
+    static bool warned = false;
+    if (!warned) {
+      ESP_LOGW(TAG, "PPA display rotation unavailable (err=%d), using SW fallback", ret);
+      warned = true;
+    }
   }
   return ret == ESP_OK;
 }
@@ -761,10 +777,15 @@ void LvglComponent::setup() {
   // (required for PPA on ESP32-P4), then fall back to PSRAM with cache sync.
   auto alloc_draw_buf = [](size_t sz) -> void * {
 #if defined(USE_LVGL_PPA) && defined(USE_ESP32)
-    void *p = heap_caps_aligned_alloc(64, sz, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    // Round size up to 64-byte cache line so PPA buffer_size checks pass
+    size_t aligned_sz = (sz + 63) & ~size_t{63};
+    void *p = heap_caps_aligned_alloc(64, aligned_sz, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     if (p != nullptr)
       return p;
-    // Fall back: PSRAM is DMA-accessible on ESP32-P4 via cache (with sync)
+    // Internal DMA SRAM full → PSRAM (still 64-byte aligned, PPA can use it with cache sync)
+    p = heap_caps_aligned_alloc(64, aligned_sz, MALLOC_CAP_SPIRAM);
+    if (p != nullptr)
+      return p;
 #endif
     return lv_malloc_core(sz);
   };
