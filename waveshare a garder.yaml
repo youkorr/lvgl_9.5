@@ -262,7 +262,7 @@ external_components:
       type: git
       url: https://github.com/youkorr/lvgl_9.5
       ref: claude/home-assistant-integration-6apll
-    components: [lvgl, image, font, claude_audio_level, claude_lottie_control]
+    components: [lvgl, image, font, claude_audio_level, claude_lottie_control, claude_spectrum]
     refresh: always
 
   #- source:
@@ -661,6 +661,12 @@ media_player:
           decibel_reduction: 20
           duration: 0.0s
       - switch.turn_on: audio_amplifier
+      # Show the orb page + flip the spectrum to SPEAKING for the duration
+      # of the announcement. Mic is muted at this point so the synthetic
+      # generator is what's driving the bars.
+      - lvgl.page.show: nfs_dashboard
+      - claude_spectrum.set_speaking:
+          id: orb_fft
       - delay: 100ms
     on_state:
       if:
@@ -684,6 +690,10 @@ media_player:
     on_idle:
       - delay: 100ms
       - switch.turn_off: audio_amplifier
+      # Announcement done — return the spectrum to LISTENING (real mic FFT)
+      # so the orb can react to the user again.
+      - claude_spectrum.set_listening:
+          id: orb_fft
       - if:
           condition:
             not:
@@ -729,7 +739,16 @@ voice_assistant:
     - globals.set:
         id: claude_state
         value: "1"
-    - lvgl.page.show: claude_page
+    # Show the spectrum page + flip the spectrum to LISTENING (real mic FFT)
+    - lvgl.page.show: nfs_dashboard
+    - claude_spectrum.set_listening:
+        id: orb_fft
+    - lvgl.label.update:
+        id: orb_state_label
+        text: "À l'écoute..."
+    # Old lottie-orb orchestration kept for compatibility (no-op while
+    # nfs_dashboard is shown; the hidden flags take effect when claude_page
+    # is restored).
     - lvgl.widget.hide: claude_orb_idle
     - lvgl.widget.hide: claude_orb_thinking
     - lvgl.widget.hide: claude_orb_replying
@@ -769,6 +788,12 @@ voice_assistant:
     - globals.set:
         id: claude_state
         value: "2"
+    # Thinking phase — no audio yet, keep bars breathing until TTS starts.
+    - claude_spectrum.set_idle:
+        id: orb_fft
+    - lvgl.label.update:
+        id: orb_state_label
+        text: "Réflexion..."
     - lvgl.widget.hide: claude_orb_listening
     - lvgl.widget.show: claude_orb_thinking
     - lvgl.label.update:
@@ -780,6 +805,14 @@ voice_assistant:
     - globals.set:
         id: claude_state
         value: "3"
+    # TTS audio is about to play — mic is muted, so drive the orb from the
+    # synthetic SPEAKING generator (bass-heavy bars with soft jitter).
+    - lvgl.page.show: nfs_dashboard
+    - claude_spectrum.set_speaking:
+        id: orb_fft
+    - lvgl.label.update:
+        id: orb_state_label
+        text: "Claude répond..."
     - lvgl.widget.hide: claude_orb_thinking
     - lvgl.widget.show: claude_orb_replying
     - claude_lottie.assign:
@@ -809,6 +842,14 @@ voice_assistant:
     - globals.set:
         id: claude_state
         value: "0"
+    # Conversation done — switch the spectrum to the IDLE breathing pattern
+    # and keep the orb page visible.
+    - lvgl.page.show: nfs_dashboard
+    - claude_spectrum.set_idle:
+        id: orb_fft
+    - lvgl.label.update:
+        id: orb_state_label
+        text: ""
     - lvgl.widget.hide: claude_orb_listening
     - lvgl.widget.hide: claude_orb_thinking
     - lvgl.widget.hide: claude_orb_replying
@@ -834,6 +875,11 @@ voice_assistant:
     - globals.set:
         id: claude_state
         value: "4"
+    - claude_spectrum.set_idle:
+        id: orb_fft
+    - lvgl.label.update:
+        id: orb_state_label
+        text: "Erreur"
     - lvgl.widget.hide: claude_orb_listening
     - lvgl.widget.hide: claude_orb_thinking
     - lvgl.widget.hide: claude_orb_replying
@@ -846,6 +892,9 @@ voice_assistant:
     - globals.set:
         id: claude_state
         value: "0"
+    - lvgl.label.update:
+        id: orb_state_label
+        text: ""
     - lvgl.label.update:
         id: claude_status_label
         text: "Dis « OK Nabu »"
@@ -861,6 +910,34 @@ claude_lottie_control:
     lottie_id: claude_orb_replying
 
 
+# ---------------------------------------------------------------------------
+# Circular FFT spectrum — drawn into the orb_canvas widget on nfs_dashboard.
+# Tap is non-destructive on esp32_microphone (the wake word still works).
+# Mode is switched by voice_assistant/media_player automations below:
+#   LISTENING (real mic FFT) when the user is talking
+#   SPEAKING  (synth voice)  when the assistant / announcement is playing
+#   IDLE      (breathing)    at rest
+# ---------------------------------------------------------------------------
+claude_spectrum:
+  id: orb_fft
+  canvas_id: orb_canvas
+  microphone: esp32_microphone
+  width: 400
+  height: 400
+  num_bars: 48
+  radius_inner: 120
+  radius_outer: 180
+  bar_width: 4
+  color_start: 0x4B00FF        # deep purple at low amplitude
+  color_end: 0x00FFE5          # cyan at high amplitude
+  bg_color: 0x000000
+  bg_opa: TRANSP
+  update_interval: 40ms        # ~25 Hz redraw
+  smoothing: 0.75              # release alpha
+  gain: 1.8
+  buffer_skip: 2               # FFT on 1 of every 2 mic buffers (CPU saver)
+  auto_start: true
+  mirror: false
 
 
 
@@ -4989,14 +5066,33 @@ lvgl:
 
       - id: nfs_dashboard
         bg_color: color_black
-
+        widgets:
+          # ARGB8888 canvas (~640 KB PSRAM @ 400x400) — claude_spectrum
+          # draws radial bars into this widget. transparent: true lets the
+          # black page show through between the bars.
+          - canvas:
+              id: orb_canvas
+              width: 400
+              height: 400
+              align: CENTER
+              transparent: true
+              border_width: 0
+              radius: 0
+              pad_all: 0
+          # Status label on top of the orb (centered in the hollow area).
+          - label:
+              id: orb_state_label
+              text: ""
+              align: CENTER
+              text_font: montserrat_24
+              text_color: 0xFFFFFF
 
         on_swipe_up:
           - lambda: 'lv_indev_wait_release(lv_indev_get_act());'
           - lvgl.page.show: page_home
-          - light.turn_on: 
+          - light.turn_on:
               id: backlight
-              flash_length: 50ms 
+              flash_length: 50ms
 
 ###################################################################################################################
 
