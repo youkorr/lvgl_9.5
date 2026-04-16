@@ -46,6 +46,8 @@ class ClaudeAudioLevel : public sensor::Sensor, public Component {
   void set_auto_start(bool b) { this->auto_start_ = b; }
   void set_scale(float s) { this->scale_ = s; }
   void set_band(AudioBand b) { this->band_ = b; }
+  void set_buffer_skip(int n) { this->buffer_skip_ = n; }
+  void set_delta_gate(float d) { this->delta_gate_ = d; }
 
   void setup() override;
   void loop() override;
@@ -75,11 +77,23 @@ class ClaudeAudioLevel : public sensor::Sensor, public Component {
   void fft_inplace_();
 
   microphone::Microphone *mic_{nullptr};
-  uint32_t update_interval_ms_{33};
+  // 150 ms = ~6.6 Hz publish rate. Plenty for visual bindings driving LVGL
+  // style properties (slider, transform_scale) and low enough that sensor
+  // state-change logs don't flood the console nor spam the HA API.
+  uint32_t update_interval_ms_{150};
   float smoothing_{0.6f};
   bool auto_start_{true};
   float scale_{3.0f};
   AudioBand band_{AudioBand::LEVEL};
+  // Skip FFT on (buffer_skip_ - 1) out of every buffer_skip_ mic buffers.
+  // FFT is the dominant CPU cost in the mic task; decimating here gives
+  // back cycles to the voice-assistant wake-word pipeline. Default 3 means
+  // we only process ~33% of incoming buffers — still plenty for visuals.
+  int buffer_skip_{3};
+  // Minimum change in smoothed value required to re-publish. Prevents
+  // float-jitter from generating one state update per callback while still
+  // pushing through real level changes quickly. 0.0 disables gating.
+  float delta_gate_{0.01f};
 
   // FFT working buffers. Only allocated when band_ != LEVEL.
   std::vector<float> fft_real_;
@@ -98,6 +112,8 @@ class ClaudeAudioLevel : public sensor::Sensor, public Component {
   uint32_t last_publish_ms_{0};
   bool callback_registered_{false};
   bool running_{false};
+  int buffer_skip_counter_{0};
+  float last_published_value_{-1.0f};  // sentinel so first publish always goes through
 };
 
 }  // namespace claude_audio_level

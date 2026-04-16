@@ -73,8 +73,17 @@ void ClaudeAudioLevel::loop() {
     this->latest_level_.store(level, std::memory_order_relaxed);
   }
 
-  this->publish_state(level);
+  // Delta gating: only call publish_state() if the value changed by more
+  // than delta_gate_ since the last publish. This suppresses thousands of
+  // near-identical log lines when the mic is idle (always 0.0000..) and
+  // keeps the HA API traffic proportional to actual activity.
   this->last_publish_ms_ = now;
+  if (this->delta_gate_ > 0.0f && this->last_published_value_ >= 0.0f) {
+    const float diff = std::fabs(level - this->last_published_value_);
+    if (diff < this->delta_gate_) return;
+  }
+  this->publish_state(level);
+  this->last_published_value_ = level;
 }
 
 void ClaudeAudioLevel::dump_config() {
@@ -84,6 +93,8 @@ void ClaudeAudioLevel::dump_config() {
   ESP_LOGCONFIG(TAG, "  Update interval: %u ms", this->update_interval_ms_);
   ESP_LOGCONFIG(TAG, "  Smoothing: %.2f", this->smoothing_);
   ESP_LOGCONFIG(TAG, "  Scale: %.2f", this->scale_);
+  ESP_LOGCONFIG(TAG, "  Buffer skip: 1/%d", this->buffer_skip_);
+  ESP_LOGCONFIG(TAG, "  Delta gate: %.3f", this->delta_gate_);
   ESP_LOGCONFIG(TAG, "  Auto start: %s", YESNO(this->auto_start_));
   LOG_SENSOR("  ", "Level", this);
 }
@@ -105,6 +116,16 @@ void ClaudeAudioLevel::stop() {
 void ClaudeAudioLevel::on_audio_data_(const std::vector<uint8_t> &data) {
   if (!this->running_) return;
   if (data.size() < 2) return;
+
+  // Decimate incoming buffers so we don't hog CPU on the mic task. The
+  // voice-assistant pipeline always gets 100% of the samples — we just
+  // skip our own FFT/RMS work on (buffer_skip_ - 1) out of every N
+  // buffers. Decisive for keeping wake-word detection reliable.
+  if (this->buffer_skip_ > 1) {
+    this->buffer_skip_counter_++;
+    if (this->buffer_skip_counter_ < this->buffer_skip_) return;
+    this->buffer_skip_counter_ = 0;
+  }
 
   // Treat incoming buffer as signed 16-bit PCM samples.
   const int16_t *samples = reinterpret_cast<const int16_t *>(data.data());

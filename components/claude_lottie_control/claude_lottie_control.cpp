@@ -49,12 +49,14 @@ Tvg_Animation *ClaudeLottieControl::get_animation() {
 // animation still plays its loop normally — it just can't be modulated at
 // runtime via ExtendScript expressions.
 //
-// To enable real reactivity, either:
-//   (a) rebuild LVGL's bundled thorvg with
-//       -DTHORVG_LOTTIE_EXPRESSIONS_SUPPORT and pull in JerryScript, or
-//   (b) drive reactivity from YAML via LVGL transforms
-//       (lv_obj_set_style_transform_scale on the lottie widget, modulated
-//        by the FFT sensor values).
+// PIVOT (2026-04): the JerryScript / Expressions path is abandoned on
+// ESP32-P4. Even if it linked, the rasterisation bottleneck for large
+// Lottie widgets (~400×400 saturates the software renderer regardless
+// of expressions) makes this approach impractical — Lottie is fluid only
+// up to ~120×120 on this SoC. For audio-reactive visuals use the
+// `claude_spectrum` component instead: it draws radial FFT bars directly
+// into an lv_canvas, stays smooth at 400×400+, and does not depend on
+// thorvg internals or JerryScript.
 // ============================================================================
 
 static bool tvg_stub_warned = false;
