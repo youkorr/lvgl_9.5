@@ -1,0 +1,163 @@
+# ============================================================================
+# claude_spectrum — circular FFT visualiser: integration example
+# ============================================================================
+#
+# This is NOT a standalone ESPHome config — it's a reference showing the
+# three blocks to add to your existing project (e.g. "waveshare a garder.yaml")
+# to get an audio-reactive radial spectrum drawn around your voice-assistant orb.
+#
+# Your setup already has:
+#   - microphone id "esp32_microphone" (i2s_audio on ES7210)
+#   - lvgl: block with pages and widgets
+#   - external_components declaring local components
+#
+# You only need to:
+#   1. Register the new component in external_components: line
+#   2. Add a canvas widget to your LVGL page
+#   3. Add a claude_spectrum: block at the top level
+#
+# ============================================================================
+
+
+# ─── 1. REGISTER THE COMPONENT ─────────────────────────────────────────────
+#
+# In your existing external_components block, add "claude_spectrum" to the
+# list of components. Example BEFORE:
+#
+#   external_components:
+#     - source:
+#         type: local
+#         path: components
+#       components: [lvgl, image, font, claude_audio_level, claude_lottie_control]
+#
+# AFTER (just add claude_spectrum at the end):
+#
+#   external_components:
+#     - source:
+#         type: local
+#         path: components
+#       components: [lvgl, image, font, claude_audio_level, claude_lottie_control, claude_spectrum]
+
+
+# ─── 2. ADD THE CANVAS WIDGET IN YOUR LVGL PAGE ────────────────────────────
+#
+# Inside your lvgl: → pages: → widgets: list, drop this canvas widget.
+# `transparent: true` is critical — ARGB8888 buffer so the page background
+# shows through the empty areas between the radial bars.
+#
+# A 400×400 canvas at ARGB8888 = 640 KB of PSRAM. You have 32 MB, so this
+# is nothing — but if you ever want to go 600×600 it's 1.4 MB, still fine.
+#
+# Position with `align: CENTER` (screen 1024×600 → canvas centered).
+#
+# Minimal widget entry:
+#
+#   lvgl:
+#     pages:
+#       - id: idle_page
+#         widgets:
+#           - canvas:
+#               id: orb_canvas
+#               width: 400
+#               height: 400
+#               transparent: true
+#               align: CENTER
+#               # Optional: nest a label inside to show the current state:
+#               # "Listening...", "Thinking...", etc. The spectrum draws
+#               # below the label because the label is a child widget.
+#               widgets:
+#                 - label:
+#                     id: orb_state_label
+#                     text: ""
+#                     align: CENTER
+#                     text_font: montserrat_24
+#                     text_color: 0xFFFFFF
+
+
+# ─── 3. ADD THE claude_spectrum BLOCK AT TOP LEVEL ─────────────────────────
+#
+# Put this anywhere at the top level of your YAML (alongside your other
+# `sensor:`, `microphone:`, `claude_lottie_control:` blocks).
+
+claude_spectrum:
+  # --- wiring (required) ---
+  id: orb_spectrum
+  canvas_id: orb_canvas           # the canvas widget id from step 2
+  microphone: esp32_microphone    # the mic id in your microphone: block
+
+  # --- geometry (match your canvas width/height exactly!) ---
+  width: 400
+  height: 400
+  num_bars: 48                    # 32 is lighter, 64 is denser. 48 looks balanced.
+  radius_inner: 120               # bars start this far from center
+  radius_outer: 180               # bars reach this far at max amplitude
+  bar_width: 4                    # thickness of each bar in pixels
+
+  # --- colors (0xRRGGBB) ---
+  color_start: 0x4B00FF           # low amplitude (deep purple)
+  color_end:   0x00FFE5           # high amplitude (cyan)
+  bg_color:    0x000000
+  bg_opa:      TRANSP             # fully transparent background
+
+  # --- behavior ---
+  update_interval: 40ms           # 25 Hz redraw. 33ms = 30Hz if you want snappier.
+  smoothing: 0.75                 # release alpha (0 = no smooth, 0.99 = very slow)
+  gain: 1.8                       # multiply FFT output before clip (1.0..3.0 typical)
+  buffer_skip: 2                  # FFT on 1 of every 2 mic buffers (save CPU for wake word)
+  auto_start: true
+
+  # --- optional flavour ---
+  mirror: false                   # true: mirror top half into bottom for symmetric look
+  rotate_speed: 0.0               # radians per redraw; 0.01 = slow clockwise rotation
+
+
+# ─── (optional) START/STOP VIA AUTOMATION ──────────────────────────────────
+#
+# If you want the spectrum to only run when the voice assistant is active
+# (to save more CPU during idle), set `auto_start: false` above and wire
+# actions to the voice assistant phase changes. Example:
+#
+#   voice_assistant:
+#     on_listening:
+#       - claude_spectrum.start:
+#           id: orb_spectrum
+#     on_idle:
+#       - claude_spectrum.stop:
+#           id: orb_spectrum
+
+
+# ─── TUNING NOTES ──────────────────────────────────────────────────────────
+#
+# If the spectrum looks too calm:
+#   - Raise `gain` to 2.5 or 3.0
+#   - Lower `smoothing` to 0.5 (less damping)
+#
+# If it looks jittery/strobe-y:
+#   - Raise `smoothing` to 0.85
+#   - Raise `update_interval` to 50ms
+#
+# If "OK Nabu" still misses (unlikely after this pass):
+#   - Raise `buffer_skip` from 2 to 3 or 4
+#   - Lower `num_bars` to 32 (less draw work per frame)
+#
+# If the flash binary is tight:
+#   - This component is ~6 KB of code. Negligible.
+#   - To drop the dead claude_lottie_control stubs entirely, remove that
+#     component from external_components: AND remove its config block.
+
+
+# ─── TURN THE EXISTING FFT SENSORS INTO `internal: true` ──────────────────
+#
+# Your old `- platform: claude_audio_level` sensors still publish at
+# ~150ms (new default) with delta gating — but if you don't need their
+# values in Home Assistant at all (the spectrum draws straight from the
+# same mic), flag them internal so they don't appear in HA:
+#
+#   sensor:
+#     - platform: claude_audio_level
+#       id: claude_bass
+#       name: "Mic Bass"
+#       internal: true           # ← add this
+#       microphone: esp32_microphone
+#       band: bass
+#       # update_interval/buffer_skip/delta_gate all have sensible defaults now
