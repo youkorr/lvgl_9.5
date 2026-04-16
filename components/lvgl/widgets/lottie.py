@@ -69,6 +69,7 @@ CONF_LOTTIE = "lottie"
 CONF_LOOP = "loop"
 CONF_LOTTIE_WIDTH = "lottie_width"
 CONF_LOTTIE_HEIGHT = "lottie_height"
+CONF_SCALE = "scale"
 
 lv_lottie_t = LvType("lv_lottie_t")
 
@@ -145,6 +146,7 @@ LOTTIE_SCHEMA = cv.Schema(
         cv.Optional(CONF_FILE): lottie_file_validator,
         cv.Optional(CONF_LOOP, default=True): cv.boolean,
         cv.Optional(CONF_AUTO_START, default=True): cv.boolean,
+        cv.Optional(CONF_SCALE): cv.int_range(min=16, max=4096),
         cv.GenerateID(CONF_RAW_DATA_ID): cv.declare_id(cg.uint8),
     }
 ).add_extra(validate_lottie_source)
@@ -190,8 +192,15 @@ class LottieType(WidgetType):
             width = config[CONF_WIDTH]
             height = config[CONF_HEIGHT]
 
-        # Set widget size
-        lv_obj.set_size(w.obj, width, height)
+        # Set widget size (= Lottie render resolution by default).
+        # If `scale` is given, enlarge the widget so the upscaled content fits.
+        scale = config.get(CONF_SCALE)
+        if scale is not None:
+            disp_w = width * scale // 256
+            disp_h = height * scale // 256
+        else:
+            disp_w, disp_h = width, height
+        lv_obj.set_size(w.obj, disp_w, disp_h)
 
         # Note: Widget visibility during async load is managed by lottie_loader.h
         # (user's 'hidden' config is saved and restored after rendering)
@@ -224,6 +233,14 @@ class LottieType(WidgetType):
 
             lv_add(cg.RawStatement(f"""
     esphome::lvgl::lottie_init({w.obj}, {prog_arr}, {len(json_data)}, nullptr, {width}, {height}, {do_loop}, {do_auto_start}, {user_wants_hidden});"""))
+
+        # Apply zoom via lv_image_set_scale (256 = 1x, 512 = 2x).
+        # The Lottie widget inherits from lv_image, so image scaling works
+        # transparently and re-uses the rendered buffer (no extra rasterization).
+        if scale is not None:
+            lv_add(cg.RawStatement(
+                f"    lv_image_set_scale({w.obj}, {scale});"
+            ))
 
 
 lottie_spec = LottieType()
