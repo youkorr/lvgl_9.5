@@ -33,6 +33,19 @@ constexpr size_t SPECTRUM_FFT_SIZE = 256;
 /// shared non-destructively with other consumers (e.g. the voice assistant),
 /// so this component does NOT block the wake-word pipeline. A configurable
 /// buffer_skip lets you further reduce CPU load when needed.
+
+/// Operating modes for the visualiser.
+///  - LISTENING: bars are driven by the real mic FFT (user speaking / ambient)
+///  - SPEAKING:  bars are driven by a synthetic generator (TTS playback — the
+///               mic is usually muted during TTS, so we fake a nice voice-like
+///               animation instead of tapping the speaker)
+///  - IDLE:      bars render a slow "breathing" pattern at low amplitude
+enum class SpectrumMode : uint8_t {
+  LISTENING = 0,
+  SPEAKING = 1,
+  IDLE = 2,
+};
+
 class ClaudeSpectrum : public Component {
  public:
   // ---- wiring ----
@@ -72,8 +85,21 @@ class ClaudeSpectrum : public Component {
   void start();
   void stop();
 
+  /// Switch operating mode. Safe to call from automations / any thread.
+  void set_mode(SpectrumMode mode);
+  SpectrumMode get_mode() const { return this->mode_.load(); }
+
  protected:
-  /// Audio thread: fills the FFT window from the mic buffer, runs a
+  /// Fill bars_raw_ with a synthetic "voice speaking" pattern: a few
+  /// modulated low-frequency lobes with envelope, so the visual looks
+  /// like the orb is talking even though we have no real signal.
+  void synth_speaking_bars_(std::vector<float> &out);
+
+  /// Fill bars_raw_ with a slow breathing pattern: small uniform amplitude
+  /// modulated by a low-frequency sine across all bars.
+  void synth_idle_bars_(std::vector<float> &out);
+
+  /// Audio thread (LISTENING mode only): fills the FFT window from the mic buffer, runs a
   /// windowed FFT once a full SPECTRUM_FFT_SIZE window is available,
   /// and publishes per-bar magnitudes into bars_raw_ under bars_mutex_.
   void on_audio_data_(const std::vector<uint8_t> &data);
@@ -138,6 +164,14 @@ class ClaudeSpectrum : public Component {
   float rotation_angle_{0.0f};
   std::atomic<bool> running_{false};
   bool callback_registered_{false};
+
+  // ---- mode + synthetic generators ----
+  /// Active visualisation source. Atomic so set_mode() is callable from
+  /// any thread / automation context without a lock.
+  std::atomic<SpectrumMode> mode_{SpectrumMode::LISTENING};
+  /// Free-running counter for the synthetic generators (advances on every
+  /// redraw, used as the time argument for sine/noise modulators).
+  uint32_t synth_tick_{0};
 };
 
 // --------------------------------------------------------------------------
@@ -159,6 +193,36 @@ class StopAction : public Action<Ts...> {
  public:
   explicit StopAction(ClaudeSpectrum *parent) : parent_(parent) {}
   void play(const Ts &...x) override { this->parent_->stop(); }
+
+ protected:
+  ClaudeSpectrum *parent_;
+};
+
+template <typename... Ts>
+class SetListeningAction : public Action<Ts...> {
+ public:
+  explicit SetListeningAction(ClaudeSpectrum *parent) : parent_(parent) {}
+  void play(const Ts &...x) override { this->parent_->set_mode(SpectrumMode::LISTENING); }
+
+ protected:
+  ClaudeSpectrum *parent_;
+};
+
+template <typename... Ts>
+class SetSpeakingAction : public Action<Ts...> {
+ public:
+  explicit SetSpeakingAction(ClaudeSpectrum *parent) : parent_(parent) {}
+  void play(const Ts &...x) override { this->parent_->set_mode(SpectrumMode::SPEAKING); }
+
+ protected:
+  ClaudeSpectrum *parent_;
+};
+
+template <typename... Ts>
+class SetIdleAction : public Action<Ts...> {
+ public:
+  explicit SetIdleAction(ClaudeSpectrum *parent) : parent_(parent) {}
+  void play(const Ts &...x) override { this->parent_->set_mode(SpectrumMode::IDLE); }
 
  protected:
   ClaudeSpectrum *parent_;

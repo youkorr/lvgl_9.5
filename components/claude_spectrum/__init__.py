@@ -88,6 +88,9 @@ claude_spectrum_ns = cg.esphome_ns.namespace("claude_spectrum")
 ClaudeSpectrum = claude_spectrum_ns.class_("ClaudeSpectrum", cg.Component)
 StartAction = claude_spectrum_ns.class_("StartAction", automation.Action)
 StopAction = claude_spectrum_ns.class_("StopAction", automation.Action)
+SetListeningAction = claude_spectrum_ns.class_("SetListeningAction", automation.Action)
+SetSpeakingAction = claude_spectrum_ns.class_("SetSpeakingAction", automation.Action)
+SetIdleAction = claude_spectrum_ns.class_("SetIdleAction", automation.Action)
 
 
 def _hex_color(value):
@@ -197,5 +200,29 @@ async def start_action_to_code(config, action_id, template_arg, args):
 
 @automation.register_action("claude_spectrum.stop", StopAction, ACTION_SCHEMA)
 async def stop_action_to_code(config, action_id, template_arg, args):
+    parent = await cg.get_variable(config[CONF_ID])
+    return cg.new_Pvariable(action_id, template_arg, parent)
+
+
+@automation.register_action(
+    "claude_spectrum.set_listening", SetListeningAction, ACTION_SCHEMA
+)
+async def set_listening_action_to_code(config, action_id, template_arg, args):
+    parent = await cg.get_variable(config[CONF_ID])
+    return cg.new_Pvariable(action_id, template_arg, parent)
+
+
+@automation.register_action(
+    "claude_spectrum.set_speaking", SetSpeakingAction, ACTION_SCHEMA
+)
+async def set_speaking_action_to_code(config, action_id, template_arg, args):
+    parent = await cg.get_variable(config[CONF_ID])
+    return cg.new_Pvariable(action_id, template_arg, parent)
+
+
+@automation.register_action(
+    "claude_spectrum.set_idle", SetIdleAction, ACTION_SCHEMA
+)
+async def set_idle_action_to_code(config, action_id, template_arg, args):
     parent = await cg.get_variable(config[CONF_ID])
     return cg.new_Pvariable(action_id, template_arg, parent)

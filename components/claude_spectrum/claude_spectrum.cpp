@@ -74,6 +74,13 @@ void ClaudeSpectrum::dump_config() {
   ESP_LOGCONFIG(TAG, "  Buffer skip: 1/%d", this->buffer_skip_);
   ESP_LOGCONFIG(TAG, "  Mirror: %s", YESNO(this->mirror_));
   ESP_LOGCONFIG(TAG, "  Auto start: %s", YESNO(this->auto_start_));
+  const char *mode_name = "LISTENING";
+  switch (this->mode_.load()) {
+    case SpectrumMode::SPEAKING: mode_name = "SPEAKING"; break;
+    case SpectrumMode::IDLE:     mode_name = "IDLE";     break;
+    default: break;
+  }
+  ESP_LOGCONFIG(TAG, "  Mode (initial): %s", mode_name);
 }
 
 void ClaudeSpectrum::start() {
@@ -94,12 +101,31 @@ void ClaudeSpectrum::stop() {
   ESP_LOGD(TAG, "Spectrum monitoring stopped");
 }
 
+void ClaudeSpectrum::set_mode(SpectrumMode mode) {
+  SpectrumMode prev = this->mode_.exchange(mode);
+  if (prev == mode) return;
+  const char *name = "?";
+  switch (mode) {
+    case SpectrumMode::LISTENING: name = "LISTENING"; break;
+    case SpectrumMode::SPEAKING:  name = "SPEAKING";  break;
+    case SpectrumMode::IDLE:      name = "IDLE";      break;
+  }
+  ESP_LOGD(TAG, "Mode -> %s", name);
+}
+
 // ---------------------------------------------------------------------------
 // Audio thread
 // ---------------------------------------------------------------------------
 
 void ClaudeSpectrum::on_audio_data_(const std::vector<uint8_t> &data) {
   if (!this->running_.load()) return;
+  // Only consume mic data while in LISTENING mode — when the assistant is
+  // speaking we drive the bars from a synthetic generator, and we want to
+  // stop running the FFT to free CPU for the TTS pipeline.
+  if (this->mode_.load() != SpectrumMode::LISTENING) {
+    this->fft_fill_ = 0;
+    return;
+  }
   if (data.size() < 2) return;
 
   // Decimate incoming buffers — we only need ~30 Hz of FFT updates for a
@@ -218,23 +244,89 @@ void ClaudeSpectrum::fft_inplace_() {
 }
 
 // ---------------------------------------------------------------------------
+// Synthetic generators (SPEAKING / IDLE modes)
+// ---------------------------------------------------------------------------
+
+void ClaudeSpectrum::synth_speaking_bars_(std::vector<float> &out) {
+  // The visual goal: looks like a voice talking — bass-heavy, breathing
+  // envelope, a bit of jitter for "naturalness". Cheap: a handful of sines
+  // mixed with a tiny LCG noise term, evaluated once per bar per redraw.
+  const int n = static_cast<int>(out.size());
+  if (n <= 0) return;
+
+  // Time in "redraw frames" (≈25 Hz at default 40 ms). Convert to a small
+  // floating-point phase so sin() stays well-conditioned.
+  const float t = static_cast<float>(this->synth_tick_) * 0.04f;
+
+  // Global envelope: a slow breathing modulator so the orb pulses while
+  // the voice continues. Stays in [0.55..1.0] so it never collapses to 0.
+  const float env = 0.775f + 0.225f * std::sin(t * 0.9f);
+
+  // Per-bar shape: low frequencies should be loud (like real speech),
+  // mid/high decay smoothly. Multiple modulators give it a "syllabic" feel.
+  // Tiny pseudo-noise (LCG) adds organic jitter without needing a PRNG.
+  uint32_t lcg = this->synth_tick_ * 2654435761u;
+  for (int i = 0; i < n; ++i) {
+    const float fi = static_cast<float>(i) / static_cast<float>(n);  // 0..1
+    // Bass weight (loud at low bars, fades by bar n/2).
+    const float bass = std::exp(-fi * 3.0f);
+    // Two mid lobes, modulated in time, to suggest formants.
+    const float lobe1 = std::exp(-((fi - 0.30f) * (fi - 0.30f)) * 40.0f)
+                        * (0.6f + 0.4f * std::sin(t * 6.3f + fi * 12.0f));
+    const float lobe2 = std::exp(-((fi - 0.55f) * (fi - 0.55f)) * 60.0f)
+                        * (0.5f + 0.5f * std::sin(t * 4.1f + fi * 8.0f + 1.7f));
+    // Cheap noise: high bits of an LCG, biased into [-0.1..0.1].
+    lcg = lcg * 1664525u + 1013904223u;
+    const float noise = (static_cast<float>((lcg >> 16) & 0xFFFFu) / 65535.0f - 0.5f) * 0.2f;
+
+    float v = (0.85f * bass + 0.55f * lobe1 + 0.45f * lobe2) * env + noise;
+    if (v < 0.0f) v = 0.0f;
+    if (v > 1.0f) v = 1.0f;
+    out[i] = v;
+  }
+}
+
+void ClaudeSpectrum::synth_idle_bars_(std::vector<float> &out) {
+  // Slow, low-amplitude breathing — the orb is "alive" but quiet. Shape
+  // is a single soft cosine so every bar moves together.
+  const int n = static_cast<int>(out.size());
+  if (n <= 0) return;
+  const float t = static_cast<float>(this->synth_tick_) * 0.04f;
+  const float base = 0.10f + 0.06f * std::sin(t * 0.6f);
+  for (int i = 0; i < n; ++i) {
+    out[i] = base;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main thread: smoothing + canvas redraw
 // ---------------------------------------------------------------------------
 
 void ClaudeSpectrum::redraw_() {
   if (this->canvas_obj_ == nullptr) return;
 
-  // Snapshot the raw bars under lock, then release so the audio thread
-  // can produce the next frame without blocking.
-  std::vector<float> current;
-  {
-    std::lock_guard<std::mutex> lock(this->bars_mutex_);
-    current = this->bars_raw_;
-  }
-
   const int n = this->num_bars_;
   if (static_cast<int>(this->smoothed_bars_.size()) != n) {
     this->smoothed_bars_.assign(n, 0.0f);
+  }
+
+  // Source the per-bar magnitudes from one of three places depending on
+  // the current mode. The synth generators run at the redraw rate (cheap)
+  // and don't need any locking because they only touch main-thread state.
+  std::vector<float> current(n, 0.0f);
+  this->synth_tick_++;
+  switch (this->mode_.load()) {
+    case SpectrumMode::LISTENING: {
+      std::lock_guard<std::mutex> lock(this->bars_mutex_);
+      current = this->bars_raw_;
+      break;
+    }
+    case SpectrumMode::SPEAKING:
+      this->synth_speaking_bars_(current);
+      break;
+    case SpectrumMode::IDLE:
+      this->synth_idle_bars_(current);
+      break;
   }
 
   // Asymmetric envelope: fast attack for snappy reaction, slow release
