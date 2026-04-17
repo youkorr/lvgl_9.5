@@ -325,7 +325,7 @@ void SphereViz::render_frame_() {
   const int oy = this->h_ / 2;
 
   // Clear to opaque black
-  this->clear_buffer_(0xD97757);
+  this->clear_buffer_(0xFF000000);
 
   // Extract color channels from user-configured color
   const uint8_t CR = (this->color_ >> 16) & 0xFF;
