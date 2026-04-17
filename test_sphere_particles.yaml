@@ -18,8 +18,9 @@ esphome:
   on_boot:
     priority: -100
     then:
-      # Force-load the orb page so the canvas is visible.
+      # Force-load the orb page and refresh the display so the canvas shows up.
       - lvgl.page.show: orb_page
+      - component.update: main_display
       # Start mic RMS feed. Only actually animates the sphere while listening
       # (during other states auto_pulse drives the visual).
       - lambda: |-
