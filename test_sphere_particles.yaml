@@ -18,9 +18,6 @@ esphome:
   on_boot:
     priority: -100
     then:
-      # Force-load the orb page and refresh the display so the canvas shows up.
-      - lvgl.page.show: orb_page
-      - component.update: main_display
       # Start mic RMS feed. Only actually animates the sphere while listening
       # (during other states auto_pulse drives the visual).
       - lambda: |-
@@ -196,6 +193,8 @@ micro_wake_word:
   models:
     - model: alexa
   on_wake_word_detected:
+    - lvgl.page.show: orb_page
+    - component.update: main_display
     - lambda: |-
         // Wake-word flash: bright cyan ping
         id(voice_orb).set_color_target(0x00FFFF);
@@ -212,23 +211,37 @@ voice_assistant:
   volume_multiplier: 2.0
   conversation_timeout: 300s
 
+  on_start:
+    - lvgl.page.show: orb_page
+    - component.update: main_display
+
   # --- Listening: mic-reactive cyan, disable synthetic ---
   on_listening:
+    - lvgl.page.show: orb_page
+    - component.update: main_display
     - lambda: |-
         id(voice_orb).set_color_target(0x00E5FF);
         id(voice_orb).set_auto_pulse(0.0, 0.0);
 
   # --- Thinking (intent processing): violet synthetic breath ---
   on_stt_end:
+    - lvgl.page.show: orb_page
+    - component.update: main_display
     - lambda: |-
         id(voice_orb).set_color_target(0xAA55FF);
         id(voice_orb).set_auto_pulse(0.35, 2.0);
 
   # --- Replying (TTS playing): warm green faster breath ---
   on_tts_start:
+    - lvgl.page.show: orb_page
+    - component.update: main_display
     - lambda: |-
         id(voice_orb).set_color_target(0x33FFAA);
         id(voice_orb).set_auto_pulse(0.55, 4.0);
+
+  on_tts_end:
+    - lvgl.page.show: orb_page
+    - component.update: main_display
 
   # --- End of flow → idle dim blue slow breath ---
   on_end:
@@ -242,12 +255,16 @@ voice_assistant:
                 media_player.is_announcing:
             - not:
                 media_player.is_playing:
+    - lvgl.page.show: orb_page
+    - component.update: main_display
     - lambda: |-
         id(voice_orb).set_color_target(0x224466);
         id(voice_orb).set_auto_pulse(0.05, 0.4);
     - micro_wake_word.start:
 
   on_error:
+    - lvgl.page.show: orb_page
+    - component.update: main_display
     - lambda: |-
         id(voice_orb).set_color_target(0xFF3030);
         id(voice_orb).set_auto_pulse(0.70, 6.0);

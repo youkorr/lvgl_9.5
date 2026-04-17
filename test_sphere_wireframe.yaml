@@ -12,9 +12,6 @@ esphome:
   on_boot:
     priority: -100
     then:
-      # Force-load the orb page and refresh the display so the canvas shows up.
-      - lvgl.page.show: orb_page
-      - component.update: main_display
       # Start the microphone and feed RMS into the sphere.
       - lambda: |-
           id(esp32_microphone)->add_data_callback([](const std::vector<uint8_t> &data) {
