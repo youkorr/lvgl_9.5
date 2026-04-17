@@ -1,0 +1,145 @@
+# =============================================================================
+# Jarvis-style 3D PARTICLE CLOUD sphere, voice-reactive.
+# Target: Waveshare ESP32-P4-WIFI6-TOUCH-LCD-7B (MIPI-DSI 1024x600, rotation 180)
+# Microphone: on-board ES7210 via I2S (GPIO11 DIN, 16 kHz 16-bit)
+# =============================================================================
+esphome:
+  name: sphere-particles
+  friendly_name: Sphere Particles
+  min_version: 2025.2.0
+  platformio_options:
+    board_build.flash_mode: dio
+  on_boot:
+    priority: -100
+    then:
+      - lambda: |-
+          id(esp32_microphone)->add_data_callback([](const std::vector<uint8_t> &data) {
+            const int16_t *s = reinterpret_cast<const int16_t *>(data.data());
+            size_t n = data.size() / 2;
+            if (n == 0) return;
+            uint64_t acc = 0;
+            for (size_t i = 0; i < n; i++) {
+              int32_t v = s[i];
+              acc += (uint32_t)(v * v);
+            }
+            float rms = sqrtf((float) acc / (float) n) / 32768.0f;
+            if (rms < 0.015f) rms = 0.0f;
+            float shaped = sqrtf(rms) * 1.6f;
+            if (shaped > 1.0f) shaped = 1.0f;
+            id(voice_orb).set_level(shaped);
+          });
+          id(esp32_microphone)->start();
+
+esp32:
+  board: esp32-p4-evboard
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    version: 5.5.2
+    platform_version: 55.03.35
+    advanced:
+      enable_idf_experimental_features: yes
+    sdkconfig_options:
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+      CONFIG_SPIRAM_USE_MALLOC: "y"
+      CONFIG_SPIRAM_SPEED_200M: "y"
+      CONFIG_SPIRAM_SPEED: "200"
+      CONFIG_ESP_MAIN_TASK_STACK_SIZE: "16384"
+      CONFIG_ESP_TIMER_TASK_STACK_SIZE: "4096"
+      CONFIG_ESP_TASK_WDT_TIMEOUT_S: "60"
+
+psram:
+  speed: 200MHz
+
+esp_ldo:
+  - voltage: 2.5V
+    channel: 3
+  - voltage: 2.5V
+    channel: 4
+
+logger:
+  level: INFO
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/youkorr/lvgl_9.5
+      ref: claude/create-sphere-BVofQ
+    components: [lvgl, image, thorvg, sphere_viz]
+    refresh: 0s
+
+i2c:
+  - id: bsp_bus
+    sda: GPIO07
+    scl: GPIO08
+    frequency: 400kHz
+
+i2s_audio:
+  - id: audio_bus
+    i2s_mclk_pin: GPIO13
+    i2s_lrclk_pin: GPIO10
+    i2s_bclk_pin: GPIO12
+
+audio_adc:
+  - platform: es7210
+    id: es7210_adc
+    i2c_id: bsp_bus
+    address: 0x40
+
+microphone:
+  - platform: i2s_audio
+    id: esp32_microphone
+    i2s_audio_id: audio_bus
+    i2s_din_pin: GPIO11
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    adc_type: external
+
+display:
+  - platform: mipi_dsi
+    id: main_display
+    model: WAVESHARE-ESP32-P4-WIFI6-TOUCH-LCD-7B
+    reset_pin:
+      number: 33
+    rotation: 180
+    update_interval: never
+    auto_clear_enabled: false
+    dimensions:
+      width: 1024
+      height: 600
+
+lvgl:
+  buffer_size: 100%
+  byte_order: little_endian
+  ppa_enabled: true
+  displays:
+    - main_display
+  pages:
+    - id: orb_page
+      bg_color: 0x000000
+      widgets:
+        - label:
+            id: title_label
+            text: "JARVIS - PARTICLES"
+            text_color: 0x66AAFF
+            align: TOP_MID
+            y: 20
+        - label:
+            id: level_label
+            text: "listening..."
+            text_color: 0x404040
+            align: BOTTOM_MID
+            y: -20
+
+sphere_viz:
+  - id: voice_orb
+    page_id: orb_page
+    x: 312
+    y: 100
+    width: 400
+    height: 400
+    mode: PARTICLES
+    fps: 30
+    color: 0x66AAFF      # cool blue for particles
+    particles: 900       # dense cloud
