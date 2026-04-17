@@ -1,7 +1,13 @@
 # =============================================================================
-# Jarvis-style 3D PARTICLE CLOUD sphere, voice-reactive.
+# Jarvis-style 3D PARTICLE CLOUD sphere — reacts to Voice Assistant states.
 # Target: Waveshare ESP32-P4-WIFI6-TOUCH-LCD-7B (MIPI-DSI 1024x600, rotation 180)
-# Microphone: on-board ES7210 via I2S (GPIO11 DIN, 16 kHz 16-bit)
+#
+# State → visual mapping:
+#   idle              : dim blue,   slow breath           (0.05 amp, 0.4 Hz)
+#   listening         : cyan,       live mic RMS          (auto_pulse off)
+#   thinking (STT/intent): violet,  mid breath            (0.35 amp, 2.0 Hz)
+#   replying (TTS)    : warm green, fast breath           (0.55 amp, 4.0 Hz)
+#   error             : red,        fast                  (0.70 amp, 6.0 Hz)
 # =============================================================================
 esphome:
   name: sphere-particles
@@ -12,6 +18,8 @@ esphome:
   on_boot:
     priority: -100
     then:
+      # Start mic RMS feed. Only actually animates the sphere while listening
+      # (during other states auto_pulse drives the visual).
       - lambda: |-
           id(esp32_microphone)->add_data_callback([](const std::vector<uint8_t> &data) {
             const int16_t *s = reinterpret_cast<const int16_t *>(data.data());
@@ -28,7 +36,10 @@ esphome:
             if (shaped > 1.0f) shaped = 1.0f;
             id(voice_orb).set_level(shaped);
           });
-          id(esp32_microphone)->start();
+      # Start in idle look
+      - lambda: |-
+          id(voice_orb).set_color_target(0x224466);
+          id(voice_orb).set_auto_pulse(0.05, 0.4);
 
 esp32:
   board: esp32-p4-evboard
@@ -61,6 +72,20 @@ esp_ldo:
 logger:
   level: INFO
 
+# Required for voice_assistant
+api:
+  encryption:
+    key: ""
+ota:
+  - platform: esphome
+    password: ""
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Sphere Fallback"
+    password: ""
+
 external_components:
   - source:
       type: git
@@ -69,17 +94,29 @@ external_components:
     components: [lvgl, image, thorvg, sphere_viz]
     refresh: 0s
 
+# ----------------------------------------------------------------------------
+# I2C (audio codecs)
+# ----------------------------------------------------------------------------
 i2c:
   - id: bsp_bus
     sda: GPIO07
     scl: GPIO08
     frequency: 400kHz
 
+# ----------------------------------------------------------------------------
+# I2S audio + mic + speaker
+# ----------------------------------------------------------------------------
 i2s_audio:
   - id: audio_bus
     i2s_mclk_pin: GPIO13
     i2s_lrclk_pin: GPIO10
     i2s_bclk_pin: GPIO12
+
+audio_dac:
+  - platform: es8311
+    id: es8311_dac
+    i2c_id: bsp_bus
+    address: 0x18
 
 audio_adc:
   - platform: es7210
@@ -96,6 +133,130 @@ microphone:
     bits_per_sample: 16bit
     adc_type: external
 
+speaker:
+  - platform: i2s_audio
+    id: esp32_speaker
+    i2s_audio_id: audio_bus
+    i2s_dout_pin: GPIO9
+    audio_dac: es8311_dac
+    dac_type: external
+    channel: mono
+    buffer_duration: 500ms
+    bits_per_sample: 16bit
+    sample_rate: 48000
+
+  - platform: mixer
+    id: mixing_speaker
+    output_speaker: esp32_speaker
+    source_speakers:
+      - id: announcement_mixing_input
+        timeout: never
+      - id: media_mixing_input
+        timeout: never
+
+  - platform: resampler
+    id: announcement_resampling_speaker
+    output_speaker: announcement_mixing_input
+    sample_rate: 48000
+    bits_per_sample: 16
+
+  - platform: resampler
+    id: media_resampling_speaker
+    output_speaker: media_mixing_input
+    sample_rate: 48000
+    bits_per_sample: 16
+
+media_player:
+  - platform: speaker
+    name: "ESP32 P4 Media Player"
+    id: speaker_media_player
+    codec_support_enabled: true
+    volume_min: 0.5
+    volume_max: 0.75
+    volume_increment: 0.05
+    announcement_pipeline:
+      speaker: announcement_resampling_speaker
+      format: FLAC
+      sample_rate: 48000
+      num_channels: 1
+    media_pipeline:
+      speaker: media_resampling_speaker
+      format: FLAC
+      num_channels: 1
+      sample_rate: 48000
+
+# ----------------------------------------------------------------------------
+# Wake word + voice assistant
+# ----------------------------------------------------------------------------
+micro_wake_word:
+  id: my_wake_word
+  models:
+    - model: alexa
+  on_wake_word_detected:
+    - lambda: |-
+        // Wake-word flash: bright cyan ping
+        id(voice_orb).set_color_target(0x00FFFF);
+        id(voice_orb).set_auto_pulse(0.8, 5.0);
+    - voice_assistant.start:
+        wake_word: !lambda return wake_word;
+
+voice_assistant:
+  microphone: esp32_microphone
+  media_player: speaker_media_player
+  micro_wake_word: my_wake_word
+  noise_suppression_level: 2
+  auto_gain: 31dBFS
+  volume_multiplier: 2.0
+  conversation_timeout: 300s
+
+  # --- Listening: mic-reactive cyan, disable synthetic ---
+  on_listening:
+    - lambda: |-
+        id(voice_orb).set_color_target(0x00E5FF);
+        id(voice_orb).set_auto_pulse(0.0, 0.0);
+
+  # --- Thinking (intent processing): violet synthetic breath ---
+  on_stt_end:
+    - lambda: |-
+        id(voice_orb).set_color_target(0xAA55FF);
+        id(voice_orb).set_auto_pulse(0.35, 2.0);
+
+  # --- Replying (TTS playing): warm green faster breath ---
+  on_tts_start:
+    - lambda: |-
+        id(voice_orb).set_color_target(0x33FFAA);
+        id(voice_orb).set_auto_pulse(0.55, 4.0);
+
+  # --- End of flow → idle dim blue slow breath ---
+  on_end:
+    - wait_until:
+        condition:
+          - media_player.is_announcing:
+        timeout: 0.5s
+    - wait_until:
+        - and:
+            - not:
+                media_player.is_announcing:
+            - not:
+                media_player.is_playing:
+    - lambda: |-
+        id(voice_orb).set_color_target(0x224466);
+        id(voice_orb).set_auto_pulse(0.05, 0.4);
+    - micro_wake_word.start:
+
+  on_error:
+    - lambda: |-
+        id(voice_orb).set_color_target(0xFF3030);
+        id(voice_orb).set_auto_pulse(0.70, 6.0);
+
+  on_client_connected:
+    - micro_wake_word.start:
+  on_client_disconnected:
+    - micro_wake_word.stop:
+
+# ----------------------------------------------------------------------------
+# Display
+# ----------------------------------------------------------------------------
 display:
   - platform: mipi_dsi
     id: main_display
@@ -109,6 +270,9 @@ display:
       width: 1024
       height: 600
 
+# ----------------------------------------------------------------------------
+# LVGL
+# ----------------------------------------------------------------------------
 lvgl:
   buffer_size: 100%
   byte_order: little_endian
@@ -121,17 +285,20 @@ lvgl:
       widgets:
         - label:
             id: title_label
-            text: "JARVIS - PARTICLES"
+            text: "JARVIS"
             text_color: 0x66AAFF
             align: TOP_MID
             y: 20
         - label:
-            id: level_label
-            text: "listening..."
+            id: state_label
+            text: "say 'Alexa'"
             text_color: 0x404040
             align: BOTTOM_MID
             y: -20
 
+# ----------------------------------------------------------------------------
+# The voice-reactive 3D particle sphere
+# ----------------------------------------------------------------------------
 sphere_viz:
   - id: voice_orb
     page_id: orb_page
@@ -141,5 +308,5 @@ sphere_viz:
     height: 400
     mode: PARTICLES
     fps: 30
-    color: 0x66AAFF      # cool blue for particles
-    particles: 900       # dense cloud
+    color: 0x224466      # idle color; state lambdas fade to others
+    particles: 900

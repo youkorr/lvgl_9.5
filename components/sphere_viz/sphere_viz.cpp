@@ -235,10 +235,38 @@ void SphereViz::draw_glow_point_(int cx, int cy, float rad,
 void SphereViz::render_frame_() {
   if (this->pixels_ == nullptr) return;
 
-  // EMA smoothing of audio level
+  // Synthetic pulse (used during TTS / thinking when no mic RMS is fed).
+  // Mixes with real target_level so both can coexist.
+  float synth = 0.0f;
+  if (this->auto_amp_ > 0.001f && this->auto_hz_ > 0.001f) {
+    const float dt = 1.0f / (float) this->fps_;
+    this->auto_phase_ += 2.0f * (float) M_PI * this->auto_hz_ * dt;
+    if (this->auto_phase_ > 2.0f * (float) M_PI) this->auto_phase_ -= 2.0f * (float) M_PI;
+    // Half-rectified sine so it looks like breathing
+    float s = (std::sin(this->auto_phase_) + 1.0f) * 0.5f;
+    synth = this->auto_amp_ * s;
+  }
+  float mixed_target = this->target_level_ + synth;
+  if (mixed_target > 1.0f) mixed_target = 1.0f;
+
+  // EMA smoothing of the mixed level
   const float alpha = 0.35f;
-  this->ema_level_ = this->ema_level_ + alpha * (this->target_level_ - this->ema_level_);
+  this->ema_level_ = this->ema_level_ + alpha * (mixed_target - this->ema_level_);
   const float lvl = this->ema_level_;
+
+  // Smooth color transition: color_ → color_target_
+  if (this->color_ != this->color_target_) {
+    auto lerp_ch = [](uint8_t a, uint8_t b) -> uint8_t {
+      int d = (int) b - (int) a;
+      if (d > 0)  return (uint8_t) (a + ((d > 8) ? 8 : d));
+      if (d < 0)  return (uint8_t) (a + ((d < -8) ? -8 : d));
+      return a;
+    };
+    uint8_t cr = lerp_ch((this->color_ >> 16) & 0xFF, (this->color_target_ >> 16) & 0xFF);
+    uint8_t cg = lerp_ch((this->color_ >> 8)  & 0xFF, (this->color_target_ >> 8)  & 0xFF);
+    uint8_t cb = lerp_ch( this->color_        & 0xFF,  this->color_target_        & 0xFF);
+    this->color_ = ((uint32_t) cr << 16) | ((uint32_t) cg << 8) | cb;
+  }
 
   // Rotation progress
   this->yaw_   += 0.010f + lvl * 0.03f;

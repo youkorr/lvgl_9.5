@@ -48,7 +48,12 @@ class SphereViz : public Component {
   }
   void set_mode(SphereMode m) { this->mode_ = m; }
   void set_fps(int fps) { this->fps_ = fps; }
-  void set_color(uint32_t argb) { this->color_ = argb; }
+  void set_color(uint32_t argb) {
+    this->color_ = argb;
+    this->color_target_ = argb;
+  }
+  // Smoothly transition to a new color over the next few frames.
+  void set_color_target(uint32_t argb) { this->color_target_ = argb; }
   void set_particle_count(int n) { this->particle_count_ = n; }
   void set_meridians(int n) { this->meridians_ = n; }
   void set_parallels(int n) { this->parallels_ = n; }
@@ -59,6 +64,13 @@ class SphereViz : public Component {
     if (v < 0.0f) v = 0.0f;
     if (v > 1.0f) v = 1.0f;
     this->target_level_ = v;
+  }
+
+  // Synthetic pulse when no live audio is available (e.g. during TTS).
+  // amplitude 0..1, hz 0..20. amplitude=0 disables.
+  void set_auto_pulse(float amplitude, float hz) {
+    this->auto_amp_ = amplitude < 0.0f ? 0.0f : (amplitude > 1.0f ? 1.0f : amplitude);
+    this->auto_hz_  = hz < 0.0f ? 0.0f : (hz > 20.0f ? 20.0f : hz);
   }
 
   float get_ema() const { return this->ema_level_; }
@@ -75,10 +87,16 @@ class SphereViz : public Component {
   int radius_override_{0};
   SphereMode mode_{MODE_WIREFRAME};
   int fps_{30};
-  uint32_t color_{0x00FF88};   // 0xRRGGBB (Jarvis cyan-green by default)
+  uint32_t color_{0x00FF88};   // current displayed color (0xRRGGBB)
+  uint32_t color_target_{0x00FF88};  // target after smooth transition
   int particle_count_{600};
   int meridians_{12};
   int parallels_{8};
+
+  // Synthetic pulse
+  float auto_amp_{0.0f};
+  float auto_hz_{0.0f};
+  float auto_phase_{0.0f};
 
   // Runtime
   lv_obj_t *canvas_{nullptr};
