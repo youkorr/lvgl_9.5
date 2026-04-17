@@ -18,6 +18,8 @@ esphome:
   on_boot:
     priority: -100
     then:
+      # Force-load the orb page so the canvas is visible.
+      - lvgl.page.show: orb_page
       # Start mic RMS feed. Only actually animates the sphere while listening
       # (during other states auto_pulse drives the visual).
       - lambda: |-
@@ -277,34 +279,37 @@ lvgl:
   buffer_size: 25%          # reduced from 100% to free internal DRAM for i2s DMA
   byte_order: little_endian
   ppa_enabled: true
-  bg_color: 0x000000
   displays:
     - main_display
-  widgets:                  # flat widgets on the default screen (no pages)
-    - label:
-        id: title_label
-        text: "JARVIS"
-        text_color: 0x66AAFF
-        align: TOP_MID
-        y: 20
-    - label:
-        id: state_label
-        text: "say 'Alexa'"
-        text_color: 0x404040
-        align: BOTTOM_MID
-        y: -20
+  pages:
+    - id: orb_page
+      bg_color: 0x000000
+      widgets:
+        - label:
+            id: title_label
+            text: "JARVIS"
+            text_color: 0x66AAFF
+            align: TOP_MID
+            y: 20
+        - label:
+            id: state_label
+            text: "say 'Alexa'"
+            text_color: 0x404040
+            align: BOTTOM_MID
+            y: -20
 
 # ----------------------------------------------------------------------------
-# The voice-reactive 3D particle sphere. No page_id → attaches to the default
-# active screen (lv_screen_active), so it is always visible.
+# Voice-reactive 3D particle sphere. page_id ties the canvas to orb_page so
+# it renders when that page is shown.
 # ----------------------------------------------------------------------------
 sphere_viz:
   - id: voice_orb
+    page_id: orb_page
     x: 312
     y: 100
     width: 400
     height: 400
     mode: PARTICLES
     fps: 30
-    color: 0x224466      # idle color; state lambdas fade to others
+    color: 0x224466
     particles: 900
