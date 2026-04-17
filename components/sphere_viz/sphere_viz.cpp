@@ -58,6 +58,11 @@ void SphereViz::allocate_canvas_() {
   lv_obj_set_pos(this->canvas_, this->x_, this->y_);
   lv_obj_set_size(this->canvas_, w, h);
   lv_obj_clear_flag(this->canvas_, LV_OBJ_FLAG_CLICKABLE);
+  // No widget chrome — only the ARGB pixels we draw should be visible.
+  lv_obj_set_style_bg_opa(this->canvas_, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_border_width(this->canvas_, 0, LV_PART_MAIN);
+  lv_obj_set_style_outline_width(this->canvas_, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(this->canvas_, 0, LV_PART_MAIN);
 }
 
 // ---------------------------------------------------------------------------
