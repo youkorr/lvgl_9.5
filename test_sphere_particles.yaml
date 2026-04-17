@@ -323,11 +323,12 @@ lvgl:
 sphere_viz:
   - id: voice_orb
     page_id: orb_page
-    x: 312
-    y: 100
-    width: 400
-    height: 400
+    x: 0
+    y: 0
+    width: 1024          # full screen — particles scatter across the whole display
+    height: 600
+    radius: 180          # sphere radius in pixels (independent of canvas size)
     mode: PARTICLES
     fps: 30
     color: 0x224466
-    particles: 900
+    particles: 1200

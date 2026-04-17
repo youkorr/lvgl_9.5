@@ -163,10 +163,12 @@ inline void SphereViz::put_px_(int x, int y, uint8_t r, uint8_t g, uint8_t b, ui
   if ((unsigned) x >= (unsigned) this->w_) return;
   if ((unsigned) y >= (unsigned) this->h_) return;
   uint8_t *p = this->pixels_ + y * this->stride_ + x * 4;
-  // LV_COLOR_FORMAT_ARGB8888 little-endian storage: B, G, R, A
-  p[0] = b;
+  // LVGL 9 ARGB8888 on ESP32-P4 displays this memory layout as R, G, B, A
+  // when the display is configured RGB. Writing RGB order here keeps the
+  // YAML color value (0xRRGGBB) visually correct.
+  p[0] = r;
   p[1] = g;
-  p[2] = r;
+  p[2] = b;
   p[3] = a;
 }
 
@@ -174,11 +176,11 @@ inline void SphereViz::blend_px_(int x, int y, uint8_t r, uint8_t g, uint8_t b, 
   if ((unsigned) x >= (unsigned) this->w_) return;
   if ((unsigned) y >= (unsigned) this->h_) return;
   uint8_t *p = this->pixels_ + y * this->stride_ + x * 4;
-  // src-over blend with accumulated alpha
+  // src-over blend with accumulated alpha (RGB order, see put_px_)
   uint32_t inv = 255 - a;
-  p[0] = (uint8_t) ((b * a + p[0] * inv) / 255);
+  p[0] = (uint8_t) ((r * a + p[0] * inv) / 255);
   p[1] = (uint8_t) ((g * a + p[1] * inv) / 255);
-  p[2] = (uint8_t) ((r * a + p[2] * inv) / 255);
+  p[2] = (uint8_t) ((b * a + p[2] * inv) / 255);
   uint32_t na = a + (p[3] * inv) / 255;
   p[3] = (uint8_t) (na > 255 ? 255 : na);
 }
@@ -191,9 +193,9 @@ void SphereViz::clear_buffer_(uint32_t bg_argb) {
   uint8_t *p = this->pixels_;
   const int total = this->w_ * this->h_;
   for (int i = 0; i < total; i++) {
-    p[0] = b;
+    p[0] = r;
     p[1] = g;
-    p[2] = r;
+    p[2] = b;
     p[3] = a;
     p += 4;
   }
@@ -238,20 +240,23 @@ void SphereViz::draw_disc_(int cx, int cy, int rad,
 
 void SphereViz::draw_glow_point_(int cx, int cy, float rad,
                                  uint8_t r, uint8_t g, uint8_t b) {
-  // Soft radial point: center bright, alpha fades with radius^2.
-  int ir = (int) std::ceil(rad);
-  if (ir < 1) ir = 1;
-  float inv = 1.0f / (rad * rad + 0.001f);
+  // Smooth radial point: softer Gaussian-like falloff (1-d/r)^2 so tiny
+  // particles don't look like pixelated squares.
+  if (rad < 1.2f) rad = 1.2f;
+  int ir = (int) std::ceil(rad + 0.5f);
+  const float inv_r = 1.0f / rad;
   for (int dy = -ir; dy <= ir; dy++) {
     int yy = cy + dy;
     if ((unsigned) yy >= (unsigned) this->h_) continue;
     for (int dx = -ir; dx <= ir; dx++) {
       int xx = cx + dx;
       if ((unsigned) xx >= (unsigned) this->w_) continue;
-      float d2 = (float) (dx * dx + dy * dy);
-      float k = 1.0f - d2 * inv;
-      if (k <= 0.0f) continue;
+      float d = std::sqrt((float) (dx * dx + dy * dy)) * inv_r;
+      if (d >= 1.0f) continue;
+      float k = 1.0f - d;
+      k = k * k;  // square for softer edge
       uint8_t aa = (uint8_t) (k * 255.0f);
+      if (aa == 0) continue;
       this->blend_px_(xx, yy, r, g, b, aa);
     }
   }
@@ -380,13 +385,14 @@ void SphereViz::render_frame_() {
   } else {
     // Particles: each particle drifts from its sphere seat along a per-particle
     // random direction. Amplitude scales with audio level — so during speech
-    // the cloud "explodes" outward, then collapses back at idle.
+    // the cloud "explodes" across the whole canvas, then collapses back at idle.
     //
-    // Two-component amplitude:
+    // Two-component amplitude (in units of sphere radius R):
     //   idle_wobble   — small constant jitter so even silence isn't frozen
-    //   surge         — level-driven swing (up to ~0.75× sphere radius)
+    //   surge         — level-driven swing. 2.0 means particles can fly out
+    //                   to twice the sphere radius, well past the canvas edge.
     const float idle_wobble = 0.04f;
-    const float surge       = 0.75f * lvl;
+    const float surge       = 2.0f * lvl;
     const float fast_t      = this->t_ * 3.2f;   // per-particle oscillation rate
     for (size_t i = 0; i < this->verts_.size(); i++) {
       const Vec3 &base = this->verts_[i];
