@@ -112,8 +112,22 @@ void SphereViz::build_particles_() {
   // Fibonacci sphere distribution — nicely uniform.
   this->verts_.clear();
   this->edges_.clear();
+  this->dirs_.clear();
+  this->phases_.clear();
   this->verts_.reserve(this->particle_count_);
+  this->dirs_.reserve(this->particle_count_);
+  this->phases_.reserve(this->particle_count_);
+
   const float ga = (float) M_PI * (3.0f - std::sqrt(5.0f));  // golden angle
+
+  // Deterministic PRNG (xorshift32) so boot-to-boot particle scatter is stable.
+  uint32_t rng = 0xC0FFEE42u;
+  auto nextf = [&rng]() -> float {
+    rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
+    // Map to [-1, 1]
+    return ((int32_t) rng) * (1.0f / 2147483648.0f);
+  };
+
   for (int i = 0; i < this->particle_count_; i++) {
     float y = 1.0f - (i / (float) (this->particle_count_ - 1)) * 2.0f;
     float r = std::sqrt(1.0f - y * y);
@@ -123,6 +137,21 @@ void SphereViz::build_particles_() {
     v.y = y;
     v.z = std::sin(theta) * r;
     this->verts_.push_back(v);
+
+    // Random 3D direction for scatter (rejection-sampled unit vector).
+    Vec3 d;
+    for (int tries = 0; tries < 8; tries++) {
+      d.x = nextf(); d.y = nextf(); d.z = nextf();
+      float len2 = d.x * d.x + d.y * d.y + d.z * d.z;
+      if (len2 > 0.05f && len2 <= 1.0f) {
+        float inv = 1.0f / std::sqrt(len2);
+        d.x *= inv; d.y *= inv; d.z *= inv;
+        break;
+      }
+    }
+    this->dirs_.push_back(d);
+    // Random phase in [0, 2π)
+    this->phases_.push_back((nextf() * 0.5f + 0.5f) * 2.0f * (float) M_PI);
   }
 }
 
@@ -268,6 +297,10 @@ void SphereViz::render_frame_() {
     this->color_ = ((uint32_t) cr << 16) | ((uint32_t) cg << 8) | cb;
   }
 
+  // Global time accumulator (used for per-particle oscillation)
+  this->t_ += 1.0f / (float) this->fps_;
+  if (this->t_ > 10000.0f) this->t_ -= 10000.0f;
+
   // Rotation progress
   this->yaw_   += 0.010f + lvl * 0.03f;
   this->pitch_ += 0.004f;
@@ -345,17 +378,41 @@ void SphereViz::render_frame_() {
       this->draw_line_aa_(ax, ay, bx, by, r, g, b, alpha);
     }
   } else {
-    // Particles: one soft dot per vertex, depth-sorted implicitly by alpha
-    for (const auto &v : this->verts_) {
+    // Particles: each particle drifts from its sphere seat along a per-particle
+    // random direction. Amplitude scales with audio level — so during speech
+    // the cloud "explodes" outward, then collapses back at idle.
+    //
+    // Two-component amplitude:
+    //   idle_wobble   — small constant jitter so even silence isn't frozen
+    //   surge         — level-driven swing (up to ~0.75× sphere radius)
+    const float idle_wobble = 0.04f;
+    const float surge       = 0.75f * lvl;
+    const float fast_t      = this->t_ * 3.2f;   // per-particle oscillation rate
+    for (size_t i = 0; i < this->verts_.size(); i++) {
+      const Vec3 &base = this->verts_[i];
+      const Vec3 &dir  = this->dirs_[i];
+      const float ph   = this->phases_[i];
+      // Half-shifted sin so particles never all cross zero at once
+      const float osc = std::sin(fast_t + ph);
+      const float d   = idle_wobble * osc + surge * (0.5f + 0.5f * osc);
+      Vec3 pos;
+      pos.x = base.x + dir.x * d;
+      pos.y = base.y + dir.y * d;
+      pos.z = base.z + dir.z * d;
+
       int sx, sy;
       float sz;
-      project(v, sx, sy, sz);
+      project(pos, sx, sy, sz);
       float front = 0.5f - sz * 0.5f;
       if (front < 0.0f) front = 0.0f;
       if (front > 1.0f) front = 1.0f;
-      float rad = 1.0f + front * (1.8f + lvl * 1.5f);
-      uint8_t a = (uint8_t) (40 + front * (180.0f + lvl * 60.0f));
-      if (a > 255) a = 255;
+
+      // Displaced particles render slightly larger & brighter ("hot")
+      float boost = 1.0f + std::fabs(d) * 1.5f;
+      float rad = (1.0f + front * (1.8f + lvl * 1.5f)) * boost;
+      int ai = (int) (40 + front * (180.0f + lvl * 80.0f));
+      if (ai > 255) ai = 255;
+      uint8_t a = (uint8_t) ai;
       uint8_t r = brighten(CR, front);
       uint8_t g = brighten(CG, front);
       uint8_t b = brighten(CB, front);

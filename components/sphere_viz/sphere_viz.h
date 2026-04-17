@@ -105,6 +105,9 @@ class SphereViz : public Component {
   int stride_{0};
   uint32_t last_frame_us_{0};
 
+  // Continuous time in seconds, used for per-particle oscillation.
+  float t_{0.0f};
+
   // Rotation state
   float yaw_{0.0f};
   float pitch_{0.0f};
@@ -116,6 +119,10 @@ class SphereViz : public Component {
   // Pre-computed unit sphere
   std::vector<Vec3> verts_;
   std::vector<Edge> edges_;
+
+  // Per-particle scatter parameters (PARTICLES mode only).
+  std::vector<Vec3> dirs_;     // random unit direction for "explosion" drift
+  std::vector<float> phases_;  // random oscillation phase [0, 2π]
 
   // Build helpers
   void allocate_canvas_();

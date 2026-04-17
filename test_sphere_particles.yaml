@@ -223,21 +223,21 @@ voice_assistant:
         id(voice_orb).set_color_target(0x00E5FF);
         id(voice_orb).set_auto_pulse(0.0, 0.0);
 
-  # --- Thinking (intent processing): violet synthetic breath ---
+  # --- Thinking (intent processing): violet, strong pulsing scatter ---
   on_stt_end:
     - lvgl.page.show: orb_page
     - component.update: main_display
     - lambda: |-
         id(voice_orb).set_color_target(0xAA55FF);
-        id(voice_orb).set_auto_pulse(0.35, 2.0);
+        id(voice_orb).set_auto_pulse(0.75, 2.5);
 
-  # --- Replying (TTS playing): warm green faster breath ---
+  # --- Replying (TTS playing): warm green, full explosive scatter ---
   on_tts_start:
     - lvgl.page.show: orb_page
     - component.update: main_display
     - lambda: |-
         id(voice_orb).set_color_target(0x33FFAA);
-        id(voice_orb).set_auto_pulse(0.55, 4.0);
+        id(voice_orb).set_auto_pulse(0.95, 4.5);
 
   on_tts_end:
     - lvgl.page.show: orb_page
