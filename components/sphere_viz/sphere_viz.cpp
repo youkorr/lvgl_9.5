@@ -324,7 +324,8 @@ void SphereViz::render_frame_() {
   const int ox = this->w_ / 2;
   const int oy = this->h_ / 2;
 
-  this->clear_buffer_(this->background_);
+  // Transparent canvas — let LVGL page bg_color show through.
+  this->clear_buffer_(0x00000000);
 
   // Extract color channels from user-configured color
   const uint8_t CR = (this->color_ >> 16) & 0xFF;

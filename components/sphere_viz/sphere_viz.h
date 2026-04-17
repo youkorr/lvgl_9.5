@@ -54,7 +54,6 @@ class SphereViz : public Component {
   }
   // Smoothly transition to a new color over the next few frames.
   void set_color_target(uint32_t argb) { this->color_target_ = argb; }
-  void set_background(uint32_t argb) { this->background_ = argb; }
   void set_particle_count(int n) { this->particle_count_ = n; }
   void set_meridians(int n) { this->meridians_ = n; }
   void set_parallels(int n) { this->parallels_ = n; }
@@ -90,7 +89,6 @@ class SphereViz : public Component {
   int fps_{30};
   uint32_t color_{0x00FF88};   // current displayed color (0xRRGGBB)
   uint32_t color_target_{0x00FF88};  // target after smooth transition
-  uint32_t background_{0xFF000000};  // canvas clear color (0xAARRGGBB)
   int particle_count_{600};
   int meridians_{12};
   int parallels_{8};

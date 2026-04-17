@@ -51,7 +51,6 @@ CONF_MERIDIANS = "meridians"
 CONF_PARALLELS = "parallels"
 CONF_RADIUS = "radius"
 CONF_PAGE_ID = "page_id"
-CONF_BACKGROUND = "background"
 
 MODES = {
     "WIREFRAME": SphereMode.MODE_WIREFRAME,
@@ -70,7 +69,6 @@ CONFIG_SCHEMA = cv.ensure_list(
             cv.Optional(CONF_MODE, default="WIREFRAME"): cv.enum(MODES, upper=True),
             cv.Optional(CONF_FPS, default=30): cv.int_range(5, 60),
             cv.Optional(CONF_COLOR, default=0x00FFAA): cv.hex_int,
-            cv.Optional(CONF_BACKGROUND, default=0xFF000000): cv.hex_int,
             cv.Optional(CONF_PARTICLES, default=600): cv.int_range(50, 4000),
             cv.Optional(CONF_MERIDIANS, default=12): cv.int_range(4, 32),
             cv.Optional(CONF_PARALLELS, default=8): cv.int_range(2, 20),
@@ -89,7 +87,6 @@ async def to_code(config):
         cg.add(var.set_mode(conf[CONF_MODE]))
         cg.add(var.set_fps(conf[CONF_FPS]))
         cg.add(var.set_color(conf[CONF_COLOR]))
-        cg.add(var.set_background(conf[CONF_BACKGROUND]))
         cg.add(var.set_particle_count(conf[CONF_PARTICLES]))
         cg.add(var.set_meridians(conf[CONF_MERIDIANS]))
         cg.add(var.set_parallels(conf[CONF_PARALLELS]))
