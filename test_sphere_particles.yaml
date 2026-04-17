@@ -141,7 +141,7 @@ speaker:
     audio_dac: es8311_dac
     dac_type: external
     channel: mono
-    buffer_duration: 500ms
+    buffer_duration: 100ms   # reduced from 500ms to free internal DRAM (i2s DMA)
     bits_per_sample: 16bit
     sample_rate: 48000
 
@@ -274,34 +274,32 @@ display:
 # LVGL
 # ----------------------------------------------------------------------------
 lvgl:
-  buffer_size: 100%
+  buffer_size: 25%          # reduced from 100% to free internal DRAM for i2s DMA
   byte_order: little_endian
   ppa_enabled: true
+  bg_color: 0x000000
   displays:
     - main_display
-  pages:
-    - id: orb_page
-      bg_color: 0x000000
-      widgets:
-        - label:
-            id: title_label
-            text: "JARVIS"
-            text_color: 0x66AAFF
-            align: TOP_MID
-            y: 20
-        - label:
-            id: state_label
-            text: "say 'Alexa'"
-            text_color: 0x404040
-            align: BOTTOM_MID
-            y: -20
+  widgets:                  # flat widgets on the default screen (no pages)
+    - label:
+        id: title_label
+        text: "JARVIS"
+        text_color: 0x66AAFF
+        align: TOP_MID
+        y: 20
+    - label:
+        id: state_label
+        text: "say 'Alexa'"
+        text_color: 0x404040
+        align: BOTTOM_MID
+        y: -20
 
 # ----------------------------------------------------------------------------
-# The voice-reactive 3D particle sphere
+# The voice-reactive 3D particle sphere. No page_id → attaches to the default
+# active screen (lv_screen_active), so it is always visible.
 # ----------------------------------------------------------------------------
 sphere_viz:
   - id: voice_orb
-    page_id: orb_page
     x: 312
     y: 100
     width: 400

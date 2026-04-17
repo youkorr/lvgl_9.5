@@ -125,34 +125,31 @@ display:
 # LVGL — single page, sphere centered at (312, 100) = (1024-400)/2, (600-400)/2
 # ----------------------------------------------------------------------------
 lvgl:
-  buffer_size: 100%
+  buffer_size: 25%         # reduced to free internal DRAM for i2s DMA
   byte_order: little_endian
   ppa_enabled: true
+  bg_color: 0x000000
   displays:
     - main_display
-  pages:
-    - id: orb_page
-      bg_color: 0x000000
-      widgets:
-        - label:
-            id: title_label
-            text: "JARVIS - WIREFRAME"
-            text_color: 0x00FFAA
-            align: TOP_MID
-            y: 20
-        - label:
-            id: level_label
-            text: "listening..."
-            text_color: 0x404040
-            align: BOTTOM_MID
-            y: -20
+  widgets:
+    - label:
+        id: title_label
+        text: "JARVIS - WIREFRAME"
+        text_color: 0x00FFAA
+        align: TOP_MID
+        y: 20
+    - label:
+        id: level_label
+        text: "listening..."
+        text_color: 0x404040
+        align: BOTTOM_MID
+        y: -20
 
 # ----------------------------------------------------------------------------
-# The voice-reactive 3D sphere
+# The voice-reactive 3D sphere — no page_id, attaches to active screen.
 # ----------------------------------------------------------------------------
 sphere_viz:
   - id: voice_orb
-    page_id: orb_page
     x: 312               # (1024 - 400) / 2 → centered horizontally
     y: 100               # (600 - 400) / 2
     width: 400
