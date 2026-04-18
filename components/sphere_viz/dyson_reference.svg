@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Dyson sphere — visual reference for sphere_viz C++ renderer.
+  Palette matches ai_animation/ai12 frames (deep purple/indigo + cyan highlights).
+
+  Layers (back → front):
+    1. Space background
+    2. Central star with radial glow + corona flares
+    3. Outer glass shell (soft radial highlight)
+    4. Geodesic lattice — meridians (longitude lines) + parallels (latitude lines)
+    5. Orbital ring at equator (tilted)
+    6. Small panels/nodes where lattice edges intersect (the "Dyson swarm")
+    7. Foreground energy wisps
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600">
+  <defs>
+    <!-- Deep space background -->
+    <radialGradient id="space" cx="50%" cy="50%" r="70%">
+      <stop offset="0%"  stop-color="#1a0d2e"/>
+      <stop offset="60%" stop-color="#0a0516"/>
+      <stop offset="100%" stop-color="#000000"/>
+    </radialGradient>
+
+    <!-- Central star: white-hot core → violet-blue halo -->
+    <radialGradient id="star" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"  stop-color="#ffffff" stop-opacity="1"/>
+      <stop offset="15%" stop-color="#c8e0ff" stop-opacity="0.95"/>
+      <stop offset="40%" stop-color="#5a7cff" stop-opacity="0.7"/>
+      <stop offset="70%" stop-color="#6b2cc9" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#1a0033" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Outer shell highlight (glassy bloom) -->
+    <radialGradient id="shell" cx="40%" cy="35%" r="60%">
+      <stop offset="0%"  stop-color="#a8c8ff" stop-opacity="0.28"/>
+      <stop offset="50%" stop-color="#4a3a8a" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Lattice stroke gradient: cyan near horizon, indigo at limb -->
+    <linearGradient id="lattice" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#7fd4ff" stop-opacity="0.9"/>
+      <stop offset="50%"  stop-color="#a66bff" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#4a2b9c" stop-opacity="0.6"/>
+    </linearGradient>
+
+    <!-- Soft glow filter for star + nodes -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Stronger bloom for the central star -->
+    <filter id="starBloom" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+
+    <!-- Clip lattice strokes to the sphere bounds -->
+    <clipPath id="sphereClip">
+      <circle cx="300" cy="300" r="220"/>
+    </clipPath>
+  </defs>
+
+  <!-- 1. Space -->
+  <rect width="600" height="600" fill="url(#space)"/>
+
+  <!-- Scattered distant stars -->
+  <g fill="#ffffff" opacity="0.55">
+    <circle cx="70"  cy="90"  r="0.8"/>
+    <circle cx="520" cy="60"  r="1.1"/>
+    <circle cx="550" cy="420" r="0.7"/>
+    <circle cx="40"  cy="480" r="1.0"/>
+    <circle cx="480" cy="540" r="0.9"/>
+    <circle cx="120" cy="540" r="0.6"/>
+    <circle cx="560" cy="240" r="0.6"/>
+    <circle cx="30"  cy="300" r="0.8"/>
+    <circle cx="300" cy="40"  r="0.7"/>
+    <circle cx="300" cy="560" r="0.7"/>
+  </g>
+
+  <!-- 2. Central star with bloom -->
+  <g filter="url(#starBloom)">
+    <circle cx="300" cy="300" r="55" fill="#6a88ff" opacity="0.55"/>
+  </g>
+  <circle cx="300" cy="300" r="42" fill="url(#star)"/>
+
+  <!-- Corona flares (4-point + diagonals) -->
+  <g stroke="#ffffff" stroke-linecap="round" opacity="0.55" filter="url(#glow)">
+    <line x1="300" y1="242" x2="300" y2="358" stroke-width="2.2"/>
+    <line x1="242" y1="300" x2="358" y2="300" stroke-width="2.2"/>
+    <line x1="258" y1="258" x2="342" y2="342" stroke-width="1.2" opacity="0.5"/>
+    <line x1="258" y1="342" x2="342" y2="258" stroke-width="1.2" opacity="0.5"/>
+  </g>
+
+  <!-- 3. Outer glass shell highlight -->
+  <circle cx="300" cy="300" r="220" fill="url(#shell)"/>
+
+  <!-- 4. Geodesic lattice (clipped to sphere silhouette) -->
+  <g clip-path="url(#sphereClip)" fill="none"
+     stroke="url(#lattice)" stroke-width="1.1" opacity="0.9">
+    <!-- Meridians: 12 longitude lines, drawn as ellipses of varying x-radius -->
+    <ellipse cx="300" cy="300" rx="220" ry="220"/>   <!-- limb -->
+    <ellipse cx="300" cy="300" rx="200" ry="220"/>
+    <ellipse cx="300" cy="300" rx="165" ry="220"/>
+    <ellipse cx="300" cy="300" rx="115" ry="220"/>
+    <ellipse cx="300" cy="300" rx="55"  ry="220"/>
+    <ellipse cx="300" cy="300" rx="10"  ry="220"/>   <!-- near pole axis -->
+    <!-- Parallels: latitude bands (flattened ellipses, distinct ry) -->
+    <ellipse cx="300" cy="300" rx="220" ry="10"/>    <!-- equator -->
+    <ellipse cx="300" cy="300" rx="215" ry="55"/>
+    <ellipse cx="300" cy="300" rx="200" ry="110"/>
+    <ellipse cx="300" cy="300" rx="170" ry="160"/>
+    <ellipse cx="300" cy="300" rx="120" ry="195"/>
+  </g>
+
+  <!-- 5. Tilted orbital ring / swarm belt (goes in front at the sides) -->
+  <g transform="translate(300 300) rotate(-18)">
+    <ellipse cx="0" cy="0" rx="250" ry="48" fill="none"
+             stroke="#b489ff" stroke-width="1.6" opacity="0.85" filter="url(#glow)"/>
+    <!-- panels along the belt -->
+    <g fill="#eaf2ff" opacity="0.9" filter="url(#glow)">
+      <circle cx="-250" cy="0" r="2.6"/>
+      <circle cx="-212" cy="-24" r="2.2"/>
+      <circle cx="-150" cy="-42" r="2.4"/>
+      <circle cx="-70"  cy="-47" r="2.2"/>
+      <circle cx="20"   cy="-46" r="2.2"/>
+      <circle cx="110"  cy="-38" r="2.4"/>
+      <circle cx="185"  cy="-24" r="2.2"/>
+      <circle cx="250"  cy="0"  r="2.6"/>
+      <circle cx="212"  cy="24"  r="2.2"/>
+      <circle cx="150"  cy="42"  r="2.4"/>
+      <circle cx="70"   cy="47"  r="2.2"/>
+      <circle cx="-20"  cy="46"  r="2.2"/>
+      <circle cx="-110" cy="38"  r="2.4"/>
+      <circle cx="-185" cy="24"  r="2.2"/>
+    </g>
+  </g>
+
+  <!-- 6. Nodes on lattice intersections (poles + a few verts) -->
+  <g fill="#e0f0ff" filter="url(#glow)" opacity="0.95">
+    <circle cx="300" cy="80"  r="2.5"/>  <!-- north pole -->
+    <circle cx="300" cy="520" r="2.5"/>  <!-- south pole -->
+    <circle cx="80"  cy="300" r="2.2"/>
+    <circle cx="520" cy="300" r="2.2"/>
+    <circle cx="165" cy="175" r="1.8"/>
+    <circle cx="435" cy="175" r="1.8"/>
+    <circle cx="165" cy="425" r="1.8"/>
+    <circle cx="435" cy="425" r="1.8"/>
+  </g>
+
+  <!-- 7. Foreground energy wisps (cyan / violet) for a living feel -->
+  <g fill="none" stroke-linecap="round" opacity="0.85" filter="url(#glow)">
+    <path d="M180 230 Q260 180 330 240 T450 270"
+          stroke="#7fd4ff" stroke-width="1.6" opacity="0.75"/>
+    <path d="M160 360 Q240 420 330 380 T470 340"
+          stroke="#b489ff" stroke-width="1.4" opacity="0.7"/>
+    <path d="M220 300 Q300 260 380 300 T460 310"
+          stroke="#ffffff" stroke-width="0.9" opacity="0.45"/>
+  </g>
+
+  <!-- Label -->
+  <g font-family="monospace" font-size="11" fill="#7fd4ff" opacity="0.7">
+    <text x="24" y="36">DYSON SPHERE — sphere_viz reference</text>
+    <text x="24" y="52" fill="#a66bff">wireframe lattice · central star · orbital swarm belt</text>
+  </g>
+</svg>
