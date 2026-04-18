@@ -16,10 +16,11 @@ void SphereViz::setup() {
     this->parent_ = lv_screen_active();
   }
   this->allocate_canvas_();
-  if (this->mode_ == MODE_WIREFRAME) {
-    this->build_wireframe_();
-  } else {
+  if (this->mode_ == MODE_PARTICLES) {
     this->build_particles_();
+  } else {
+    // WIREFRAME + DYSON share the same geodesic mesh.
+    this->build_wireframe_();
   }
   this->last_frame_us_ = (uint32_t) (esp_timer_get_time() & 0xFFFFFFFF);
   ESP_LOGI(TAG, "SphereViz ready: %dx%d mode=%d verts=%d edges=%d",
@@ -359,18 +360,64 @@ void SphereViz::render_frame_() {
     z_out  = z2;
   };
 
-  // Subtle inner glow behind wireframe (bloom) — cheap filled circle
-  {
+  // Subtle inner glow behind wireframe (bloom) — cheap filled circle.
+  // DYSON has its own star core + halo, so skip this generic tint.
+  if (this->mode_ != MODE_DYSON) {
     uint8_t gr = brighten(CR, lvl);
     uint8_t gg = brighten(CG, lvl);
     uint8_t gb = brighten(CB, lvl);
     int glow_r = (int) (R * (0.55f + 0.10f * lvl));
-    // Dim bloom
     this->draw_glow_point_(ox, oy, (float) glow_r, gr / 4, gg / 4, gb / 4);
   }
 
-  if (this->mode_ == MODE_WIREFRAME) {
-    // Draw each edge with depth-based alpha (back = faint, front = bright)
+  if (this->mode_ == MODE_WIREFRAME || this->mode_ == MODE_DYSON) {
+    // ------------------------------------------------------------------
+    // DYSON — encapsulated star core rendered BEHIND the lattice so the
+    // wireframe visually wraps around the glowing sphere.
+    // ------------------------------------------------------------------
+    if (this->mode_ == MODE_DYSON) {
+      // Star palette: white-hot core → warm violet-blue halo.
+      // Drive size/intensity from audio level + auto_pulse.
+      float core_k = 0.18f + 0.22f * lvl;             // core radius factor
+      float halo_k = 0.55f + 0.20f * lvl;             // halo radius factor
+      int core_r = (int) (R * core_k);
+      int halo_r = (int) (R * halo_k);
+      // Halo (violet-blue, dim & wide)
+      this->draw_glow_point_(ox, oy, (float) halo_r,
+                             (uint8_t) (60  + 60  * lvl),
+                             (uint8_t) (40  + 50  * lvl),
+                             (uint8_t) (120 + 80  * lvl));
+      // Mid glow (warmer, brighter)
+      this->draw_glow_point_(ox, oy, (float) (core_r * 2),
+                             (uint8_t) (160 + 60 * lvl),
+                             (uint8_t) (140 + 60 * lvl),
+                             (uint8_t) (220 + 30 * lvl));
+      // Core (white hot)
+      this->draw_glow_point_(ox, oy, (float) core_r, 255, 250, 245);
+
+      // 4 axis flares + 2 diagonals, rotated with yaw_ so the corona
+      // slowly turns with the sphere.
+      const float fa = this->yaw_ * 0.5f;
+      const float flare_len = R * (0.85f + 0.25f * lvl);
+      auto draw_flare = [&](float ang, float width_scale) {
+        float cx = std::cos(ang), sx = std::sin(ang);
+        int x1 = ox + (int) (cx * flare_len);
+        int y1 = oy + (int) (sx * flare_len);
+        int x0 = ox - (int) (cx * flare_len * 0.2f);
+        int y0 = oy - (int) (sx * flare_len * 0.2f);
+        uint8_t a = (uint8_t) (120 * width_scale + 80 * lvl);
+        this->draw_line_aa_(x0, y0, x1, y1, 255, 240, 230, a);
+      };
+      for (int k = 0; k < 4; k++) {
+        draw_flare(fa + k * (float) M_PI / 2.0f, 1.0f);
+      }
+      for (int k = 0; k < 2; k++) {
+        draw_flare(fa + (float) M_PI / 4.0f + k * (float) M_PI / 2.0f, 0.55f);
+      }
+    }
+
+    // Draw each edge with depth-based alpha (back = faint, front = bright).
+    // Color gradient along latitude so meridians/parallels look cyan→violet.
     for (const auto &e : this->edges_) {
       int ax, ay, bx, by;
       float az, bz;
@@ -386,6 +433,60 @@ void SphereViz::render_frame_() {
       uint8_t g = brighten(CG, front);
       uint8_t b = brighten(CB, front);
       this->draw_line_aa_(ax, ay, bx, by, r, g, b, alpha);
+    }
+
+    // ------------------------------------------------------------------
+    // DYSON — orbital "swarm" belt with evenly spaced panels, drawn ON
+    // TOP of the lattice so it reads as an outer structure.
+    // ------------------------------------------------------------------
+    if (this->mode_ == MODE_DYSON) {
+      const float tilt = 0.31f;   // ~18° belt tilt
+      const float ct = std::cos(tilt), st = std::sin(tilt);
+      const float belt_R = 1.08f; // slightly outside the sphere
+      const int panels = 16;
+      const float spin = this->yaw_ * 1.4f;  // belt rotates faster than sphere
+
+      // Continuous ring: draw as a chain of short segments.
+      int prev_x = 0, prev_y = 0;
+      bool have_prev = false;
+      const int ring_samples = 64;
+      for (int s = 0; s <= ring_samples; s++) {
+        float a = (float) s / (float) ring_samples * 2.0f * (float) M_PI + spin;
+        Vec3 v;
+        v.x = std::cos(a) * belt_R;
+        v.y = std::sin(a) * belt_R * st;   // tilt the ring
+        v.z = std::sin(a) * belt_R * ct;
+        int sx, sy;
+        float sz;
+        project(v, sx, sy, sz);
+        float front = 0.5f - sz * 0.5f;
+        if (front < 0.0f) front = 0.0f;
+        if (front > 1.0f) front = 1.0f;
+        uint8_t a_ring = (uint8_t) (80 + front * 160.0f);
+        if (have_prev) {
+          // Violet belt (#b489ff)
+          this->draw_line_aa_(prev_x, prev_y, sx, sy, 0xB4, 0x89, 0xFF, a_ring);
+        }
+        prev_x = sx; prev_y = sy; have_prev = true;
+      }
+
+      // Panels (bright nodes) around the belt.
+      for (int i = 0; i < panels; i++) {
+        float a = (float) i / (float) panels * 2.0f * (float) M_PI + spin;
+        Vec3 v;
+        v.x = std::cos(a) * belt_R;
+        v.y = std::sin(a) * belt_R * st;
+        v.z = std::sin(a) * belt_R * ct;
+        int sx, sy;
+        float sz;
+        project(v, sx, sy, sz);
+        float front = 0.5f - sz * 0.5f;
+        if (front < 0.0f) front = 0.0f;
+        if (front > 1.0f) front = 1.0f;
+        float rad = 1.4f + front * (2.2f + lvl * 1.5f);
+        uint8_t bright = (uint8_t) (150 + front * 105.0f);
+        this->draw_glow_point_(sx, sy, rad, bright, bright, 255);
+      }
     }
   } else {
     // Particles: each particle drifts from its sphere seat along a per-particle

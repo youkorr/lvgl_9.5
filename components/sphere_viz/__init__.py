@@ -55,6 +55,7 @@ CONF_PAGE_ID = "page_id"
 MODES = {
     "WIREFRAME": SphereMode.MODE_WIREFRAME,
     "PARTICLES": SphereMode.MODE_PARTICLES,
+    "DYSON": SphereMode.MODE_DYSON,
 }
 
 CONFIG_SCHEMA = cv.ensure_list(

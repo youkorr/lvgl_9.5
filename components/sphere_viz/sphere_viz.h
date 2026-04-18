@@ -25,6 +25,7 @@ namespace sphere_viz {
 enum SphereMode {
   MODE_WIREFRAME = 0,
   MODE_PARTICLES = 1,
+  MODE_DYSON = 2,
 };
 
 // One pre-computed point on the unit sphere.
