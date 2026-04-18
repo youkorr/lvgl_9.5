@@ -1328,12 +1328,12 @@ script:
   - id: fetch_first_active_timer
     then:
       - lambda: |
-          const auto timers = id(va).get_timers();
-          if (timers.size() > 0) {
-            auto output_timer = timers.begin()->second;
-            for (auto &iterable_timer : timers) {
-              if (iterable_timer.second.is_active && iterable_timer.second.seconds_left <= output_timer.seconds_left) {
-                output_timer = iterable_timer.second;
+          const auto &timers = id(va).get_timers();
+          if (!timers.empty()) {
+            auto output_timer = timers.front();
+            for (const auto &iterable_timer : timers) {
+              if (iterable_timer.is_active && iterable_timer.seconds_left <= output_timer.seconds_left) {
+                output_timer = iterable_timer;
               }
             }
             id(global_first_active_timer) = output_timer;
@@ -1342,14 +1342,12 @@ script:
   - id: check_if_timers_active
     then:
       - lambda: |
-          const auto timers = id(va).get_timers();
+          const auto &timers = id(va).get_timers();
           bool output = false;
-          if (timers.size() > 0) {
-            for (auto &iterable_timer : timers) {
-              if(iterable_timer.second.is_active) {
-                output = true;
-                break;
-              }
+          for (const auto &iterable_timer : timers) {
+            if (iterable_timer.is_active) {
+              output = true;
+              break;
             }
           }
           id(global_is_timer_active) = output;
@@ -1357,12 +1355,12 @@ script:
   - id: fetch_first_timer
     then:
       - lambda: |
-          const auto timers = id(va).get_timers();
-          if (timers.size() > 0) {
-            auto output_timer = timers.begin()->second;
-            for (auto &iterable_timer : timers) {
-              if (iterable_timer.second.seconds_left <= output_timer.seconds_left) {
-                output_timer = iterable_timer.second;
+          const auto &timers = id(va).get_timers();
+          if (!timers.empty()) {
+            auto output_timer = timers.front();
+            for (const auto &iterable_timer : timers) {
+              if (iterable_timer.seconds_left <= output_timer.seconds_left) {
+                output_timer = iterable_timer;
               }
             }
             id(global_first_timer) = output_timer;
@@ -1428,9 +1426,9 @@ script:
               float progress = elapsed / id(total_timer_time);
               int needle_value = (int)(progress * 100);
               ESP_LOGD("timer_needle", "Progress: %.2f%%, Needle value: %d", progress * 100, needle_value);
-              lv_meter_set_indicator_value(id(timer_meter), id(needle_indicator), needle_value);
+              id(needle_indicator).set_value(needle_value);
             } else {
-              lv_meter_set_indicator_value(id(timer_meter), id(needle_indicator), 0);
+              id(needle_indicator).set_value(0);
             }
             
             // Mise à jour de l'arc (arc_timer)
