@@ -47,6 +47,7 @@ CONF_X = "x"
 CONF_Y = "y"
 CONF_FPS = "fps"
 CONF_PARTICLES = "particles"
+CONF_SHARDS = "shards"
 CONF_MERIDIANS = "meridians"
 CONF_PARALLELS = "parallels"
 CONF_RADIUS = "radius"
@@ -71,6 +72,7 @@ CONFIG_SCHEMA = cv.ensure_list(
             cv.Optional(CONF_FPS, default=30): cv.int_range(5, 60),
             cv.Optional(CONF_COLOR, default=0x00FFAA): cv.hex_int,
             cv.Optional(CONF_PARTICLES, default=600): cv.int_range(50, 4000),
+            cv.Optional(CONF_SHARDS, default=120): cv.int_range(20, 500),
             cv.Optional(CONF_MERIDIANS, default=12): cv.int_range(4, 32),
             cv.Optional(CONF_PARALLELS, default=8): cv.int_range(2, 20),
             cv.Optional(CONF_RADIUS, default=0): cv.int_,
@@ -89,6 +91,7 @@ async def to_code(config):
         cg.add(var.set_fps(conf[CONF_FPS]))
         cg.add(var.set_color(conf[CONF_COLOR]))
         cg.add(var.set_particle_count(conf[CONF_PARTICLES]))
+        cg.add(var.set_shard_count(conf[CONF_SHARDS]))
         cg.add(var.set_meridians(conf[CONF_MERIDIANS]))
         cg.add(var.set_parallels(conf[CONF_PARALLELS]))
         cg.add(var.set_radius(conf[CONF_RADIUS]))

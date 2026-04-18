@@ -18,8 +18,9 @@ void SphereViz::setup() {
   this->allocate_canvas_();
   if (this->mode_ == MODE_PARTICLES) {
     this->build_particles_();
+  } else if (this->mode_ == MODE_DYSON) {
+    this->build_dyson_shards_();
   } else {
-    // WIREFRAME + DYSON share the same geodesic mesh.
     this->build_wireframe_();
   }
   this->last_frame_us_ = (uint32_t) (esp_timer_get_time() & 0xFFFFFFFF);
@@ -161,6 +162,68 @@ void SphereViz::build_particles_() {
   }
 }
 
+void SphereViz::build_dyson_shards_() {
+  this->shards_.clear();
+  this->shards_.reserve(this->shard_count_);
+
+  const float ga = (float) M_PI * (3.0f - std::sqrt(5.0f));
+  // Deterministic PRNG — stable shard pattern boot-to-boot.
+  uint32_t rng = 0xBADF00Du;
+  auto nextf = [&rng]() -> float {
+    rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
+    return ((int32_t) rng) * (1.0f / 2147483648.0f);  // [-1, 1]
+  };
+  auto u01 = [&]() -> float { return (nextf() + 1.0f) * 0.5f; };
+
+  for (int i = 0; i < this->shard_count_; i++) {
+    Shard s;
+    // Fibonacci sphere for even coverage.
+    float y = 1.0f - (i / (float) (this->shard_count_ - 1)) * 2.0f;
+    float rr = std::sqrt(1.0f - y * y);
+    float theta = ga * i;
+    s.center.x = std::cos(theta) * rr;
+    s.center.y = y;
+    s.center.z = std::sin(theta) * rr;
+
+    // Orthonormal tangent basis (u, v) at `center`.
+    Vec3 up{0.0f, 1.0f, 0.0f};
+    if (std::fabs(s.center.y) > 0.98f) up = {1.0f, 0.0f, 0.0f};
+    // u = normalize(cross(up, n))
+    Vec3 n = s.center;
+    Vec3 u;
+    u.x = up.y * n.z - up.z * n.y;
+    u.y = up.z * n.x - up.x * n.z;
+    u.z = up.x * n.y - up.y * n.x;
+    float ul = std::sqrt(u.x*u.x + u.y*u.y + u.z*u.z);
+    u.x /= ul; u.y /= ul; u.z /= ul;
+    // v = cross(n, u)
+    Vec3 v;
+    v.x = n.y * u.z - n.z * u.y;
+    v.y = n.z * u.x - n.x * u.z;
+    v.z = n.x * u.y - n.y * u.x;
+
+    // Random in-plane rotation → unique triangle orientation.
+    float phi = u01() * 2.0f * (float) M_PI;
+    float cph = std::cos(phi), sph = std::sin(phi);
+    Vec3 ur{u.x * cph + v.x * sph, u.y * cph + v.y * sph, u.z * cph + v.z * sph};
+    Vec3 vr{-u.x * sph + v.x * cph, -u.y * sph + v.y * cph, -u.z * sph + v.z * cph};
+    s.u = ur;
+    s.v = vr;
+
+    // Equilateral-ish triangle in local (u,v), with slight vertex jitter
+    // so no two shards look identical.
+    const float k = 0.95f;
+    auto jitter = [&](float base) { return base + nextf() * 0.12f; };
+    s.t[0] = jitter(0.0f);          s.t[1] = jitter(-1.0f * k);
+    s.t[2] = jitter(0.866f * k);    s.t[3] = jitter(0.5f * k);
+    s.t[4] = jitter(-0.866f * k);   s.t[5] = jitter(0.5f * k);
+
+    // Mix of sizes → gives the cluttered swarm look from the reference.
+    s.size = 0.08f + 0.05f * u01();
+    this->shards_.push_back(s);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Pixel helpers
 // ---------------------------------------------------------------------------
@@ -268,6 +331,39 @@ void SphereViz::draw_glow_point_(int cx, int cy, float rad,
   }
 }
 
+void SphereViz::fill_triangle_(int x0, int y0, int x1, int y1, int x2, int y2,
+                               uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+  // Bounding box clipped to canvas.
+  int xmin = std::min(std::min(x0, x1), x2);
+  int ymin = std::min(std::min(y0, y1), y2);
+  int xmax = std::max(std::max(x0, x1), x2);
+  int ymax = std::max(std::max(y0, y1), y2);
+  if (xmin < 0) xmin = 0;
+  if (ymin < 0) ymin = 0;
+  if (xmax >= this->w_) xmax = this->w_ - 1;
+  if (ymax >= this->h_) ymax = this->h_ - 1;
+  if (xmax < xmin || ymax < ymin) return;
+
+  // Edge function.
+  auto edge = [](int ax, int ay, int bx, int by, int cx, int cy) -> int {
+    return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+  };
+  int area = edge(x0, y0, x1, y1, x2, y2);
+  if (area == 0) return;
+  // Sign-agnostic fill (works for CW and CCW).
+  int sign = area > 0 ? 1 : -1;
+  for (int y = ymin; y <= ymax; y++) {
+    for (int x = xmin; x <= xmax; x++) {
+      int w0 = edge(x1, y1, x2, y2, x, y) * sign;
+      int w1 = edge(x2, y2, x0, y0, x, y) * sign;
+      int w2 = edge(x0, y0, x1, y1, x, y) * sign;
+      if (w0 >= 0 && w1 >= 0 && w2 >= 0) {
+        this->blend_px_(x, y, r, g, b, a);
+      }
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Render frame
 // ---------------------------------------------------------------------------
@@ -370,61 +466,15 @@ void SphereViz::render_frame_() {
     this->draw_glow_point_(ox, oy, (float) glow_r, gr / 4, gg / 4, gb / 4);
   }
 
-  if (this->mode_ == MODE_WIREFRAME || this->mode_ == MODE_DYSON) {
-    // ------------------------------------------------------------------
-    // DYSON — encapsulated star core rendered BEHIND the lattice so the
-    // wireframe visually wraps around the glowing sphere.
-    // ------------------------------------------------------------------
-    if (this->mode_ == MODE_DYSON) {
-      // Star palette: white-hot core → warm violet-blue halo.
-      // Drive size/intensity from audio level + auto_pulse.
-      float core_k = 0.18f + 0.22f * lvl;             // core radius factor
-      float halo_k = 0.55f + 0.20f * lvl;             // halo radius factor
-      int core_r = (int) (R * core_k);
-      int halo_r = (int) (R * halo_k);
-      // Halo (violet-blue, dim & wide)
-      this->draw_glow_point_(ox, oy, (float) halo_r,
-                             (uint8_t) (60  + 60  * lvl),
-                             (uint8_t) (40  + 50  * lvl),
-                             (uint8_t) (120 + 80  * lvl));
-      // Mid glow (warmer, brighter)
-      this->draw_glow_point_(ox, oy, (float) (core_r * 2),
-                             (uint8_t) (160 + 60 * lvl),
-                             (uint8_t) (140 + 60 * lvl),
-                             (uint8_t) (220 + 30 * lvl));
-      // Core (white hot)
-      this->draw_glow_point_(ox, oy, (float) core_r, 255, 250, 245);
-
-      // 4 axis flares + 2 diagonals, rotated with yaw_ so the corona
-      // slowly turns with the sphere.
-      const float fa = this->yaw_ * 0.5f;
-      const float flare_len = R * (0.85f + 0.25f * lvl);
-      auto draw_flare = [&](float ang, float width_scale) {
-        float cx = std::cos(ang), sx = std::sin(ang);
-        int x1 = ox + (int) (cx * flare_len);
-        int y1 = oy + (int) (sx * flare_len);
-        int x0 = ox - (int) (cx * flare_len * 0.2f);
-        int y0 = oy - (int) (sx * flare_len * 0.2f);
-        uint8_t a = (uint8_t) (120 * width_scale + 80 * lvl);
-        this->draw_line_aa_(x0, y0, x1, y1, 255, 240, 230, a);
-      };
-      for (int k = 0; k < 4; k++) {
-        draw_flare(fa + k * (float) M_PI / 2.0f, 1.0f);
-      }
-      for (int k = 0; k < 2; k++) {
-        draw_flare(fa + (float) M_PI / 4.0f + k * (float) M_PI / 2.0f, 0.55f);
-      }
-    }
-
+  if (this->mode_ == MODE_WIREFRAME) {
     // Draw each edge with depth-based alpha (back = faint, front = bright).
-    // Color gradient along latitude so meridians/parallels look cyan→violet.
     for (const auto &e : this->edges_) {
       int ax, ay, bx, by;
       float az, bz;
       project(this->verts_[e.a], ax, ay, az);
       project(this->verts_[e.b], bx, by, bz);
-      float zz = (az + bz) * 0.5f;  // -1 (front) .. +1 (back)
-      float front = 0.5f - zz * 0.5f;  // 1 front, 0 back
+      float zz = (az + bz) * 0.5f;
+      float front = 0.5f - zz * 0.5f;
       if (front < 0.0f) front = 0.0f;
       if (front > 1.0f) front = 1.0f;
       uint8_t alpha = (uint8_t) (60 + front * (195.0f + lvl * 60.0f));
@@ -434,58 +484,105 @@ void SphereViz::render_frame_() {
       uint8_t b = brighten(CB, front);
       this->draw_line_aa_(ax, ay, bx, by, r, g, b, alpha);
     }
-
+  } else if (this->mode_ == MODE_DYSON) {
     // ------------------------------------------------------------------
-    // DYSON — orbital "swarm" belt with evenly spaced panels, drawn ON
-    // TOP of the lattice so it reads as an outer structure.
+    // DYSON — blinding white star core encapsulated by a cloud of
+    // triangular panels ("Dyson swarm"). Panels are dark on the
+    // star-facing side; their silhouette is rimmed in warm red/orange
+    // from the backlight, matching the reference artwork.
     // ------------------------------------------------------------------
-    if (this->mode_ == MODE_DYSON) {
-      const float tilt = 0.31f;   // ~18° belt tilt
-      const float ct = std::cos(tilt), st = std::sin(tilt);
-      const float belt_R = 1.08f; // slightly outside the sphere
-      const int panels = 16;
-      const float spin = this->yaw_ * 1.4f;  // belt rotates faster than sphere
 
-      // Continuous ring: draw as a chain of short segments.
-      int prev_x = 0, prev_y = 0;
-      bool have_prev = false;
-      const int ring_samples = 64;
-      for (int s = 0; s <= ring_samples; s++) {
-        float a = (float) s / (float) ring_samples * 2.0f * (float) M_PI + spin;
-        Vec3 v;
-        v.x = std::cos(a) * belt_R;
-        v.y = std::sin(a) * belt_R * st;   // tilt the ring
-        v.z = std::sin(a) * belt_R * ct;
-        int sx, sy;
-        float sz;
-        project(v, sx, sy, sz);
-        float front = 0.5f - sz * 0.5f;
-        if (front < 0.0f) front = 0.0f;
-        if (front > 1.0f) front = 1.0f;
-        uint8_t a_ring = (uint8_t) (80 + front * 160.0f);
-        if (have_prev) {
-          // Violet belt (#b489ff)
-          this->draw_line_aa_(prev_x, prev_y, sx, sy, 0xB4, 0x89, 0xFF, a_ring);
+    // Star core: three layered glows (wide halo → warm mid → hot core).
+    // Radii pulse with audio level.
+    const int halo_r = (int) (R * (0.80f + 0.15f * lvl));
+    const int mid_r  = (int) (R * (0.55f + 0.10f * lvl));
+    const int core_r = (int) (R * (0.38f + 0.08f * lvl));
+    this->draw_glow_point_(ox, oy, (float) halo_r,  80, 150, 210);
+    this->draw_glow_point_(ox, oy, (float) mid_r,  180, 220, 245);
+    this->draw_glow_point_(ox, oy, (float) core_r, 255, 252, 248);
+    // Tiny sharp hot spot for a distinct "blown out" center.
+    this->draw_glow_point_(ox, oy, (float) (core_r * 0.45f), 255, 255, 255);
+
+    // Panel rendering.
+    // 1) Project each shard's 3 vertices.
+    // 2) Compute the triangle's world-space normal (= shard center after
+    //    rotation). Panels facing the viewer (front-z) render bright
+    //    and are drawn LAST so they end up on top.
+    // 3) Draw far-side panels first with a warm-rim overlay so the
+    //    backlight illusion reads correctly.
+    const float spin = this->yaw_;
+    const float pitch_now = this->pitch_;
+    const float ccy = std::cos(spin), ssy = std::sin(spin);
+    const float ccp = std::cos(pitch_now), ssp = std::sin(pitch_now);
+    auto rot_vec = [&](const Vec3 &a) -> Vec3 {
+      float x1 =  a.x * ccy + a.z * ssy;
+      float z1 = -a.x * ssy + a.z * ccy;
+      float y1 = a.y;
+      Vec3 o;
+      o.x = x1;
+      o.y = y1 * ccp - z1 * ssp;
+      o.z = y1 * ssp + z1 * ccp;
+      return o;
+    };
+
+    // Two passes: back-facing first (dim), then front-facing (full).
+    for (int pass = 0; pass < 2; pass++) {
+      for (const auto &s : this->shards_) {
+        // Rotated normal → determines front/back.
+        Vec3 rn = rot_vec(s.center);
+        bool back = rn.z > 0.0f;
+        if ((pass == 0) != back) continue;  // pass 0 = back, pass 1 = front
+
+        // Build 3 world-space vertices: center + t_i.x * u + t_i.y * v,
+        // scaled by panel size, then sitting on a sphere slightly
+        // larger than R so panels float outside the star surface.
+        const float shell = 1.02f;
+        Vec3 p[3];
+        for (int k = 0; k < 3; k++) {
+          float tx = s.t[k * 2]     * s.size;
+          float ty = s.t[k * 2 + 1] * s.size;
+          p[k].x = (s.center.x + s.u.x * tx + s.v.x * ty) * shell;
+          p[k].y = (s.center.y + s.u.y * tx + s.v.y * ty) * shell;
+          p[k].z = (s.center.z + s.u.z * tx + s.v.z * ty) * shell;
         }
-        prev_x = sx; prev_y = sy; have_prev = true;
-      }
 
-      // Panels (bright nodes) around the belt.
-      for (int i = 0; i < panels; i++) {
-        float a = (float) i / (float) panels * 2.0f * (float) M_PI + spin;
-        Vec3 v;
-        v.x = std::cos(a) * belt_R;
-        v.y = std::sin(a) * belt_R * st;
-        v.z = std::sin(a) * belt_R * ct;
-        int sx, sy;
-        float sz;
-        project(v, sx, sy, sz);
-        float front = 0.5f - sz * 0.5f;
+        int sx[3], sy[3];
+        float sz_avg = 0.0f;
+        for (int k = 0; k < 3; k++) {
+          float zk;
+          project(p[k], sx[k], sy[k], zk);
+          sz_avg += zk;
+        }
+        sz_avg /= 3.0f;
+        float front = 0.5f - sz_avg * 0.5f;
         if (front < 0.0f) front = 0.0f;
         if (front > 1.0f) front = 1.0f;
-        float rad = 1.4f + front * (2.2f + lvl * 1.5f);
-        uint8_t bright = (uint8_t) (150 + front * 105.0f);
-        this->draw_glow_point_(sx, sy, rad, bright, bright, 255);
+
+        if (back) {
+          // Silhouetted against the bright star: darker fill + red rim
+          // where the light escapes around the edges.
+          uint8_t fr = (uint8_t) (30  + 40 * (1.0f - front));
+          uint8_t fg = (uint8_t) (50  + 50 * (1.0f - front));
+          uint8_t fb = (uint8_t) (80  + 60 * (1.0f - front));
+          this->fill_triangle_(sx[0], sy[0], sx[1], sy[1], sx[2], sy[2],
+                               fr, fg, fb, 210);
+          // Warm red rim (backlight bleed).
+          this->draw_line_aa_(sx[0], sy[0], sx[1], sy[1], 255, 90,  60, 220);
+          this->draw_line_aa_(sx[1], sy[1], sx[2], sy[2], 255, 110, 70, 220);
+          this->draw_line_aa_(sx[2], sy[2], sx[0], sy[0], 255, 90,  60, 220);
+        } else {
+          // Front-facing: still dark blue-grey, but with cooler highlight
+          // edges (cyan-white) — panels catch star light at the rim.
+          uint8_t fr = (uint8_t) (20 + 35 * front);
+          uint8_t fg = (uint8_t) (35 + 50 * front);
+          uint8_t fb = (uint8_t) (70 + 90 * front);
+          this->fill_triangle_(sx[0], sy[0], sx[1], sy[1], sx[2], sy[2],
+                               fr, fg, fb, 235);
+          uint8_t rim_a = (uint8_t) (140 + 80 * front);
+          this->draw_line_aa_(sx[0], sy[0], sx[1], sy[1], 220, 235, 255, rim_a);
+          this->draw_line_aa_(sx[1], sy[1], sx[2], sy[2], 220, 235, 255, rim_a);
+          this->draw_line_aa_(sx[2], sy[2], sx[0], sy[0], 220, 235, 255, rim_a);
+        }
       }
     }
   } else {

@@ -56,6 +56,7 @@ class SphereViz : public Component {
   // Smoothly transition to a new color over the next few frames.
   void set_color_target(uint32_t argb) { this->color_target_ = argb; }
   void set_particle_count(int n) { this->particle_count_ = n; }
+  void set_shard_count(int n) { this->shard_count_ = n; }
   void set_meridians(int n) { this->meridians_ = n; }
   void set_parallels(int n) { this->parallels_ = n; }
   void set_radius(int r) { this->radius_override_ = r; }
@@ -91,6 +92,7 @@ class SphereViz : public Component {
   uint32_t color_{0x00FF88};   // current displayed color (0xRRGGBB)
   uint32_t color_target_{0x00FF88};  // target after smooth transition
   int particle_count_{600};
+  int shard_count_{120};
   int meridians_{12};
   int parallels_{8};
 
@@ -125,10 +127,25 @@ class SphereViz : public Component {
   std::vector<Vec3> dirs_;     // random unit direction for "explosion" drift
   std::vector<float> phases_;  // random oscillation phase [0, 2π]
 
+  // One triangular panel for the DYSON swarm.
+  // center : position on unit sphere (also the outward normal direction)
+  // u, v   : orthonormal tangent basis on the sphere at `center`
+  // t[6]   : three vertex offsets (x0,y0, x1,y1, x2,y2) in the (u,v) plane,
+  //          in units of panel half-size.
+  // size   : half-size multiplier in world-space sphere-radius units.
+  struct Shard {
+    Vec3 center;
+    Vec3 u, v;
+    float t[6];
+    float size;
+  };
+  std::vector<Shard> shards_;
+
   // Build helpers
   void allocate_canvas_();
   void build_wireframe_();
   void build_particles_();
+  void build_dyson_shards_();
 
   // Rendering helpers (ARGB8888)
   inline void put_px_(int x, int y, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
@@ -137,6 +154,8 @@ class SphereViz : public Component {
   void draw_line_aa_(int x0, int y0, int x1, int y1, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
   void draw_disc_(int cx, int cy, int rad, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
   void draw_glow_point_(int cx, int cy, float rad, uint8_t r, uint8_t g, uint8_t b);
+  void fill_triangle_(int x0, int y0, int x1, int y1, int x2, int y2,
+                      uint8_t r, uint8_t g, uint8_t b, uint8_t a);
 
   void render_frame_();
 };
