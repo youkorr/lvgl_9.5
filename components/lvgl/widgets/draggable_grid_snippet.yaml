@@ -1,0 +1,137 @@
+# ============================================================================
+# Draggable 3x3 grid — SNIPPET A COLLER dans waveshare (3).yaml
+# ============================================================================
+# Option A : chaque bouton reste en positionnement absolu. Au drop, on echange
+# sa case avec celle sur laquelle il a ete lache. Tout l'etat transitoire est
+# remis a -1 des le debut de on_release() -> aucune RAM retenue entre drags.
+#
+# Fichier a placer a cote de waveshare (3).yaml : draggable_grid.h
+# (meme dossier que le .yaml de build).
+#
+# Ce fichier n'est PAS un YAML ESPHome compilable seul : c'est un extrait.
+# Colle les 3 blocs ci-dessous aux bons endroits de waveshare (3).yaml.
+# ============================================================================
+
+
+# ----------------------------------------------------------------------------
+# BLOC 1 — A ajouter dans la section esphome:
+# ----------------------------------------------------------------------------
+# Cherche le bloc "esphome:" en haut de ton fichier et ajoute la cle
+# "includes:" (si elle n'existe pas deja) et "on_boot:" pour enregistrer
+# les 9 boutons dans la grille au demarrage.
+
+esphome:
+  # ... garde tout ce que tu as deja (name, friendly_name, platformio_options,
+  # project, min_version, etc.) et AJOUTE simplement :
+  includes:
+    - draggable_grid.h
+
+  # Si tu as deja un on_boot:, ajoute juste le bloc lambda dans la liste "then".
+  on_boot:
+    priority: -200   # apres LVGL (priorite plus basse = plus tard)
+    then:
+      - lambda: |-
+          using namespace draggable_grid;
+          // Ordre = ordre des cases 0..8 (gauche->droite, haut->bas)
+          register_button(id(btn_light)->obj,    0);  // col 0, row 0
+          register_button(id(btn_alarm)->obj,    1);  // col 1, row 0
+          register_button(id(btn_test3)->obj,    2);  // col 2, row 0
+          register_button(id(btn_player)->obj,   3);  // col 0, row 1
+          register_button(id(btn_camera)->obj,   4);  // col 1, row 1
+          register_button(id(btn_test4)->obj,    5);  // col 2, row 1
+          register_button(id(btn_settings)->obj, 6);  // col 0, row 2
+          register_button(id(btn_test)->obj,     7);  // col 1, row 2
+          register_button(id(btn_test2)->obj,    8);  // col 2, row 2
+
+
+# ----------------------------------------------------------------------------
+# BLOC 2 — A ajouter a CHACUN des 9 boutons dans page_home
+# ----------------------------------------------------------------------------
+# Pour chaque button: du type ci-dessous, conserve toutes les proprietes
+# existantes (x, y, width, height, styles, widgets, on_click, ...) et ajoute
+# les 3 triggers on_press / on_pressing / on_release.
+#
+# ATTENTION : remplace "btn_light" par l'id du bouton courant dans les lambdas.
+
+lvgl:
+  pages:
+    - id: page_home
+      widgets:
+
+        - button:
+            id: btn_light              # <- a remplacer par l'id reel
+            x: 10
+            y: 220
+            width: 150
+            height: 100
+            # ... tout ce que tu as deja (bg_color, widgets, on_click, ...) ...
+            on_press:
+              - lambda: draggable_grid::on_press(id(btn_light)->obj);
+            on_pressing:
+              - lambda: draggable_grid::on_pressing(id(btn_light)->obj);
+            on_release:
+              - lambda: draggable_grid::on_release(id(btn_light)->obj);
+
+
+# ----------------------------------------------------------------------------
+# BLOC 3 (optionnel) — bouton "Reset layout"
+# ----------------------------------------------------------------------------
+# Pour remettre les 9 boutons a leur place d'origine, ajoute ce bouton quelque
+# part (ex: dans une page settings). Il ne sauvegarde rien sur flash dans
+# cette version — l'ordre d'origine est restaure en memoire uniquement.
+
+        - button:
+            id: btn_reset_layout
+            align: CENTER
+            width: 200
+            height: 60
+            text: "Reset layout"
+            on_click:
+              - lambda: |-
+                  using namespace draggable_grid;
+                  reset_all();
+                  register_button(id(btn_light)->obj,    0);
+                  register_button(id(btn_alarm)->obj,    1);
+                  register_button(id(btn_test3)->obj,    2);
+                  register_button(id(btn_player)->obj,   3);
+                  register_button(id(btn_camera)->obj,   4);
+                  register_button(id(btn_test4)->obj,    5);
+                  register_button(id(btn_settings)->obj, 6);
+                  register_button(id(btn_test)->obj,     7);
+                  register_button(id(btn_test2)->obj,    8);
+
+
+# ============================================================================
+# NOTES D'IMPLEMENTATION
+# ============================================================================
+#
+# RAM / memoire
+# -------------
+# - Zero allocation dynamique. Tout l'etat est dans des "inline variables"
+#   (stockage statique unique, taille connue a la compilation).
+# - Sur on_release() : g_active_slot est remis a -1 DES la premiere ligne,
+#   avant toute autre logique. Meme si une fonction LVGL renvoie une erreur,
+#   l'etat de drag n'est jamais laisse "coince".
+# - Les seules variables locales des handlers (lv_point_t, int32_t) sont
+#   sur la pile et liberees automatiquement en sortie de fonction.
+#
+# Cout memoire total du helper : ~ 9 * sizeof(void*) + 1 octet = 37 octets
+# sur un ESP32 (pointeurs 32 bits).
+#
+# Limitations de l'Option A
+# -------------------------
+# - Pas de reflow "live" pendant le drag : les autres boutons ne glissent
+#   qu'au moment du drop (swap brutal, sans animation).
+# - Pas de persistance flash : au reboot, les boutons reviennent a leur
+#   position d'origine. Si tu veux conserver la disposition, il faudra
+#   ajouter des globals ESPHome avec restore_value: true et sauvegarder
+#   g_slots[i] -> id(...) a chaque swap.
+# - La grille est figee a 3x3 / 150x100 / positions codees en dur dans le
+#   .h. Si tu changes la taille des boutons, edite CELLS[] et BTN_W/BTN_H.
+#
+# Pour aller plus loin (Option B)
+# -------------------------------
+# Pour un vrai reflow iOS-style (boutons qui glissent en direct pendant le
+# drag), il faudra migrer vers un conteneur flex et utiliser
+# lv_obj_move_to_index() au survol. C'est un refactor plus lourd qu'on
+# attaquera apres avoir valide que l'Option A fonctionne sur ton ecran.

@@ -100,7 +100,7 @@ lvgl:
                       lv_indev_get_vect(indev, &vect);
 
                       // Nouvelle position = position actuelle + delta
-                      lv_obj_t * target = id(drag_obj);
+                      lv_obj_t * target = id(drag_obj)->obj;
                       int32_t x = lv_obj_get_x_aligned(target) + vect.x;
                       int32_t y = lv_obj_get_y_aligned(target) + vect.y;
                       lv_obj_set_pos(target, x, y);
@@ -138,7 +138,7 @@ lvgl:
                       if (indev == NULL) return;
                       lv_point_t v;
                       lv_indev_get_vect(indev, &v);
-                      lv_obj_t * t = id(drag_box_a);
+                      lv_obj_t * t = id(drag_box_a)->obj;
                       lv_obj_set_pos(t,
                           lv_obj_get_x_aligned(t) + v.x,
                           lv_obj_get_y_aligned(t) + v.y);
@@ -164,7 +164,7 @@ lvgl:
                       if (indev == NULL) return;
                       lv_point_t v;
                       lv_indev_get_vect(indev, &v);
-                      lv_obj_t * t = id(drag_box_b);
+                      lv_obj_t * t = id(drag_box_b)->obj;
                       lv_obj_set_pos(t,
                           lv_obj_get_x_aligned(t) + v.x,
                           lv_obj_get_y_aligned(t) + v.y);
