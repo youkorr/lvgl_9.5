@@ -11,6 +11,11 @@
 //   intercepte les press suivants pour permettre le drag. Un nouveau press
 //   long sur un bouton quitte le edit mode.
 //
+// v3 : feedback visuel "jiggle" facon iOS
+//   En edit mode tous les boutons oscillent doucement (+-5deg, 120ms A/R,
+//   boutons pairs/impairs dephases). L'anim est stoppee et la rotation
+//   remise a 0 a la sortie du edit mode.
+//
 // Etat
 // ----
 // - Stockage statique (inline variables) : ~280 octets, zero heap.
@@ -80,15 +85,53 @@ inline int8_t nearest_cell(int32_t cx, int32_t cy) {
   return best_i;
 }
 
+// Jiggle (iOS-like) : applique transform_rotation via une anim LVGL qui
+// oscille entre -50 et +50 (unites : 0.1 deg -> +-5deg), avec auto-
+// reverse infini. Les boutons d'index pair et impair sont dephases pour
+// un effet plus naturel.
+inline void jiggle_exec_cb(void* var, int32_t v) {
+  lv_obj_set_style_transform_rotation(
+      static_cast<lv_obj_t*>(var), v, LV_PART_MAIN);
+}
+
+inline void start_jiggle(lv_obj_t* btn, int8_t idx) {
+  if (btn == nullptr) return;
+  // Pivot au centre du bouton sinon la rotation pivote depuis (0,0).
+  lv_obj_set_style_transform_pivot_x(btn, LV_PCT(50), LV_PART_MAIN);
+  lv_obj_set_style_transform_pivot_y(btn, LV_PCT(50), LV_PART_MAIN);
+
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, btn);
+  lv_anim_set_exec_cb(&a, jiggle_exec_cb);
+  lv_anim_set_time(&a, 120);
+  lv_anim_set_playback_time(&a, 120);
+  lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+  if (idx & 1) {
+    lv_anim_set_values(&a, 50, -50);
+  } else {
+    lv_anim_set_values(&a, -50, 50);
+  }
+  lv_anim_start(&a);
+}
+
+inline void stop_jiggle(lv_obj_t* btn) {
+  if (btn == nullptr) return;
+  lv_anim_delete(btn, jiggle_exec_cb);
+  lv_obj_set_style_transform_rotation(btn, 0, LV_PART_MAIN);
+}
+
 inline void set_edit_mode(bool enabled) {
   g_edit_mode = enabled;
   for (int8_t i = 0; i < g_count; ++i) {
-    lv_obj_t* ov = g_overlays[i];
-    if (ov == nullptr) continue;
+    lv_obj_t* ov  = g_overlays[i];
+    lv_obj_t* btn = g_buttons[i];
     if (enabled) {
-      lv_obj_clear_flag(ov, LV_OBJ_FLAG_HIDDEN);
+      if (ov  != nullptr) lv_obj_clear_flag(ov, LV_OBJ_FLAG_HIDDEN);
+      if (btn != nullptr) start_jiggle(btn, i);
     } else {
-      lv_obj_add_flag(ov, LV_OBJ_FLAG_HIDDEN);
+      if (ov  != nullptr) lv_obj_add_flag(ov, LV_OBJ_FLAG_HIDDEN);
+      if (btn != nullptr) stop_jiggle(btn);
     }
   }
 }
