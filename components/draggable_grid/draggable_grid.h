@@ -168,6 +168,10 @@ inline void overlay_event_cb(lv_event_t* e) {
   if (code == LV_EVENT_PRESSED) {
     g_active = idx;
     lv_obj_move_foreground(btn);
+    // "Lift" : on stoppe le breathing du bouton saisi et on le grossit
+    // legerement pour signaler qu'il est en cours de drag.
+    lv_anim_delete(btn, breathe_exec_cb);
+    lv_obj_set_style_transform_scale(btn, 282, LV_PART_MAIN);  // ~1.10x
     return;
   }
 
@@ -187,6 +191,14 @@ inline void overlay_event_cb(lv_event_t* e) {
   if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
     if (g_active != idx) return;
     g_active = -1;   // RAM cleanup immediat
+
+    // Fin du "lift" : on relance le breathing si on est toujours en
+    // edit mode (sinon on reste a 1.0x, ce que stop_breathe a fait).
+    if (g_edit_mode) {
+      start_breathe(btn, idx);
+    } else {
+      lv_obj_set_style_transform_scale(btn, 256, LV_PART_MAIN);
+    }
 
     const int8_t src_cell = g_cell_of[idx];
 
