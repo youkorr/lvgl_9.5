@@ -4,7 +4,7 @@
 // 100% declaratif cote YAML : aucune lambda ne doit etre ecrite par
 // l'utilisateur, et le YAML des boutons reste inchange.
 //
-// Gestuelle (v4) :
+// Gestuelle (v5) :
 //   - double clic sur un bouton      -> l'event LV_EVENT_PRESSED est
 //                                       relaye au bouton -> on_press se
 //                                       declenche (ouvre la page).
@@ -12,8 +12,11 @@
 //                                       ouvertures accidentelles).
 //   - long-press sur un bouton       -> entre en "edit mode".
 //     (en edit mode)
-//   - drag d'un bouton               -> swap avec le bouton de la case
-//                                       de depose (Option A).
+//   - drag d'un bouton               -> REFLOW iOS : les autres widgets
+//                                       glissent pour combler la place
+//                                       pendant que le doigt bouge.
+//                                       Au lacher, le bouton se pose sur
+//                                       la derniere case survolee.
 //   - long-press sans bouger         -> sortie du edit mode.
 //
 // Feedback visuel :
@@ -84,6 +87,13 @@ inline bool      g_edit_mode = false;
 inline int8_t    g_last_click_idx = -1;
 inline uint32_t  g_last_click_time = 0;
 
+// Reflow : snapshot de la sequence de boutons au debut d'un drag, plus
+// le cell actuellement "occupe" par le bouton saisi (mis a jour pendant
+// le PRESSING). Permet de calculer la disposition reflowee a chaque
+// changement de case survolee.
+inline int8_t    g_pre_drag_order[MAX_BUTTONS]{};  // order[cell] = btn idx
+inline int8_t    g_last_target_cell = -1;
+
 // --- helpers internes ---------------------------------------
 inline int8_t nearest_cell(int32_t cx, int32_t cy) {
   int32_t best = INT32_MAX;
@@ -95,6 +105,76 @@ inline int8_t nearest_cell(int32_t cx, int32_t cy) {
     if (d < best) { best = d; best_i = i; }
   }
   return best_i;
+}
+
+// Animation de position (x et y) avec courbe ease_out, ~180 ms.
+// Utilisee pour faire glisser les voisins pendant le reflow, et pour
+// poser le bouton saisi sur la case finale au drop.
+inline void anim_set_x_cb(void* var, int32_t v) {
+  lv_obj_set_x(static_cast<lv_obj_t*>(var), v);
+}
+inline void anim_set_y_cb(void* var, int32_t v) {
+  lv_obj_set_y(static_cast<lv_obj_t*>(var), v);
+}
+
+inline void animate_btn_to(lv_obj_t* btn, int32_t dst_x, int32_t dst_y) {
+  if (btn == nullptr) return;
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, btn);
+  lv_anim_set_time(&a, 180);
+  lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+
+  lv_anim_set_exec_cb(&a, anim_set_x_cb);
+  lv_anim_set_values(&a, lv_obj_get_x_aligned(btn), dst_x);
+  lv_anim_start(&a);
+
+  lv_anim_set_exec_cb(&a, anim_set_y_cb);
+  lv_anim_set_values(&a, lv_obj_get_y_aligned(btn), dst_y);
+  lv_anim_start(&a);
+}
+
+// Reflow : calcule la nouvelle disposition si le bouton saisi occupait
+// target_cell (en gardant l'ordre relatif des autres), puis anime les
+// voisins vers leurs nouvelles cellules. g_cell_of / g_button_at sont
+// mis a jour.
+inline void reflow_to(int8_t dragged_idx, int8_t target_cell) {
+  if (target_cell == g_last_target_cell) return;
+  g_last_target_cell = target_cell;
+
+  int8_t new_order[MAX_BUTTONS];
+  int8_t write = 0;
+  for (int8_t c = 0; c < g_count; ++c) {
+    if (c == target_cell) {
+      new_order[c] = dragged_idx;
+      continue;
+    }
+    // saute le bouton saisi dans le snapshot initial
+    while (write < g_count && g_pre_drag_order[write] == dragged_idx) ++write;
+    if (write < g_count) new_order[c] = g_pre_drag_order[write++];
+    else                 new_order[c] = -1;
+  }
+
+  // Snapshot de g_cell_of avant l'application pour detecter les mouvements.
+  int8_t old_cell_of[MAX_BUTTONS];
+  for (int8_t i = 0; i < g_count; ++i) old_cell_of[i] = g_cell_of[i];
+
+  // Applique la nouvelle disposition.
+  for (int8_t c = 0; c < g_count; ++c) {
+    int8_t b = new_order[c];
+    if (b < 0 || b >= g_count) continue;
+    g_button_at[c] = b;
+    g_cell_of[b]   = c;
+  }
+
+  // Anime chaque voisin dont la cellule a change.
+  for (int8_t i = 0; i < g_count; ++i) {
+    if (i == dragged_idx) continue;
+    if (g_cell_of[i] == old_cell_of[i]) continue;
+    animate_btn_to(g_buttons[i],
+                   g_cells[g_cell_of[i]].x,
+                   g_cells[g_cell_of[i]].y);
+  }
 }
 
 // Breathing : pulse scale 1.00 -> ~1.047x, 800 ms A/R, infini.
@@ -180,6 +260,15 @@ inline void overlay_event_cb(lv_event_t* e) {
       lv_obj_move_foreground(btn);
       lv_anim_delete(btn, breathe_exec_cb);
       lv_obj_set_style_transform_scale(btn, 282, LV_PART_MAIN);  // ~1.10x
+      // Annule toute anim x/y en cours sur le bouton saisi : pendant le
+      // drag sa position est dictee 1:1 par le doigt.
+      lv_anim_delete(btn, anim_set_x_cb);
+      lv_anim_delete(btn, anim_set_y_cb);
+      // Snapshot de la sequence actuelle pour le reflow.
+      for (int8_t c = 0; c < g_count; ++c) {
+        g_pre_drag_order[c] = g_button_at[c];
+      }
+      g_last_target_cell = g_cell_of[idx];
     } else {
       // Applique le style `pressed:` du YAML (translate_y, bg_color,...)
       lv_obj_add_state(btn, LV_STATE_PRESSED);
@@ -187,7 +276,7 @@ inline void overlay_event_cb(lv_event_t* e) {
     return;
   }
 
-  // --- PRESSING (drag en edit mode uniquement) ----------------------
+  // --- PRESSING (drag + reflow en edit mode uniquement) -------------
   if (code == LV_EVENT_PRESSING) {
     if (!g_edit_mode) return;
     if (g_active != idx) return;
@@ -197,9 +286,18 @@ inline void overlay_event_cb(lv_event_t* e) {
     lv_indev_get_vect(indev, &v);
     if (v.x == 0 && v.y == 0) return;
     g_moved = true;
+    // 1) le bouton saisi suit le doigt.
     int32_t nx = lv_obj_get_x_aligned(btn) + v.x;
     int32_t ny = lv_obj_get_y_aligned(btn) + v.y;
     lv_obj_set_pos(btn, nx, ny);
+    // 2) reflow eventuel si le bouton saisi est desormais plus proche
+    //    d'une autre case.
+    int32_t cx = nx + g_cell_w / 2;
+    int32_t cy = ny + g_cell_h / 2;
+    int8_t  target = nearest_cell(cx, cy);
+    if (target != g_last_target_cell) {
+      reflow_to(idx, target);
+    }
     return;
   }
 
@@ -236,37 +334,16 @@ inline void overlay_event_cb(lv_event_t* e) {
       return;
     }
 
-    // ---- EDIT MODE : fin du drag + swap -----------------------------
+    // ---- EDIT MODE : fin du drag (reflow deja applique pdt PRESSING) -
     g_moved = false;
     g_long_fired = false;
+    g_last_target_cell = -1;
     start_breathe(btn, idx);    // le lift se resorbe, le breathe reprend
 
-    const int8_t src_cell = g_cell_of[idx];
-
-    int32_t cx = lv_obj_get_x_aligned(btn) + g_cell_w / 2;
-    int32_t cy = lv_obj_get_y_aligned(btn) + g_cell_h / 2;
-    int8_t  dst_cell = nearest_cell(cx, cy);
-
-    if (dst_cell == src_cell) {
-      lv_obj_set_pos(btn, g_cells[src_cell].x, g_cells[src_cell].y);
-      return;
-    }
-
-    const int8_t other_idx = g_button_at[dst_cell];
-    lv_obj_t* other = (other_idx >= 0 && other_idx < g_count)
-                          ? g_buttons[other_idx]
-                          : nullptr;
-    if (other != nullptr) {
-      lv_obj_set_pos(other, g_cells[src_cell].x, g_cells[src_cell].y);
-    }
-    lv_obj_set_pos(btn, g_cells[dst_cell].x, g_cells[dst_cell].y);
-
-    g_cell_of[idx] = dst_cell;
-    g_button_at[dst_cell] = idx;
-    if (other_idx >= 0 && other_idx < g_count) {
-      g_cell_of[other_idx] = src_cell;
-      g_button_at[src_cell] = other_idx;
-    }
+    // Le bouton saisi se pose anime sur la case finale (celle deja
+    // inscrite dans g_cell_of par le dernier reflow_to).
+    const int8_t dst_cell = g_cell_of[idx];
+    animate_btn_to(btn, g_cells[dst_cell].x, g_cells[dst_cell].y);
   }
 }
 
