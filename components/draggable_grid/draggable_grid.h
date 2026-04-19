@@ -71,6 +71,9 @@ inline int8_t    g_button_at[MAX_BUTTONS]{};
 
 inline int8_t    g_count = 0;
 inline int8_t    g_active = -1;        // -1 = idle, sinon idx de bouton
+inline bool      g_moved = false;      // true si le press en cours a deja
+                                       // bouge -> on est en drag, pas en
+                                       // long-press d'exit edit mode
 inline bool      g_edit_mode = false;
 
 // --- helpers internes ---------------------------------------
@@ -157,9 +160,12 @@ inline void overlay_event_cb(lv_event_t* e) {
   if (btn == nullptr) return;
 
   // En edit mode, l'overlay bloque LONG_PRESSED du bouton sous-jacent.
-  // On gere donc la sortie de edit mode ici. On annule aussi tout drag
-  // en cours pour que le RELEASE suivant ne tente pas de swap.
+  // On gere donc la sortie de edit mode ici, MAIS uniquement si le
+  // press en cours n'est pas un drag (g_moved == false). Sinon LVGL
+  // declenche LONG_PRESSED en pleine manipulation et on perdrait le
+  // swap au RELEASED qui suit.
   if (code == LV_EVENT_LONG_PRESSED) {
+    if (g_active == idx && g_moved) return;   // drag actif, on ignore
     g_active = -1;
     toggle_edit_mode();
     return;
@@ -167,6 +173,7 @@ inline void overlay_event_cb(lv_event_t* e) {
 
   if (code == LV_EVENT_PRESSED) {
     g_active = idx;
+    g_moved = false;
     lv_obj_move_foreground(btn);
     // "Lift" : on stoppe le breathing du bouton saisi et on le grossit
     // legerement pour signaler qu'il est en cours de drag.
@@ -182,6 +189,7 @@ inline void overlay_event_cb(lv_event_t* e) {
     lv_point_t v;
     lv_indev_get_vect(indev, &v);
     if (v.x == 0 && v.y == 0) return;
+    g_moved = true;
     int32_t nx = lv_obj_get_x_aligned(btn) + v.x;
     int32_t ny = lv_obj_get_y_aligned(btn) + v.y;
     lv_obj_set_pos(btn, nx, ny);
@@ -191,6 +199,7 @@ inline void overlay_event_cb(lv_event_t* e) {
   if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
     if (g_active != idx) return;
     g_active = -1;   // RAM cleanup immediat
+    g_moved = false;
 
     // Fin du "lift" : on relance le breathing si on est toujours en
     // edit mode (sinon on reste a 1.0x, ce que stop_breathe a fait).
