@@ -128,11 +128,20 @@ inline void set_edit_mode(bool enabled) {
     lv_obj_t* ov  = g_overlays[i];
     lv_obj_t* btn = g_buttons[i];
     if (enabled) {
+      // Overlay visible + bouton NON clickable : empeche on_press (donc
+      // l'ouverture de page) de se declencher pendant le drag, meme si
+      // le doigt tombe sur la bordure/padding non couvert par l'overlay.
       if (ov  != nullptr) lv_obj_clear_flag(ov, LV_OBJ_FLAG_HIDDEN);
-      if (btn != nullptr) start_breathe(btn, i);
+      if (btn != nullptr) {
+        lv_obj_clear_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+        start_breathe(btn, i);
+      }
     } else {
       if (ov  != nullptr) lv_obj_add_flag(ov, LV_OBJ_FLAG_HIDDEN);
-      if (btn != nullptr) stop_breathe(btn);
+      if (btn != nullptr) {
+        lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+        stop_breathe(btn);
+      }
     }
   }
 }
