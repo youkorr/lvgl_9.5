@@ -11,10 +11,11 @@
 //   intercepte les press suivants pour permettre le drag. Un nouveau press
 //   long sur un bouton quitte le edit mode.
 //
-// v3 : feedback visuel "jiggle" facon iOS
-//   En edit mode tous les boutons oscillent doucement (+-5deg, 120ms A/R,
-//   boutons pairs/impairs dephases). L'anim est stoppee et la rotation
-//   remise a 0 a la sortie du edit mode.
+// v3 : feedback visuel "breathing" doux
+//   En edit mode tous les boutons pulsent legerement (scale 1.00 -> 1.05,
+//   800 ms aller/retour, infini). C'est plus discret qu'une oscillation
+//   et reste lisible. L'anim est stoppee et la transform remise a neutre
+//   a la sortie du edit mode.
 //
 // Etat
 // ----
@@ -85,40 +86,37 @@ inline int8_t nearest_cell(int32_t cx, int32_t cy) {
   return best_i;
 }
 
-// Jiggle (iOS-like) : applique transform_rotation via une anim LVGL qui
-// oscille entre -50 et +50 (unites : 0.1 deg -> +-5deg), avec auto-
-// reverse infini. Les boutons d'index pair et impair sont dephases pour
-// un effet plus naturel.
-inline void jiggle_exec_cb(void* var, int32_t v) {
-  lv_obj_set_style_transform_rotation(
+// Breathing : applique transform_scale (256 = 1.00x) via une anim LVGL
+// qui pulse de 256 -> 268 (~1.047x) en 800 ms aller/retour, infini.
+// Pivot au centre pour que le scale soit symetrique. Petit decalage
+// par idx (delay) pour eviter l'effet "tous synchros".
+inline void breathe_exec_cb(void* var, int32_t v) {
+  lv_obj_set_style_transform_scale(
       static_cast<lv_obj_t*>(var), v, LV_PART_MAIN);
 }
 
-inline void start_jiggle(lv_obj_t* btn, int8_t idx) {
+inline void start_breathe(lv_obj_t* btn, int8_t idx) {
   if (btn == nullptr) return;
-  // Pivot au centre du bouton sinon la rotation pivote depuis (0,0).
   lv_obj_set_style_transform_pivot_x(btn, LV_PCT(50), LV_PART_MAIN);
   lv_obj_set_style_transform_pivot_y(btn, LV_PCT(50), LV_PART_MAIN);
 
   lv_anim_t a;
   lv_anim_init(&a);
   lv_anim_set_var(&a, btn);
-  lv_anim_set_exec_cb(&a, jiggle_exec_cb);
-  lv_anim_set_time(&a, 120);
-  lv_anim_set_playback_time(&a, 120);
+  lv_anim_set_exec_cb(&a, breathe_exec_cb);
+  lv_anim_set_time(&a, 800);
+  lv_anim_set_playback_time(&a, 800);
   lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-  if (idx & 1) {
-    lv_anim_set_values(&a, 50, -50);
-  } else {
-    lv_anim_set_values(&a, -50, 50);
-  }
+  lv_anim_set_values(&a, 256, 268);
+  // delay echelonne (~80 ms par idx) pour un rendu plus naturel
+  lv_anim_set_delay(&a, static_cast<uint32_t>(idx) * 80u);
   lv_anim_start(&a);
 }
 
-inline void stop_jiggle(lv_obj_t* btn) {
+inline void stop_breathe(lv_obj_t* btn) {
   if (btn == nullptr) return;
-  lv_anim_delete(btn, jiggle_exec_cb);
-  lv_obj_set_style_transform_rotation(btn, 0, LV_PART_MAIN);
+  lv_anim_delete(btn, breathe_exec_cb);
+  lv_obj_set_style_transform_scale(btn, 256, LV_PART_MAIN);
 }
 
 inline void set_edit_mode(bool enabled) {
@@ -128,10 +126,10 @@ inline void set_edit_mode(bool enabled) {
     lv_obj_t* btn = g_buttons[i];
     if (enabled) {
       if (ov  != nullptr) lv_obj_clear_flag(ov, LV_OBJ_FLAG_HIDDEN);
-      if (btn != nullptr) start_jiggle(btn, i);
+      if (btn != nullptr) start_breathe(btn, i);
     } else {
       if (ov  != nullptr) lv_obj_add_flag(ov, LV_OBJ_FLAG_HIDDEN);
-      if (btn != nullptr) stop_jiggle(btn);
+      if (btn != nullptr) stop_breathe(btn);
     }
   }
 }
