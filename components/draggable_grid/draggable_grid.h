@@ -2,42 +2,44 @@
 //
 // Native ESPHome component for LVGL draggable grid (Option A, iOS-style).
 // 100% declaratif cote YAML : aucune lambda ne doit etre ecrite par
-// l'utilisateur.
+// l'utilisateur, et le YAML des boutons reste inchange.
 //
-// Probleme resolu (v2) :
-//   Un press court sur un bouton declenche son on_click habituel (ouverture
-//   de page). Un press long (>= LONG_PRESS_TIME) fait basculer la grille en
-//   "edit mode" : un overlay transparent apparait sur chaque bouton et
-//   intercepte les press suivants pour permettre le drag. Un nouveau press
-//   long sur un bouton quitte le edit mode.
+// Gestuelle (v4) :
+//   - double clic sur un bouton      -> l'event LV_EVENT_PRESSED est
+//                                       relaye au bouton -> on_press se
+//                                       declenche (ouvre la page).
+//   - simple clic sur un bouton      -> ne fait rien (evite les
+//                                       ouvertures accidentelles).
+//   - long-press sur un bouton       -> entre en "edit mode".
+//     (en edit mode)
+//   - drag d'un bouton               -> swap avec le bouton de la case
+//                                       de depose (Option A).
+//   - long-press sans bouger         -> sortie du edit mode.
 //
-// v3 : feedback visuel "breathing" doux
-//   En edit mode tous les boutons pulsent legerement (scale 1.00 -> 1.05,
-//   800 ms aller/retour, infini). C'est plus discret qu'une oscillation
-//   et reste lisible. L'anim est stoppee et la transform remise a neutre
-//   a la sortie du edit mode.
+// Feedback visuel :
+//   - edit mode : tous les boutons "respirent" (scale 1.00 -> 1.05,
+//     800 ms aller/retour, dephasage par idx). Le bouton saisi est
+//     grossi a ~1.10x (lift) pendant le drag.
+//   - normal mode : LV_STATE_PRESSED est manuellement applique au
+//     bouton sur press/release pour conserver le style `pressed:`
+//     defini en YAML (translate_y, bg_color, etc.).
+//
+// Architecture
+// ------------
+//   Button (toujours NON-CLICKABLE : ne recoit plus d'event directement)
+//     +-- Overlay (enfant, TOUJOURS visible et clickable)
+//         Unique point d'entree pour toutes les interactions. Route
+//         soit vers double-click-relay, soit vers drag-edit selon
+//         g_edit_mode.
 //
 // Etat
 // ----
-// - Stockage statique (inline variables) : ~280 octets, zero heap.
-// - g_active est remis a -1 DES la premiere ligne de la branche RELEASED /
-//   PRESS_LOST du callback overlay -> aucune RAM residuelle entre drags.
-// - L'identite d'un bouton (idx) est STABLE pour toute la duree de vie :
-//   g_buttons[idx] et g_overlays[idx] ne sont jamais reordonnes. Seules
-//   les correspondances cellule<->bouton (g_cell_of / g_button_at) sont
-//   mises a jour au swap. Consequence : le user_data stocke dans le
-//   callback overlay reste toujours valide apres un swap.
-//
-// Hierarchie
-// ----------
-//   Button (recoit LV_EVENT_LONG_PRESSED -> entre en edit mode)
-//     +-- Overlay (enfant, HIDDEN par defaut)
-//         - en edit mode : devient visible, capture PRESSED/PRESSING/
-//           RELEASED/PRESS_LOST pour executer le drag + swap, et
-//           LONG_PRESSED pour quitter le edit mode (puisque l'overlay
-//           bloque le LONG_PRESSED du bouton sous-jacent).
-//         - en mode normal : HIDDEN -> LVGL l'ignore, les evenements vont
-//           au Button et le on_click fonctionne normalement.
+// - Stockage statique (inline variables) : ~300 octets, zero heap.
+// - g_active / g_moved sont remis a 0/-1 en fin de chaque press.
+// - L'identite d'un bouton (idx) est STABLE : g_buttons[idx] et
+//   g_overlays[idx] ne sont jamais reordonnes. Les swaps ne touchent
+//   que g_cell_of[] et g_button_at[], donc le user_data du callback
+//   reste valide apres un nombre quelconque d'echanges.
 //
 
 #include "esphome/core/component.h"
@@ -52,6 +54,9 @@ namespace draggable_grid {
 
 constexpr int MAX_BUTTONS = 16;
 
+// Fenetre maximum entre deux clics pour considerer un double-clic.
+constexpr uint32_t DOUBLE_CLICK_WINDOW_MS = 400;
+
 struct Cell { int16_t x; int16_t y; };
 
 // Geometrie configurable (mise a jour par le Component ESPHome au setup)
@@ -64,17 +69,20 @@ inline lv_obj_t* g_overlays[MAX_BUTTONS]{};  // pointeur de l'overlay idx
 inline Cell      g_cells[MAX_BUTTONS]{};     // position d'une cellule
 
 // Mappings courants cellule <-> bouton. Mis a jour uniquement au swap.
-// - g_cell_of[btn]  = index de la cellule ou se trouve actuellement btn
-// - g_button_at[c]  = index du bouton actuellement dans la cellule c
 inline int8_t    g_cell_of[MAX_BUTTONS]{};
 inline int8_t    g_button_at[MAX_BUTTONS]{};
 
 inline int8_t    g_count = 0;
 inline int8_t    g_active = -1;        // -1 = idle, sinon idx de bouton
-inline bool      g_moved = false;      // true si le press en cours a deja
-                                       // bouge -> on est en drag, pas en
-                                       // long-press d'exit edit mode
+inline bool      g_moved = false;      // drag en cours si true
+inline bool      g_long_fired = false; // le press en cours a deja tire
+                                       // LONG_PRESSED -> ignorer le
+                                       // relay double-click au RELEASED
 inline bool      g_edit_mode = false;
+
+// Double-click tracking (un seul bouton a la fois peut etre en attente)
+inline int8_t    g_last_click_idx = -1;
+inline uint32_t  g_last_click_time = 0;
 
 // --- helpers internes ---------------------------------------
 inline int8_t nearest_cell(int32_t cx, int32_t cy) {
@@ -89,10 +97,7 @@ inline int8_t nearest_cell(int32_t cx, int32_t cy) {
   return best_i;
 }
 
-// Breathing : applique transform_scale (256 = 1.00x) via une anim LVGL
-// qui pulse de 256 -> 268 (~1.047x) en 800 ms aller/retour, infini.
-// Pivot au centre pour que le scale soit symetrique. Petit decalage
-// par idx (delay) pour eviter l'effet "tous synchros".
+// Breathing : pulse scale 1.00 -> ~1.047x, 800 ms A/R, infini.
 inline void breathe_exec_cb(void* var, int32_t v) {
   lv_obj_set_style_transform_scale(
       static_cast<lv_obj_t*>(var), v, LV_PART_MAIN);
@@ -111,7 +116,6 @@ inline void start_breathe(lv_obj_t* btn, int8_t idx) {
   lv_anim_set_playback_time(&a, 800);
   lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
   lv_anim_set_values(&a, 256, 268);
-  // delay echelonne (~80 ms par idx) pour un rendu plus naturel
   lv_anim_set_delay(&a, static_cast<uint32_t>(idx) * 80u);
   lv_anim_start(&a);
 }
@@ -124,57 +128,26 @@ inline void stop_breathe(lv_obj_t* btn) {
 
 inline void set_edit_mode(bool enabled) {
   g_edit_mode = enabled;
+  g_last_click_idx = -1;   // reset double-click state au changement de mode
   for (int8_t i = 0; i < g_count; ++i) {
-    lv_obj_t* ov  = g_overlays[i];
     lv_obj_t* btn = g_buttons[i];
+    if (btn == nullptr) continue;
     if (enabled) {
-      // Overlay visible + bouton NON clickable : empeche on_press (donc
-      // l'ouverture de page) de se declencher pendant le drag, meme si
-      // le doigt tombe sur la bordure/padding non couvert par l'overlay.
-      if (ov  != nullptr) lv_obj_clear_flag(ov, LV_OBJ_FLAG_HIDDEN);
-      if (btn != nullptr) {
-        lv_obj_clear_flag(btn, LV_OBJ_FLAG_CLICKABLE);
-        start_breathe(btn, i);
-      }
+      start_breathe(btn, i);
     } else {
-      if (ov  != nullptr) lv_obj_add_flag(ov, LV_OBJ_FLAG_HIDDEN);
-      if (btn != nullptr) {
-        lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
-        stop_breathe(btn);
-      }
+      stop_breathe(btn);
     }
   }
 }
 
 inline void toggle_edit_mode() { set_edit_mode(!g_edit_mode); }
 
-// Retourne true si la page qui contient les boutons est visible a l'ecran.
-// Si un ancetre du bouton est HIDDEN, c'est que sa page est inactive.
-inline bool buttons_currently_visible() {
-  if (g_count == 0 || g_buttons[0] == nullptr) return false;
-  for (lv_obj_t* p = g_buttons[0]; p != nullptr; p = lv_obj_get_parent(p)) {
-    if (lv_obj_has_flag(p, LV_OBJ_FLAG_HIDDEN)) return false;
-  }
-  return true;
-}
-
-// Callback attache AU BOUTON lui-meme : detecte uniquement le long-press
-// pour basculer edit mode. Tout le reste passe par le on_click habituel.
-// Garde-fou : si l'utilisateur a tap (on_press -> page.show) et garde le
-// doigt pose > LONG_PRESS_TIME, LVGL tire encore LONG_PRESSED alors que
-// la home est deja cachee. On skip pour eviter un edit mode fantome qui
-// se reveillerait au retour sur la page.
-inline void btn_long_press_cb(lv_event_t* e) {
-  if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
-  if (!buttons_currently_visible()) return;
-  toggle_edit_mode();
-}
-
-// Callback attache a L'OVERLAY (visible uniquement en edit mode).
+// Callback attache A L'OVERLAY (toujours visible). Unique point
+// d'entree pour toutes les interactions utilisateur.
+//
 // user_data = identite STABLE du bouton (idx d'origine a l'attach).
 // Apres un swap, g_buttons[idx] et g_overlays[idx] ne changent PAS ;
-// seul g_cell_of[idx] est mis a jour. Donc ce callback continue de
-// pointer correctement sur son propre bouton meme apres des swaps.
+// seul g_cell_of[idx] est mis a jour.
 inline void overlay_event_cb(lv_event_t* e) {
   const lv_event_code_t code = lv_event_get_code(e);
   const int8_t idx = static_cast<int8_t>(
@@ -183,30 +156,40 @@ inline void overlay_event_cb(lv_event_t* e) {
   lv_obj_t* btn = g_buttons[idx];
   if (btn == nullptr) return;
 
-  // En edit mode, l'overlay bloque LONG_PRESSED du bouton sous-jacent.
-  // On gere donc la sortie de edit mode ici, MAIS uniquement si le
-  // press en cours n'est pas un drag (g_moved == false). Sinon LVGL
-  // declenche LONG_PRESSED en pleine manipulation et on perdrait le
-  // swap au RELEASED qui suit.
+  // --- LONG_PRESSED -------------------------------------------------
+  // En edit mode : sortie du edit mode (sauf si on est en plein drag).
+  // En normal mode : entree en edit mode.
   if (code == LV_EVENT_LONG_PRESSED) {
-    if (g_active == idx && g_moved) return;   // drag actif, on ignore
+    if (g_edit_mode && g_active == idx && g_moved) return;  // drag actif
+    g_long_fired = true;        // annule le relay double-click au RELEASED
     g_active = -1;
+    g_moved = false;
+    g_last_click_idx = -1;
+    lv_obj_remove_state(btn, LV_STATE_PRESSED);  // propre cote visuel
     toggle_edit_mode();
     return;
   }
 
+  // --- PRESSED ------------------------------------------------------
   if (code == LV_EVENT_PRESSED) {
     g_active = idx;
     g_moved = false;
-    lv_obj_move_foreground(btn);
-    // "Lift" : on stoppe le breathing du bouton saisi et on le grossit
-    // legerement pour signaler qu'il est en cours de drag.
-    lv_anim_delete(btn, breathe_exec_cb);
-    lv_obj_set_style_transform_scale(btn, 282, LV_PART_MAIN);  // ~1.10x
+    g_long_fired = false;
+    if (g_edit_mode) {
+      // Lift visuel du bouton saisi
+      lv_obj_move_foreground(btn);
+      lv_anim_delete(btn, breathe_exec_cb);
+      lv_obj_set_style_transform_scale(btn, 282, LV_PART_MAIN);  // ~1.10x
+    } else {
+      // Applique le style `pressed:` du YAML (translate_y, bg_color,...)
+      lv_obj_add_state(btn, LV_STATE_PRESSED);
+    }
     return;
   }
 
+  // --- PRESSING (drag en edit mode uniquement) ----------------------
   if (code == LV_EVENT_PRESSING) {
+    if (!g_edit_mode) return;
     if (g_active != idx) return;
     lv_indev_t* indev = lv_indev_active();
     if (indev == nullptr) return;
@@ -220,23 +203,48 @@ inline void overlay_event_cb(lv_event_t* e) {
     return;
   }
 
+  // --- RELEASED / PRESS_LOST ----------------------------------------
   if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
     if (g_active != idx) return;
-    g_active = -1;   // RAM cleanup immediat
-    g_moved = false;
+    g_active = -1;
 
-    // Fin du "lift" : on relance le breathing si on est toujours en
-    // edit mode (sinon on reste a 1.0x, ce que stop_breathe a fait).
-    if (g_edit_mode) {
-      start_breathe(btn, idx);
-    } else {
-      lv_obj_set_style_transform_scale(btn, 256, LV_PART_MAIN);
+    // ---- NORMAL MODE : double-click relay ---------------------------
+    if (!g_edit_mode) {
+      lv_obj_remove_state(btn, LV_STATE_PRESSED);
+      const bool short_click =
+          (code == LV_EVENT_RELEASED) && !g_moved && !g_long_fired;
+      g_moved = false;
+      g_long_fired = false;
+      if (!short_click) {
+        g_last_click_idx = -1;
+        return;
+      }
+      const uint32_t now = lv_tick_get();
+      if (g_last_click_idx == idx &&
+          (now - g_last_click_time) <= DOUBLE_CLICK_WINDOW_MS) {
+        // Second clic dans la fenetre -> relaye au bouton pour declencher
+        // le on_press: (et symetriquement RELEASED / CLICKED pour ne pas
+        // laisser le bouton dans un etat incoherent).
+        lv_obj_send_event(btn, LV_EVENT_PRESSED, nullptr);
+        lv_obj_send_event(btn, LV_EVENT_RELEASED, nullptr);
+        lv_obj_send_event(btn, LV_EVENT_CLICKED, nullptr);
+        g_last_click_idx = -1;
+      } else {
+        g_last_click_idx = idx;
+        g_last_click_time = now;
+      }
+      return;
     }
+
+    // ---- EDIT MODE : fin du drag + swap -----------------------------
+    g_moved = false;
+    g_long_fired = false;
+    start_breathe(btn, idx);    // le lift se resorbe, le breathe reprend
 
     const int8_t src_cell = g_cell_of[idx];
 
-    int32_t cx  = lv_obj_get_x_aligned(btn) + g_cell_w / 2;
-    int32_t cy  = lv_obj_get_y_aligned(btn) + g_cell_h / 2;
+    int32_t cx = lv_obj_get_x_aligned(btn) + g_cell_w / 2;
+    int32_t cy = lv_obj_get_y_aligned(btn) + g_cell_h / 2;
     int8_t  dst_cell = nearest_cell(cx, cy);
 
     if (dst_cell == src_cell) {
@@ -253,9 +261,6 @@ inline void overlay_event_cb(lv_event_t* e) {
     }
     lv_obj_set_pos(btn, g_cells[dst_cell].x, g_cells[dst_cell].y);
 
-    // Mise a jour des mappings cellule <-> bouton UNIQUEMENT.
-    // g_buttons[] et g_overlays[] restent inchanges -> l'identite idx
-    // stockee dans user_data reste valide pour le prochain drag.
     g_cell_of[idx] = dst_cell;
     g_button_at[dst_cell] = idx;
     if (other_idx >= 0 && other_idx < g_count) {
@@ -265,8 +270,9 @@ inline void overlay_event_cb(lv_event_t* e) {
   }
 }
 
-// Enregistre un bouton : set_pos, ajoute le long-press cb sur le bouton,
-// cree l'overlay transparent enfant (cache) et y attache le cb de drag.
+// Enregistre un bouton : set_pos, cree l'overlay transparent enfant
+// (TOUJOURS visible / clickable), desactive CLICKABLE sur le bouton
+// pour qu'aucun event ne l'atteigne directement.
 inline void attach(lv_obj_t* obj, int idx, int16_t cx, int16_t cy) {
   if (obj == nullptr) return;
   if (idx < 0 || idx >= MAX_BUTTONS) return;
@@ -274,15 +280,17 @@ inline void attach(lv_obj_t* obj, int idx, int16_t cx, int16_t cy) {
   g_cells[idx].x = cx;
   g_cells[idx].y = cy;
   g_buttons[idx] = obj;
-  g_cell_of[idx] = idx;       // au depart chaque bouton occupe sa cellule
+  g_cell_of[idx] = idx;
   g_button_at[idx] = idx;
   if (idx + 1 > g_count) g_count = idx + 1;
   lv_obj_set_pos(obj, cx, cy);
 
-  // Long-press sur le bouton -> toggle edit mode
-  lv_obj_add_event_cb(obj, btn_long_press_cb, LV_EVENT_LONG_PRESSED, nullptr);
+  // Bouton non-clickable : plus jamais d'event direct. L'overlay est
+  // l'unique chemin vers le bouton (via lv_obj_send_event sur double
+  // clic ou via un relay manuel d'etat LV_STATE_PRESSED).
+  lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
 
-  // Overlay transparent enfant du bouton
+  // Overlay transparent enfant, TOUJOURS visible et clickable.
   lv_obj_t* ov = lv_obj_create(obj);
   lv_obj_remove_style_all(ov);
   lv_obj_set_size(ov, LV_PCT(100), LV_PCT(100));
@@ -295,7 +303,6 @@ inline void attach(lv_obj_t* obj, int idx, int16_t cx, int16_t cy) {
   lv_obj_add_flag(ov, LV_OBJ_FLAG_PRESS_LOCK);
   lv_obj_clear_flag(ov, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_clear_flag(ov, LV_OBJ_FLAG_EVENT_BUBBLE);
-  lv_obj_add_flag(ov, LV_OBJ_FLAG_HIDDEN);     // cache en mode normal
 
   lv_obj_add_event_cb(ov, overlay_event_cb, LV_EVENT_ALL,
                       reinterpret_cast<void*>(static_cast<intptr_t>(idx)));
