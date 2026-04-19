@@ -80,7 +80,11 @@ async def to_code(config):
             "doivent avoir la meme longueur"
         )
 
-    cg.add_global(cg.RawStatement('#include "draggable_grid.h"'))
+    cg.add_global(
+        cg.RawStatement(
+            '#include "esphome/components/draggable_grid/draggable_grid.h"'
+        )
+    )
 
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
