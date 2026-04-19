@@ -17,7 +17,6 @@
 //
 
 #include "esphome/core/component.h"
-#include "esphome/components/lvgl/lvgl_esphome.h"
 #include "lvgl.h"
 #include <cstdint>
 #include <climits>
@@ -140,17 +139,20 @@ namespace esphome {
 namespace draggable_grid_cmpt {
 
 struct PendingEntry {
-  lvgl::LvCompound* btn;
-  int8_t  idx;
-  int16_t x;
-  int16_t y;
+  lv_obj_t* obj;
+  int8_t    idx;
+  int16_t   x;
+  int16_t   y;
 };
 
 class DraggableGridComponent : public Component {
  public:
-  void add(lvgl::LvCompound* btn, int idx, int16_t x, int16_t y) {
+  // ESPHome LVGL expose directement lv_obj_t* pour les ids de button /
+  // widget (cf. types.py : lv_obj_base_t = "lv_obj_t"). On prend donc
+  // un lv_obj_t* brut, pas un LvCompound*.
+  void add(lv_obj_t* obj, int idx, int16_t x, int16_t y) {
     if (this->count_ >= ::draggable_grid::MAX_BUTTONS) return;
-    this->entries_[this->count_++] = {btn, static_cast<int8_t>(idx), x, y};
+    this->entries_[this->count_++] = {obj, static_cast<int8_t>(idx), x, y};
   }
 
   void set_cell_size(int w, int h) {
@@ -162,8 +164,8 @@ class DraggableGridComponent : public Component {
     ::draggable_grid::set_cell_size(this->cell_w_, this->cell_h_);
     for (int i = 0; i < this->count_; ++i) {
       auto& e = this->entries_[i];
-      if (e.btn && e.btn->obj) {
-        ::draggable_grid::attach(e.btn->obj, e.idx, e.x, e.y);
+      if (e.obj != nullptr) {
+        ::draggable_grid::attach(e.obj, e.idx, e.x, e.y);
       }
     }
   }
