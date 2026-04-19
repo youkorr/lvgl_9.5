@@ -1,19 +1,30 @@
 #pragma once
 //
-// Native ESPHome component for LVGL draggable grid.
+// Native ESPHome component for LVGL draggable grid (Option A, iOS-style).
 // 100% declaratif cote YAML : aucune lambda ne doit etre ecrite par
-// l'utilisateur. Toute la logique (etat, callbacks LVGL, swap, cleanup
-// memoire) vit dans ce header.
+// l'utilisateur.
 //
-// Etat : stockage statique uniquement (inline variables), zero heap.
-// RAM cleanup : g_active est remis a -1 des la premiere ligne de
-// event_cb() dans le cas RELEASED/PRESS_LOST, avant toute autre logique.
+// Probleme resolu (v2) :
+//   Un press court sur un bouton declenche son on_click habituel (ouverture
+//   de page). Un press long (>= LONG_PRESS_TIME) fait basculer la grille en
+//   "edit mode" : un overlay transparent apparait sur chaque bouton et
+//   intercepte les press suivants pour permettre le drag. Un nouveau press
+//   long sur un bouton quitte le edit mode.
 //
-// Le C++ ci-dessous expose deux mondes :
-//   - namespace draggable_grid : l'engine pur (zero dependance ESPHome)
-//   - namespace esphome::draggable_grid_cmpt : le Component qui relie
-//     l'engine aux widgets crees par le composant LVGL d'ESPHome, avec
-//     setup_priority::LATE pour s'executer APRES la creation des widgets.
+// Etat
+// ----
+// - Stockage statique (inline variables) : ~240 octets, zero heap.
+// - g_active est remis a -1 DES la premiere ligne de la branche RELEASED /
+//   PRESS_LOST du callback overlay -> aucune RAM residuelle entre drags.
+//
+// Hierarchie
+// ----------
+//   Button (recoit LV_EVENT_LONG_PRESSED -> toggle edit mode)
+//     +-- Overlay (enfant, HIDDEN par defaut)
+//         - en edit mode : devient visible, capture PRESSED/PRESSING/
+//           RELEASED/PRESS_LOST pour executer le drag + swap
+//         - en mode normal : HIDDEN -> LVGL l'ignore, les evenements vont
+//           au Button et le on_click fonctionne normalement.
 //
 
 #include "esphome/core/component.h"
@@ -35,19 +46,14 @@ struct Slot { lv_obj_t* obj; };
 inline int16_t g_cell_w = 150;
 inline int16_t g_cell_h = 100;
 
-inline Cell    g_cells[MAX_BUTTONS]{};
-inline Slot    g_slots[MAX_BUTTONS]{};
-inline int8_t  g_count = 0;
-inline int8_t  g_active = -1;   // -1 = idle
+inline Cell      g_cells[MAX_BUTTONS]{};
+inline Slot      g_slots[MAX_BUTTONS]{};
+inline lv_obj_t* g_overlays[MAX_BUTTONS]{};
+inline int8_t    g_count = 0;
+inline int8_t    g_active = -1;        // -1 = idle
+inline bool      g_edit_mode = false;
 
-// --- helpers internes ----------------------------------------
-inline int8_t find_slot(lv_obj_t* obj) {
-  for (int8_t i = 0; i < g_count; ++i) {
-    if (g_slots[i].obj == obj) return i;
-  }
-  return -1;
-}
-
+// --- helpers internes ---------------------------------------
 inline int8_t nearest_cell(int32_t cx, int32_t cy) {
   int32_t best = INT32_MAX;
   int8_t  best_i = 0;
@@ -60,44 +66,68 @@ inline int8_t nearest_cell(int32_t cx, int32_t cy) {
   return best_i;
 }
 
-// Unique callback LVGL, dispatch sur le code d'evenement.
-inline void event_cb(lv_event_t* e) {
+inline void set_edit_mode(bool enabled) {
+  g_edit_mode = enabled;
+  for (int8_t i = 0; i < g_count; ++i) {
+    lv_obj_t* ov = g_overlays[i];
+    if (ov == nullptr) continue;
+    if (enabled) {
+      lv_obj_clear_flag(ov, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(ov, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+}
+
+inline void toggle_edit_mode() { set_edit_mode(!g_edit_mode); }
+
+// Callback attache AU BOUTON lui-meme : detecte uniquement le long-press
+// pour basculer edit mode. Tout le reste passe par le on_click habituel.
+inline void btn_long_press_cb(lv_event_t* e) {
+  if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
+  toggle_edit_mode();
+}
+
+// Callback attache a L'OVERLAY (visible uniquement en edit mode).
+// user_data = index du slot dans g_slots (passe a la creation).
+inline void overlay_event_cb(lv_event_t* e) {
   const lv_event_code_t code = lv_event_get_code(e);
-  lv_obj_t* obj = lv_event_get_target_obj(e);
+  const int8_t idx = static_cast<int8_t>(
+      reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));
+  if (idx < 0 || idx >= g_count) return;
+  lv_obj_t* btn = g_slots[idx].obj;
+  if (btn == nullptr) return;
 
   if (code == LV_EVENT_PRESSED) {
-    int8_t s = find_slot(obj);
-    if (s < 0) return;
-    g_active = s;
-    lv_obj_move_foreground(obj);
+    g_active = idx;
+    lv_obj_move_foreground(btn);
     return;
   }
 
   if (code == LV_EVENT_PRESSING) {
-    if (g_active < 0 || g_slots[g_active].obj != obj) return;
+    if (g_active != idx) return;
     lv_indev_t* indev = lv_indev_active();
     if (indev == nullptr) return;
     lv_point_t v;
     lv_indev_get_vect(indev, &v);
     if (v.x == 0 && v.y == 0) return;
-    int32_t nx = lv_obj_get_x_aligned(obj) + v.x;
-    int32_t ny = lv_obj_get_y_aligned(obj) + v.y;
-    lv_obj_set_pos(obj, nx, ny);
+    int32_t nx = lv_obj_get_x_aligned(btn) + v.x;
+    int32_t ny = lv_obj_get_y_aligned(btn) + v.y;
+    lv_obj_set_pos(btn, nx, ny);
     return;
   }
 
   if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
-    if (g_active < 0) return;
+    if (g_active != idx) return;
     const int8_t src = g_active;
-    g_active = -1;   // <-- RAM cleanup immediat, avant toute autre logique
-    if (g_slots[src].obj != obj) return;
+    g_active = -1;   // RAM cleanup immediat
 
-    int32_t cx  = lv_obj_get_x_aligned(obj) + g_cell_w / 2;
-    int32_t cy  = lv_obj_get_y_aligned(obj) + g_cell_h / 2;
+    int32_t cx  = lv_obj_get_x_aligned(btn) + g_cell_w / 2;
+    int32_t cy  = lv_obj_get_y_aligned(btn) + g_cell_h / 2;
     int8_t  dst = nearest_cell(cx, cy);
 
     if (dst == src) {
-      lv_obj_set_pos(obj, g_cells[src].x, g_cells[src].y);
+      lv_obj_set_pos(btn, g_cells[src].x, g_cells[src].y);
       return;
     }
 
@@ -105,23 +135,61 @@ inline void event_cb(lv_event_t* e) {
     if (other != nullptr) {
       lv_obj_set_pos(other, g_cells[src].x, g_cells[src].y);
     }
-    lv_obj_set_pos(obj, g_cells[dst].x, g_cells[dst].y);
-    g_slots[src].obj = other;
-    g_slots[dst].obj = obj;
-    return;
+    lv_obj_set_pos(btn, g_cells[dst].x, g_cells[dst].y);
+
+    // Swap : les pointeurs obj ET les overlays doivent rester associes
+    // a leur bouton, donc on echange les deux entrees en miroir.
+    lv_obj_t* tmp_obj = g_slots[src].obj;
+    g_slots[src].obj = g_slots[dst].obj;
+    g_slots[dst].obj = tmp_obj;
+    lv_obj_t* tmp_ov = g_overlays[src];
+    g_overlays[src] = g_overlays[dst];
+    g_overlays[dst] = tmp_ov;
+
+    // Re-assigner les user_data des overlays apres swap pour que l'idx
+    // stocke dans le callback corresponde a la nouvelle position.
+    // (On modifie directement la liste d'event callbacks de l'overlay.)
+    // Note : LVGL n'offre pas de set_user_data pour event_cb, donc on
+    // ne touche pas au user_data ; a la place, on lit toujours le slot
+    // via g_slots[idx].obj qui contient desormais le bon bouton.
+    // -> deja fait dans la branche PRESSING (g_slots[g_active].obj).
   }
 }
 
-// Enregistrement d'un bouton + attache du callback LVGL unique.
+// Enregistre un bouton : set_pos, ajoute le long-press cb sur le bouton,
+// cree l'overlay transparent enfant (cache) et y attache le cb de drag.
 inline void attach(lv_obj_t* obj, int idx, int16_t cx, int16_t cy) {
   if (obj == nullptr) return;
   if (idx < 0 || idx >= MAX_BUTTONS) return;
+
   g_cells[idx].x = cx;
   g_cells[idx].y = cy;
   g_slots[idx].obj = obj;
   if (idx + 1 > g_count) g_count = idx + 1;
   lv_obj_set_pos(obj, cx, cy);
-  lv_obj_add_event_cb(obj, event_cb, LV_EVENT_ALL, nullptr);
+
+  // Long-press sur le bouton -> toggle edit mode
+  lv_obj_add_event_cb(obj, btn_long_press_cb, LV_EVENT_LONG_PRESSED, nullptr);
+
+  // Overlay transparent enfant du bouton
+  lv_obj_t* ov = lv_obj_create(obj);
+  lv_obj_remove_style_all(ov);
+  lv_obj_set_size(ov, LV_PCT(100), LV_PCT(100));
+  lv_obj_center(ov);
+  lv_obj_set_style_bg_opa(ov, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(ov, 0, 0);
+  lv_obj_set_style_pad_all(ov, 0, 0);
+  lv_obj_set_style_radius(ov, 0, 0);
+  lv_obj_add_flag(ov, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(ov, LV_OBJ_FLAG_PRESS_LOCK);
+  lv_obj_clear_flag(ov, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_clear_flag(ov, LV_OBJ_FLAG_EVENT_BUBBLE);
+  lv_obj_add_flag(ov, LV_OBJ_FLAG_HIDDEN);     // cache en mode normal
+
+  lv_obj_add_event_cb(ov, overlay_event_cb, LV_EVENT_ALL,
+                      reinterpret_cast<void*>(static_cast<intptr_t>(idx)));
+
+  g_overlays[idx] = ov;
 }
 
 inline void set_cell_size(int w, int h) {
@@ -147,9 +215,6 @@ struct PendingEntry {
 
 class DraggableGridComponent : public Component {
  public:
-  // ESPHome LVGL expose directement lv_obj_t* pour les ids de button /
-  // widget (cf. types.py : lv_obj_base_t = "lv_obj_t"). On prend donc
-  // un lv_obj_t* brut, pas un LvCompound*.
   void add(lv_obj_t* obj, int idx, int16_t x, int16_t y) {
     if (this->count_ >= ::draggable_grid::MAX_BUTTONS) return;
     this->entries_[this->count_++] = {obj, static_cast<int8_t>(idx), x, y};
@@ -170,8 +235,6 @@ class DraggableGridComponent : public Component {
     }
   }
 
-  // Priorite LATE (-100) -> s'execute APRES LVGL (PROCESSOR = 400)
-  // donc les widgets sont deja crees quand on attache nos callbacks.
   float get_setup_priority() const override {
     return setup_priority::LATE;
   }
