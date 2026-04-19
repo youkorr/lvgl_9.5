@@ -148,10 +148,25 @@ inline void set_edit_mode(bool enabled) {
 
 inline void toggle_edit_mode() { set_edit_mode(!g_edit_mode); }
 
+// Retourne true si la page qui contient les boutons est visible a l'ecran.
+// Si un ancetre du bouton est HIDDEN, c'est que sa page est inactive.
+inline bool buttons_currently_visible() {
+  if (g_count == 0 || g_buttons[0] == nullptr) return false;
+  for (lv_obj_t* p = g_buttons[0]; p != nullptr; p = lv_obj_get_parent(p)) {
+    if (lv_obj_has_flag(p, LV_OBJ_FLAG_HIDDEN)) return false;
+  }
+  return true;
+}
+
 // Callback attache AU BOUTON lui-meme : detecte uniquement le long-press
 // pour basculer edit mode. Tout le reste passe par le on_click habituel.
+// Garde-fou : si l'utilisateur a tap (on_press -> page.show) et garde le
+// doigt pose > LONG_PRESS_TIME, LVGL tire encore LONG_PRESSED alors que
+// la home est deja cachee. On skip pour eviter un edit mode fantome qui
+// se reveillerait au retour sur la page.
 inline void btn_long_press_cb(lv_event_t* e) {
   if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
+  if (!buttons_currently_visible()) return;
   toggle_edit_mode();
 }
 
