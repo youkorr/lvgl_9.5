@@ -68,7 +68,7 @@ CONFIG_SCHEMA = cv.ensure_list(
             cv.Optional(CONF_X, default=0): cv.int_,
             cv.Optional(CONF_Y, default=0): cv.int_,
             cv.Optional(CONF_MODE, default="WIREFRAME"): cv.enum(MODES, upper=True),
-            cv.Optional(CONF_FPS, default=30): cv.int_range(5, 60),
+            cv.Optional(CONF_FPS, default=60): cv.int_range(5, 60),
             cv.Optional(CONF_COLOR, default=0x00FFAA): cv.hex_int,
             cv.Optional(CONF_PARTICLES, default=600): cv.int_range(50, 4000),
             cv.Optional(CONF_MERIDIANS, default=12): cv.int_range(4, 32),
