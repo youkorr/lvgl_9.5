@@ -48,6 +48,7 @@
 //
 
 #include "esphome/core/component.h"
+#include "esphome/core/automation.h"
 #include "lvgl.h"
 #include <cstdint>
 #include <climits>
@@ -72,6 +73,8 @@ inline int16_t g_cell_h = 100;
 inline lv_obj_t* g_buttons[MAX_BUTTONS]{};   // pointeur du bouton idx
 inline lv_obj_t* g_overlays[MAX_BUTTONS]{};  // pointeur de l'overlay idx
 inline Cell      g_cells[MAX_BUTTONS]{};     // position d'une cellule
+inline bool      g_pinned[MAX_BUTTONS]{};    // draggable=false : pas de
+                                             // overlay, pas dans le reflow
 
 // Mappings courants cellule <-> bouton. Mis a jour uniquement au swap.
 inline int8_t    g_cell_of[MAX_BUTTONS]{};
@@ -85,6 +88,11 @@ inline bool      g_long_fired = false; // le press en cours a deja tire
                                        // relay double-click au RELEASED
 inline bool      g_edit_mode = false;
 
+// Parent scroll lock pendant le drag : l'indev LVGL peut sinon
+// convertir la gestuelle en scroll sur un ancetre scrollable.
+inline lv_obj_t* g_drag_parent = nullptr;
+inline bool      g_parent_was_scrollable = false;
+
 // Double-click tracking (un seul bouton a la fois peut etre en attente)
 inline int8_t    g_last_click_idx = -1;
 inline uint32_t  g_last_click_time = 0;
@@ -97,10 +105,15 @@ inline int8_t    g_pre_drag_order[MAX_BUTTONS]{};  // order[cell] = btn idx
 inline int8_t    g_last_target_cell = -1;
 
 // --- helpers internes ---------------------------------------
+// Renvoie -1 si aucune cellule libre (tout pinned, improbable).
 inline int8_t nearest_cell(int32_t cx, int32_t cy) {
   int32_t best = INT32_MAX;
-  int8_t  best_i = 0;
+  int8_t  best_i = -1;
   for (int8_t i = 0; i < g_count; ++i) {
+    // Une cellule occupee par un bouton pinne est intangible : le
+    // bouton drague ne peut pas s'y poser ni pousser son occupant.
+    const int8_t occupant = g_button_at[i];
+    if (occupant >= 0 && g_pinned[occupant]) continue;
     int32_t dx = cx - (g_cells[i].x + g_cell_w / 2);
     int32_t dy = cy - (g_cells[i].y + g_cell_h / 2);
     int32_t d  = dx * dx + dy * dy;
@@ -161,23 +174,39 @@ inline void kill_pos_anim(int8_t btn_idx) {
 
 // Reflow : calcule la nouvelle disposition si le bouton saisi occupait
 // target_cell (en gardant l'ordre relatif des autres), puis anime les
-// voisins vers leurs nouvelles cellules. g_cell_of / g_button_at sont
-// mis a jour.
+// voisins vers leurs nouvelles cellules. Les boutons pinned restent
+// dans leur cellule. g_cell_of / g_button_at sont mis a jour.
 inline void reflow_to(int8_t dragged_idx, int8_t target_cell) {
   if (target_cell == g_last_target_cell) return;
+  if (target_cell < 0) return;
   g_last_target_cell = target_cell;
 
   int8_t new_order[MAX_BUTTONS];
-  int8_t write = 0;
+  for (int8_t c = 0; c < g_count; ++c) new_order[c] = -1;
+
+  // 1) cellules occupees par un bouton pinne : intouchables.
   for (int8_t c = 0; c < g_count; ++c) {
-    if (c == target_cell) {
-      new_order[c] = dragged_idx;
-      continue;
+    int8_t occupant = g_button_at[c];
+    if (occupant >= 0 && g_pinned[occupant]) new_order[c] = occupant;
+  }
+
+  // 2) bouton drague : va explicitement sur target_cell.
+  new_order[target_cell] = dragged_idx;
+
+  // 3) reste : parcours du snapshot, on remplit les slots encore vides
+  //    dans l'ordre, en sautant drague + pinned.
+  int8_t write_src = 0;
+  for (int8_t c = 0; c < g_count; ++c) {
+    if (new_order[c] != -1) continue;
+    while (write_src < g_count) {
+      int8_t cand = g_pre_drag_order[write_src];
+      if (cand == dragged_idx || (cand >= 0 && g_pinned[cand])) {
+        ++write_src;
+        continue;
+      }
+      break;
     }
-    // saute le bouton saisi dans le snapshot initial
-    while (write < g_count && g_pre_drag_order[write] == dragged_idx) ++write;
-    if (write < g_count) new_order[c] = g_pre_drag_order[write++];
-    else                 new_order[c] = -1;
+    if (write_src < g_count) new_order[c] = g_pre_drag_order[write_src++];
   }
 
   // Snapshot de g_cell_of avant l'application pour detecter les mouvements.
@@ -233,16 +262,22 @@ inline void stop_breathe(lv_obj_t* btn) {
 }
 
 // Coupe le breathing sur tous les boutons : appele au debut d'un drag
-// pour degager le pipeline GPU (sur ESP32-P4 / LVGL software blend,
-// transform_scale sur 9 boutons en parallele coute tres cher).
+// pour degager le pipeline PPA (translate_y sur N boutons en parallele
+// coute un redraw chacun, pas necessaire pendant un drag).
 inline void pause_all_breathe() {
-  for (int8_t i = 0; i < g_count; ++i) stop_breathe(g_buttons[i]);
+  for (int8_t i = 0; i < g_count; ++i) {
+    if (g_pinned[i]) continue;
+    stop_breathe(g_buttons[i]);
+  }
 }
 
 // Relance le breathing sur tous les boutons apres un drop si on est
 // toujours en edit mode.
 inline void resume_all_breathe() {
-  for (int8_t i = 0; i < g_count; ++i) start_breathe(g_buttons[i], i);
+  for (int8_t i = 0; i < g_count; ++i) {
+    if (g_pinned[i]) continue;
+    start_breathe(g_buttons[i], i);
+  }
 }
 
 inline void set_edit_mode(bool enabled) {
@@ -251,6 +286,7 @@ inline void set_edit_mode(bool enabled) {
   for (int8_t i = 0; i < g_count; ++i) {
     lv_obj_t* btn = g_buttons[i];
     if (btn == nullptr) continue;
+    if (g_pinned[i]) continue;  // les pinned ne respirent pas : pas draggables
     if (enabled) {
       start_breathe(btn, i);
     } else {
@@ -310,6 +346,15 @@ inline void overlay_event_cb(lv_event_t* e) {
         g_pre_drag_order[c] = g_button_at[c];
       }
       g_last_target_cell = g_cell_of[idx];
+      // Bloque le scroll du parent pendant le drag : sinon un mouvement
+      // vers le bas fait descendre tout l'affichage (LVGL convertit le
+      // geste en scroll sur l'ancetre scrollable).
+      g_drag_parent = lv_obj_get_parent(btn);
+      if (g_drag_parent != nullptr) {
+        g_parent_was_scrollable =
+            lv_obj_has_flag(g_drag_parent, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_clear_flag(g_drag_parent, LV_OBJ_FLAG_SCROLLABLE);
+      }
     } else {
       // Applique le style `pressed:` du YAML (translate_y, bg_color,...)
       lv_obj_add_state(btn, LV_STATE_PRESSED);
@@ -385,16 +430,29 @@ inline void overlay_event_cb(lv_event_t* e) {
     const int8_t dst_cell = g_cell_of[idx];
     animate_btn_to(idx, g_cells[dst_cell].x, g_cells[dst_cell].y);
 
+    // Restaure le scroll du parent si on l'avait desactive.
+    if (g_drag_parent != nullptr && g_parent_was_scrollable) {
+      lv_obj_add_flag(g_drag_parent, LV_OBJ_FLAG_SCROLLABLE);
+    }
+    g_drag_parent = nullptr;
+    g_parent_was_scrollable = false;
+
     // Relance le breathing global apres le drop (si on est encore en
     // edit mode, ce qui est le cas par definition ici).
     resume_all_breathe();
   }
 }
 
-// Enregistre un bouton : set_pos, cree l'overlay transparent enfant
-// (TOUJOURS visible / clickable), desactive CLICKABLE sur le bouton
-// pour qu'aucun event ne l'atteigne directement.
-inline void attach(lv_obj_t* obj, int idx, int16_t cx, int16_t cy) {
+// Enregistre un bouton :
+//  - draggable=true  : set_pos + overlay transparent enfant pour
+//                      intercepter toutes les interactions (double-clic
+//                      relay + drag en edit mode).
+//  - draggable=false : set_pos uniquement. Le bouton garde son
+//                      comportement YAML natif (on_press, on_long_press,
+//                      etc.), il sert de slot "pinne" que le reflow
+//                      ne touchera pas.
+inline void attach(lv_obj_t* obj, int idx, int16_t cx, int16_t cy,
+                   bool draggable = true) {
   if (obj == nullptr) return;
   if (idx < 0 || idx >= MAX_BUTTONS) return;
 
@@ -403,8 +461,16 @@ inline void attach(lv_obj_t* obj, int idx, int16_t cx, int16_t cy) {
   g_buttons[idx] = obj;
   g_cell_of[idx] = idx;
   g_button_at[idx] = idx;
+  g_pinned[idx]  = !draggable;
   if (idx + 1 > g_count) g_count = idx + 1;
   lv_obj_set_pos(obj, cx, cy);
+
+  // Bouton pinne : on n'installe PAS d'overlay, on ne touche pas a
+  // CLICKABLE. L'utilisateur garde on_press / on_long_press YAML natif.
+  if (!draggable) {
+    g_overlays[idx] = nullptr;
+    return;
+  }
 
   // Bouton non-clickable : plus jamais d'event direct. L'overlay est
   // l'unique chemin vers le bouton (via lv_obj_send_event sur double
@@ -450,13 +516,16 @@ struct PendingEntry {
   int8_t    idx;
   int16_t   x;
   int16_t   y;
+  bool      draggable;
 };
 
 class DraggableGridComponent : public Component {
  public:
-  void add(lv_obj_t* obj, int idx, int16_t x, int16_t y) {
+  void add(lv_obj_t* obj, int idx, int16_t x, int16_t y,
+           bool draggable = true) {
     if (this->count_ >= ::draggable_grid::MAX_BUTTONS) return;
-    this->entries_[this->count_++] = {obj, static_cast<int8_t>(idx), x, y};
+    this->entries_[this->count_++] =
+        {obj, static_cast<int8_t>(idx), x, y, draggable};
   }
 
   void set_cell_size(int w, int h) {
@@ -469,7 +538,7 @@ class DraggableGridComponent : public Component {
     for (int i = 0; i < this->count_; ++i) {
       auto& e = this->entries_[i];
       if (e.obj != nullptr) {
-        ::draggable_grid::attach(e.obj, e.idx, e.x, e.y);
+        ::draggable_grid::attach(e.obj, e.idx, e.x, e.y, e.draggable);
       }
     }
   }
@@ -478,11 +547,51 @@ class DraggableGridComponent : public Component {
     return setup_priority::LATE;
   }
 
+  // Declencheurs externes : permettent d'entrer / sortir du edit mode
+  // depuis un bouton non-draggable ou depuis une autre source YAML.
+  void toggle_edit_mode() { ::draggable_grid::toggle_edit_mode(); }
+  void set_edit_mode(bool enabled) {
+    ::draggable_grid::set_edit_mode(enabled);
+  }
+
  private:
   PendingEntry entries_[::draggable_grid::MAX_BUTTONS]{};
   int8_t  count_ = 0;
   int16_t cell_w_ = 150;
   int16_t cell_h_ = 100;
+};
+
+// ------------------------------------------------------------
+// Actions YAML (external_trigger) :
+//   on_long_press:
+//     - draggable_grid.toggle_edit_mode: my_grid_id
+//     - draggable_grid.set_edit_mode:
+//         id: my_grid_id
+//         value: true
+// ------------------------------------------------------------
+template<typename... Ts>
+class ToggleEditModeAction : public Action<Ts...> {
+ public:
+  explicit ToggleEditModeAction(DraggableGridComponent* parent)
+      : parent_(parent) {}
+  void play(Ts... /*x*/) override { this->parent_->toggle_edit_mode(); }
+
+ private:
+  DraggableGridComponent* parent_;
+};
+
+template<typename... Ts>
+class SetEditModeAction : public Action<Ts...> {
+ public:
+  explicit SetEditModeAction(DraggableGridComponent* parent)
+      : parent_(parent) {}
+  TEMPLATABLE_VALUE(bool, value)
+  void play(Ts... x) override {
+    this->parent_->set_edit_mode(this->value_.value(x...));
+  }
+
+ private:
+  DraggableGridComponent* parent_;
 };
 
 }  // namespace draggable_grid_cmpt
