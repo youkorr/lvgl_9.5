@@ -19,10 +19,12 @@
 //                                       la derniere case survolee.
 //   - long-press sans bouger         -> sortie du edit mode.
 //
-// Feedback visuel :
-//   - edit mode : tous les boutons "respirent" (scale 1.00 -> 1.05,
-//     800 ms aller/retour, dephasage par idx). Le bouton saisi est
-//     grossi a ~1.10x (lift) pendant le drag.
+// Feedback visuel (tout base sur la translation = PPA-friendly sur
+// ESP32-P4 ; transform_scale est volontairement evite car l'unite PPA
+// rejette les blits scales et bascule en software rendering) :
+//   - edit mode : tous les boutons "respirent" par bob translate_y de
+//     0 -> -2 px (1000 ms A/R, dephasage par idx). Le bouton saisi
+//     est souleve de -6 px (translate_y) pendant le drag.
 //   - normal mode : LV_STATE_PRESSED est manuellement applique au
 //     bouton sur press/release pour conserver le style `pressed:`
 //     defini en YAML (translate_y, bg_color, etc.).
@@ -107,31 +109,54 @@ inline int8_t nearest_cell(int32_t cx, int32_t cy) {
   return best_i;
 }
 
-// Animation de position (x et y) avec courbe ease_out, ~180 ms.
-// Utilisee pour faire glisser les voisins pendant le reflow, et pour
-// poser le bouton saisi sur la case finale au drop.
-inline void anim_set_x_cb(void* var, int32_t v) {
-  lv_obj_set_x(static_cast<lv_obj_t*>(var), v);
-}
-inline void anim_set_y_cb(void* var, int32_t v) {
-  lv_obj_set_y(static_cast<lv_obj_t*>(var), v);
+// Animation de position packee (x+y dans un seul lv_anim_t, 1 call
+// lv_obj_set_pos par frame au lieu de 2). Cible : ESP32-P4 sans CPU
+// burn inutile.
+struct MoveAnim {
+  lv_obj_t* btn;
+  int16_t start_x, start_y;
+  int16_t end_x,   end_y;
+};
+inline MoveAnim g_move_anims[MAX_BUTTONS]{};
+
+inline void anim_pos_exec_cb(void* var, int32_t v) {
+  MoveAnim* m = static_cast<MoveAnim*>(var);
+  if (m == nullptr || m->btn == nullptr) return;
+  int32_t x = m->start_x + ((m->end_x - m->start_x) * v) / 1000;
+  int32_t y = m->start_y + ((m->end_y - m->start_y) * v) / 1000;
+  lv_obj_set_pos(m->btn, x, y);
 }
 
-inline void animate_btn_to(lv_obj_t* btn, int32_t dst_x, int32_t dst_y) {
+// Reflow en ~150 ms : snap mais visible, proche du feel iOS.
+constexpr uint32_t REFLOW_MS = 150;
+
+inline void animate_btn_to(int8_t btn_idx, int32_t dst_x, int32_t dst_y) {
+  if (btn_idx < 0 || btn_idx >= MAX_BUTTONS) return;
+  lv_obj_t* btn = g_buttons[btn_idx];
   if (btn == nullptr) return;
+
+  MoveAnim& m = g_move_anims[btn_idx];
+  m.btn     = btn;
+  m.start_x = static_cast<int16_t>(lv_obj_get_x_aligned(btn));
+  m.start_y = static_cast<int16_t>(lv_obj_get_y_aligned(btn));
+  m.end_x   = static_cast<int16_t>(dst_x);
+  m.end_y   = static_cast<int16_t>(dst_y);
+
+  if (m.start_x == m.end_x && m.start_y == m.end_y) return;
+
   lv_anim_t a;
   lv_anim_init(&a);
-  lv_anim_set_var(&a, btn);
-  lv_anim_set_time(&a, 180);
+  lv_anim_set_var(&a, &m);
+  lv_anim_set_exec_cb(&a, anim_pos_exec_cb);
+  lv_anim_set_time(&a, REFLOW_MS);
+  lv_anim_set_values(&a, 0, 1000);
   lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
-
-  lv_anim_set_exec_cb(&a, anim_set_x_cb);
-  lv_anim_set_values(&a, lv_obj_get_x_aligned(btn), dst_x);
   lv_anim_start(&a);
+}
 
-  lv_anim_set_exec_cb(&a, anim_set_y_cb);
-  lv_anim_set_values(&a, lv_obj_get_y_aligned(btn), dst_y);
-  lv_anim_start(&a);
+inline void kill_pos_anim(int8_t btn_idx) {
+  if (btn_idx < 0 || btn_idx >= MAX_BUTTONS) return;
+  lv_anim_delete(&g_move_anims[btn_idx], anim_pos_exec_cb);
 }
 
 // Reflow : calcule la nouvelle disposition si le bouton saisi occupait
@@ -171,39 +196,53 @@ inline void reflow_to(int8_t dragged_idx, int8_t target_cell) {
   for (int8_t i = 0; i < g_count; ++i) {
     if (i == dragged_idx) continue;
     if (g_cell_of[i] == old_cell_of[i]) continue;
-    animate_btn_to(g_buttons[i],
-                   g_cells[g_cell_of[i]].x,
-                   g_cells[g_cell_of[i]].y);
+    animate_btn_to(i, g_cells[g_cell_of[i]].x, g_cells[g_cell_of[i]].y);
   }
 }
 
-// Breathing : pulse scale 1.00 -> ~1.047x, 800 ms A/R, infini.
+// Breathing : bob translate_y de +-2 px, 1000 ms A/R, infini.
+// On evite volontairement transform_scale : l'unite PPA de l'ESP32-P4
+// rejette les blits scales (voir lv_draw_ppa.c ppa_evaluate) et bascule
+// en software scaling, tres couteux. Une translation pure reste dans
+// le chemin rapide PPA (fill + image blit acceleres).
 inline void breathe_exec_cb(void* var, int32_t v) {
-  lv_obj_set_style_transform_scale(
+  lv_obj_set_style_translate_y(
       static_cast<lv_obj_t*>(var), v, LV_PART_MAIN);
 }
 
 inline void start_breathe(lv_obj_t* btn, int8_t idx) {
   if (btn == nullptr) return;
-  lv_obj_set_style_transform_pivot_x(btn, LV_PCT(50), LV_PART_MAIN);
-  lv_obj_set_style_transform_pivot_y(btn, LV_PCT(50), LV_PART_MAIN);
 
   lv_anim_t a;
   lv_anim_init(&a);
   lv_anim_set_var(&a, btn);
   lv_anim_set_exec_cb(&a, breathe_exec_cb);
-  lv_anim_set_time(&a, 800);
-  lv_anim_set_playback_time(&a, 800);
+  lv_anim_set_time(&a, 1000);
+  lv_anim_set_playback_time(&a, 1000);
   lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-  lv_anim_set_values(&a, 256, 268);
-  lv_anim_set_delay(&a, static_cast<uint32_t>(idx) * 80u);
+  lv_anim_set_values(&a, 0, -2);
+  lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+  lv_anim_set_delay(&a, static_cast<uint32_t>(idx) * 100u);
   lv_anim_start(&a);
 }
 
 inline void stop_breathe(lv_obj_t* btn) {
   if (btn == nullptr) return;
   lv_anim_delete(btn, breathe_exec_cb);
-  lv_obj_set_style_transform_scale(btn, 256, LV_PART_MAIN);
+  lv_obj_set_style_translate_y(btn, 0, LV_PART_MAIN);
+}
+
+// Coupe le breathing sur tous les boutons : appele au debut d'un drag
+// pour degager le pipeline GPU (sur ESP32-P4 / LVGL software blend,
+// transform_scale sur 9 boutons en parallele coute tres cher).
+inline void pause_all_breathe() {
+  for (int8_t i = 0; i < g_count; ++i) stop_breathe(g_buttons[i]);
+}
+
+// Relance le breathing sur tous les boutons apres un drop si on est
+// toujours en edit mode.
+inline void resume_all_breathe() {
+  for (int8_t i = 0; i < g_count; ++i) start_breathe(g_buttons[i], i);
 }
 
 inline void set_edit_mode(bool enabled) {
@@ -256,14 +295,16 @@ inline void overlay_event_cb(lv_event_t* e) {
     g_moved = false;
     g_long_fired = false;
     if (g_edit_mode) {
-      // Lift visuel du bouton saisi
+      // Coupe TOUTES les anims de respiration pour liberer le pipeline
+      // PPA pendant le drag + reflow (gain majeur sur ESP32-P4).
+      pause_all_breathe();
+      // Lift visuel du bouton saisi : translate_y pure, pas de scale,
+      // donc reste dans le chemin rapide PPA.
       lv_obj_move_foreground(btn);
-      lv_anim_delete(btn, breathe_exec_cb);
-      lv_obj_set_style_transform_scale(btn, 282, LV_PART_MAIN);  // ~1.10x
-      // Annule toute anim x/y en cours sur le bouton saisi : pendant le
-      // drag sa position est dictee 1:1 par le doigt.
-      lv_anim_delete(btn, anim_set_x_cb);
-      lv_anim_delete(btn, anim_set_y_cb);
+      lv_obj_set_style_translate_y(btn, -6, LV_PART_MAIN);
+      // Annule toute anim de position en cours sur les voisins / sur le
+      // bouton saisi (qui suit le doigt 1:1).
+      for (int8_t i = 0; i < g_count; ++i) kill_pos_anim(i);
       // Snapshot de la sequence actuelle pour le reflow.
       for (int8_t c = 0; c < g_count; ++c) {
         g_pre_drag_order[c] = g_button_at[c];
@@ -338,12 +379,15 @@ inline void overlay_event_cb(lv_event_t* e) {
     g_moved = false;
     g_long_fired = false;
     g_last_target_cell = -1;
-    start_breathe(btn, idx);    // le lift se resorbe, le breathe reprend
 
     // Le bouton saisi se pose anime sur la case finale (celle deja
     // inscrite dans g_cell_of par le dernier reflow_to).
     const int8_t dst_cell = g_cell_of[idx];
-    animate_btn_to(btn, g_cells[dst_cell].x, g_cells[dst_cell].y);
+    animate_btn_to(idx, g_cells[dst_cell].x, g_cells[dst_cell].y);
+
+    // Relance le breathing global apres le drop (si on est encore en
+    // edit mode, ce qui est le cas par definition ici).
+    resume_all_breathe();
   }
 }
 
