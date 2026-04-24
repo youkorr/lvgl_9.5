@@ -75,6 +75,15 @@ inline void lottie_load_task(void *param) {
     // Re-load needs only a short delay (LVGL is already running).
     vTaskDelay(pdMS_TO_TICKS(ctx->data_loaded ? 100 : 1000));
 
+    // Fast-exit if the page was unloaded before this task got to run
+    // (e.g. user navigated away during the initial delay). No lock held
+    // here, so self-suspending is safe and leaves no dangling mutex.
+    if (ctx->stop_requested) {
+        ESP_LOGI(LOTTIE_TAG, "Stop requested before first render – task suspending");
+        vTaskSuspend(NULL);
+        return;
+    }
+
     lv_lock();
 
     if (!ctx->data_loaded) {
@@ -213,14 +222,56 @@ inline void lottie_load_task(void *param) {
 }
 
 // --------------------------------------------------------------------------
+// Stop the render task safely.
+//
+// CRITICAL: The render task periodically acquires lv_lock() to push frames.
+// Its first load can hold the lock for 400+ ms while ThorVG parses the
+// JSON. If we call vTaskDelete while it holds lv_lock(), the mutex is
+// never released → the main LVGL loopTask deadlocks on the next frame →
+// task watchdog triggers after CONFIG_ESP_TASK_WDT_TIMEOUT_S.
+//
+// The safe pattern: signal stop_requested, then release lv_lock() in
+// brief slices so the render task can progress, notice stop_requested,
+// release its own lock, and self-suspend (vTaskSuspend(NULL) at the end
+// of lottie_load_task always runs AFTER lv_unlock()). Only once we see
+// eSuspended is it safe to vTaskDelete.
+//
+// `lvgl_locked` tells us whether the calling context holds lv_lock()
+// (true when called from LVGL event callbacks, false from outside).
+// --------------------------------------------------------------------------
+inline void lottie_stop_task_safely(LottieContext *ctx, bool lvgl_locked) {
+    if (!ctx->task_handle) return;
+
+    TaskHandle_t h = ctx->task_handle;
+    ctx->stop_requested = true;
+
+    // Poll task state, yielding the LVGL lock so the render task can
+    // finish its current frame (holding lv_lock) and suspend itself.
+    // Worst case bound: initial delay (1000 ms) + one parse (~500 ms)
+    // + a couple of frames. 2.5 s is a comfortable upper limit; in
+    // steady-state render the task reacts within one frame (<= 100 ms).
+    constexpr int POLL_MS = 10;
+    constexpr int MAX_ITER = 2500 / POLL_MS;
+
+    for (int i = 0; i < MAX_ITER; i++) {
+        eTaskState state = eTaskGetState(h);
+        if (state == eSuspended || state == eDeleted || state == eInvalid) break;
+        if (lvgl_locked) lv_unlock();
+        vTaskDelay(pdMS_TO_TICKS(POLL_MS));
+        if (lvgl_locked) lv_lock();
+    }
+
+    // Task is suspended (or gone) – deleting it now will not leak any mutex.
+    vTaskDelete(h);
+    ctx->task_handle = nullptr;
+}
+
+// --------------------------------------------------------------------------
 // Free all PSRAM/internal-RAM resources for one Lottie widget.
+// Safe to call outside of an LVGL event context.
 // --------------------------------------------------------------------------
 inline void lottie_free_resources(LottieContext *ctx) {
-    ctx->stop_requested = true;
-    if (ctx->task_handle) {
-        vTaskDelete(ctx->task_handle);
-        ctx->task_handle = nullptr;
-    }
+    lottie_stop_task_safely(ctx, /*lvgl_locked=*/false);
     if (ctx->task_stack)    { heap_caps_free(ctx->task_stack);    ctx->task_stack = nullptr; }
     if (ctx->task_tcb)      { heap_caps_free(ctx->task_tcb);      ctx->task_tcb = nullptr; }
     if (ctx->pixel_buffer)  { heap_caps_free(ctx->pixel_buffer);  ctx->pixel_buffer = nullptr; }
@@ -303,12 +354,12 @@ inline void lottie_screen_unload_start_cb(lv_event_t *e) {
     // show/hide from user scripts (e.g. weather widget selection).
     ctx->runtime_hidden = lv_obj_has_flag(ctx->obj, LV_OBJ_FLAG_HIDDEN);
 
-    // Stop the render task immediately
-    ctx->stop_requested = true;
-    if (ctx->task_handle) {
-        vTaskDelete(ctx->task_handle);
-        ctx->task_handle = nullptr;
-    }
+    // Stop the render task cooperatively. We are inside an LVGL event
+    // handler, which runs under lv_lock() (LvglComponent::loop calls
+    // lv_timer_handler with the lock held). Force-deleting the task
+    // would deadlock the main loopTask if the task holds the lock
+    // (common during first-load parse of a large lottie from SD card).
+    lottie_stop_task_safely(ctx, /*lvgl_locked=*/true);
 
     // Hide widget so LVGL won't try to draw the image during transition
     lv_obj_add_flag(ctx->obj, LV_OBJ_FLAG_HIDDEN);
