@@ -211,49 +211,26 @@ inline void lottie_load_task(void *param) {
         }
     } else {
         // ===== RE-LOAD (screen came back) =====
-        // We re-parse the data instead of trying to reuse the existing
-        // ThorVG canvas. Re-using the canvas is fragile: any leftover
-        // paint state from the previous run can leave the widget showing
-        // a frozen / blank frame on screen even though our render task
-        // happily reports "Render loop: ..." in the logs.
-        // Re-parsing is a few ms of extra work but guarantees a clean
-        // ThorVG state every time the page becomes visible again.
-        ESP_LOGI(LOTTIE_TAG, "Re-load: re-parsing for clean ThorVG state");
+        // Data is already parsed inside the lv_lottie widget – calling
+        // lv_lottie_set_src_*() a second time crashes ThorVG (Store access
+        // fault on a NULL+0x30 deref) because LVGL doesn't expect the
+        // source to change once the widget is alive. We just point the
+        // ThorVG canvas at the freshly-allocated pixel buffer:
+        //
+        //   * tvg_canvas_clear(canvas, false) detaches the paint without
+        //     destroying it, so set_buffer can push it again cleanly.
+        //   * lv_lottie_set_buffer() re-targets the canvas to the new buf
+        //     and re-pushes the cached picture.
+        ESP_LOGI(LOTTIE_TAG, "Re-load: updating buffer (no re-parse)");
 
-        // Re-attach the buffer – internal anim_exec_cb is a no-op
-        // because lottie->anim is NULL (set during first load).
-        // lv_lottie_set_src_data() below handles the previous picture
-        // cleanup internally via its own ThorVG bookkeeping.
+        lv_lottie_t *lottie = (lv_lottie_t *)ctx->obj;
+        if (lottie->tvg_canvas != nullptr) {
+            tvg_canvas_clear(lottie->tvg_canvas, false);
+        }
+
+        // Safe to call: widget is hidden (lv_obj_is_visible → false)
+        // and lottie->anim is NULL (no dangling pointer access).
         lv_lottie_set_buffer(ctx->obj, ctx->width, ctx->height, ctx->pixel_buffer);
-
-        // Re-parse: this rebuilds the ThorVG picture inside lv_lottie_t
-        // and recreates a fresh LVGL animation that we will immediately
-        // detach (we drive frames ourselves from the PSRAM task).
-        if (ctx->data != nullptr) {
-            lv_lottie_set_src_data(ctx->obj, ctx->data, ctx->data_size);
-        } else if (ctx->file_path != nullptr) {
-            lv_lottie_set_src_file(ctx->obj, ctx->file_path);
-        }
-
-        // Refresh the cached exec_cb pointer – the new animation has new
-        // ThorVG bindings, so the old function pointer would render into
-        // the previous (already-replaced) picture.
-        lv_anim_t *anim = lv_lottie_get_anim(ctx->obj);
-        if (anim != nullptr) {
-            ctx->exec_cb     = anim->exec_cb;
-            ctx->anim_var    = anim->var;
-            ctx->start_frame = anim->start_value;
-            ctx->end_frame   = anim->end_value;
-            ctx->duration_ms = (uint32_t)lv_anim_get_time(anim);
-
-            lv_anim_delete(ctx->anim_var, ctx->exec_cb);
-
-            // Same anti-dangling-pointer guard as on first load.
-            lv_lottie_t *lottie = (lv_lottie_t *)ctx->obj;
-            lottie->anim = NULL;
-        } else {
-            ESP_LOGE(LOTTIE_TAG, "Re-load: anim NULL after re-parse!");
-        }
 
         // Force a redraw so LVGL paints the freshly attached buffer
         // even if no exec_cb runs before the next display refresh.
