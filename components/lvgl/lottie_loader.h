@@ -25,6 +25,36 @@ namespace lvgl {
 static const char *const LOTTIE_TAG = "lottie";
 static constexpr size_t LOTTIE_TASK_STACK_SIZE = 64 * 1024;
 
+// --------------------------------------------------------------------------
+// Global mutex that serialises FIRST-load parsing across Lottie widgets.
+//
+// On a page like the 10-widget weather panel, all tasks wake up after their
+// initial vTaskDelay() at roughly the same instant and race against each
+// other for two non-thread-safe global resources:
+//   1. SD card / VFS – simultaneous fopen()/fread() from several tasks have
+//      been observed to crash the driver with a NULL+offset store fault.
+//   2. ThorVG engine init – the first lv_lottie_set_src_*() call ever made
+//      transitively initialises tvg_engine_init() once and pushes shared
+//      paint state; concurrent first-init has caused random crashes in the
+//      past.
+//
+// lv_lock() does NOT cover this for us in practice: lv_lottie_set_src_file()
+// is free to release the LVGL lock around its file I/O. A dedicated static
+// mutex makes the first-load parse path strictly sequential.
+// --------------------------------------------------------------------------
+inline SemaphoreHandle_t lottie_first_load_mutex() {
+    static StaticSemaphore_t storage;
+    static SemaphoreHandle_t handle = xSemaphoreCreateMutexStatic(&storage);
+    return handle;
+}
+
+// Atomic counter used to stagger the initial vTaskDelay across widgets so
+// they do not all hit the lv_lock + parse path at the same scheduler tick.
+inline uint32_t lottie_next_load_slot() {
+    static volatile uint32_t counter = 0;
+    return __atomic_fetch_add(&counter, 1, __ATOMIC_SEQ_CST);
+}
+
 // Persistent context for each Lottie widget – tracks all PSRAM allocations,
 // the render task, and cached animation parameters for safe re-load.
 struct LottieContext {
@@ -104,10 +134,15 @@ struct LottieContext {
 inline void lottie_load_task(void *param) {
     LottieContext *ctx = (LottieContext *)param;
 
-    // Wait for LVGL to be ready.
-    // First load needs longer delay (LVGL may still be initialising).
-    // Re-load needs only a short delay (LVGL is already running).
-    vTaskDelay(pdMS_TO_TICKS(ctx->data_loaded ? 100 : 1000));
+    // Wait for LVGL to be ready, plus a per-widget stagger on first load so
+    // 10 tasks don't race against each other (and the SD card driver) for
+    // the parsing path.
+    if (!ctx->data_loaded) {
+        uint32_t slot = lottie_next_load_slot();
+        vTaskDelay(pdMS_TO_TICKS(800 + slot * 150));
+    } else {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
 
     // Bail out early if a stop was requested before we even started: the
     // screen could have been swapped right after launch (e.g. boot animation
@@ -115,6 +150,17 @@ inline void lottie_load_task(void *param) {
     if (ctx->stop_requested) {
         ESP_LOGI(LOTTIE_TAG, "Stop requested before init, exiting");
         lottie_task_exit(ctx);
+    }
+
+    // Serialise first-load parsing globally. SD/VFS and ThorVG's first-time
+    // init are not safe to invoke from several tasks concurrently, even
+    // through lv_lottie_set_src_file() (which may release lv_lock around its
+    // file I/O). Re-loads do not contend on this – they hit the cached
+    // ThorVG state and only need lv_lock for the LVGL-side bookkeeping.
+    SemaphoreHandle_t parse_mtx = ctx->data_loaded ? nullptr
+                                                    : lottie_first_load_mutex();
+    if (parse_mtx) {
+        xSemaphoreTake(parse_mtx, portMAX_DELAY);
     }
 
     lv_lock();
@@ -222,6 +268,11 @@ inline void lottie_load_task(void *param) {
     }
 
     lv_unlock();
+
+    // Release the global first-load gate so the next widget can parse.
+    if (parse_mtx) {
+        xSemaphoreGive(parse_mtx);
+    }
 
     // Validate animation parameters
     if (!ctx->data_loaded || ctx->exec_cb == nullptr ||
