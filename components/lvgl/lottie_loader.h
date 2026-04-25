@@ -211,29 +211,20 @@ inline void lottie_load_task(void *param) {
         }
     } else {
         // ===== RE-LOAD (screen came back) =====
-        // Data is already parsed inside the lv_lottie widget – calling
-        // lv_lottie_set_src_*() a second time crashes ThorVG (Store access
-        // fault on a NULL+0x30 deref) because LVGL doesn't expect the
-        // source to change once the widget is alive. We just point the
-        // ThorVG canvas at the freshly-allocated pixel buffer:
+        // We keep the pixel buffer, the lv_lottie widget and its ThorVG
+        // canvas/picture alive across screen unloads (see lottie_free_*
+        // below). So a re-load is just: resume the render loop. ThorVG
+        // already has everything it needs and any attempt to "reset" or
+        // re-attach the buffer/picture has been observed to crash with a
+        // Store access fault on a NULL+0x30 deref – ThorVG's reference
+        // graph is not designed for re-targeting once it's running.
         //
-        //   * tvg_canvas_clear(canvas, false) detaches the paint without
-        //     destroying it, so set_buffer can push it again cleanly.
-        //   * lv_lottie_set_buffer() re-targets the canvas to the new buf
-        //     and re-pushes the cached picture.
-        ESP_LOGI(LOTTIE_TAG, "Re-load: updating buffer (no re-parse)");
+        // This mirrors the Espressif thorvg_lottie example pattern: never
+        // mutate live ThorVG state, just keep playing frames.
+        ESP_LOGI(LOTTIE_TAG, "Re-load: resuming render loop on cached state");
 
-        lv_lottie_t *lottie = (lv_lottie_t *)ctx->obj;
-        if (lottie->tvg_canvas != nullptr) {
-            tvg_canvas_clear(lottie->tvg_canvas, false);
-        }
-
-        // Safe to call: widget is hidden (lv_obj_is_visible → false)
-        // and lottie->anim is NULL (no dangling pointer access).
-        lv_lottie_set_buffer(ctx->obj, ctx->width, ctx->height, ctx->pixel_buffer);
-
-        // Force a redraw so LVGL paints the freshly attached buffer
-        // even if no exec_cb runs before the next display refresh.
+        // Make sure LVGL repaints the widget area even if the first
+        // exec_cb tick hasn't landed yet on the next display refresh.
         lv_obj_invalidate(ctx->obj);
     }
 
@@ -329,19 +320,31 @@ inline void lottie_load_task(void *param) {
 }
 
 // --------------------------------------------------------------------------
-// Free task stack/TCB/pixel buffer. Caller MUST have ensured the render task
-// is no longer running (semaphore taken or vTaskDelete acknowledged).
+// Free the render-task stack and TCB. Caller MUST have ensured the render
+// task is no longer running (semaphore taken or vTaskDelete acknowledged).
+//
+// IMPORTANT: we deliberately do NOT free pixel_buffer here. The pixel buffer
+// is owned by the lv_lottie widget's ThorVG canvas (lv_lottie_set_buffer
+// hands it to ThorVG). Freeing it while the canvas still references it –
+// then re-allocating + re-attaching it on the next screen load – has been
+// observed to crash ThorVG with a Store access fault on a NULL+0x30 deref
+// (the same kind of failure reported by users when navigating back to the
+// home page that has 10 weather Lottie widgets).
+//
+// Mirroring the Espressif thorvg_lottie example pattern: never mutate live
+// ThorVG state. The buffer + canvas + picture stay alive for the lifetime
+// of the widget. Only the (large) task stack is reclaimed when the page is
+// not visible, which is where the real PSRAM pressure was anyway.
 // --------------------------------------------------------------------------
 inline void lottie_free_buffers(LottieContext *ctx) {
     if (ctx->task_stack)    { heap_caps_free(ctx->task_stack);    ctx->task_stack = nullptr; }
     if (ctx->task_tcb)      { heap_caps_free(ctx->task_tcb);      ctx->task_tcb = nullptr; }
-    if (ctx->pixel_buffer)  { heap_caps_free(ctx->pixel_buffer);  ctx->pixel_buffer = nullptr; }
+    // pixel_buffer intentionally retained – see header comment above.
     ctx->stop_requested = false;
     ctx->task_handle = nullptr;
 
-    ESP_LOGI(LOTTIE_TAG, "Lottie FREED (%ux%u = %u KB buf + 64 KB stack) → free PSRAM: %u KB, free SRAM: %u KB",
+    ESP_LOGI(LOTTIE_TAG, "Lottie task freed (%ux%u, 64 KB stack) → free PSRAM: %u KB, free SRAM: %u KB",
              (unsigned)ctx->width, (unsigned)ctx->height,
-             (unsigned)(ctx->width * ctx->height * 4 / 1024),
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024),
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
 }
@@ -405,9 +408,13 @@ inline void lottie_cleanup_timer_cb(lv_timer_t *t) {
 }
 
 // --------------------------------------------------------------------------
-// (Re-)allocate pixel buffer and launch the render task.
+// Allocate pixel buffer (first call only) and launch the render task.
 // lv_lottie_set_buffer is NOT called here – it is called inside the task
 // because it triggers ThorVG rendering which needs the 64 KB stack.
+//
+// On re-loads only the task stack is re-allocated. The pixel buffer (and
+// the lv_lottie / ThorVG canvas/picture references it) is kept alive for
+// the lifetime of the widget – see lottie_free_buffers().
 // --------------------------------------------------------------------------
 inline bool lottie_launch(LottieContext *ctx) {
     // NOTE: Do NOT re-capture runtime_hidden here!
@@ -418,17 +425,22 @@ inline bool lottie_launch(LottieContext *ctx) {
     //   - lottie_init()                      → first load (from YAML config)
     //   - lottie_screen_unload_start_cb()    → re-loads  (actual state before hide)
 
-    // Allocate pixel buffer in PSRAM
+    // Allocate pixel buffer in PSRAM only on first launch. On re-loads we
+    // reuse the existing buffer: ThorVG's canvas and parsed picture still
+    // point at it, and re-allocating + re-attaching is exactly the path
+    // that crashes ThorVG with NULL+0x30.
     size_t buf_bytes = (size_t)ctx->width * ctx->height * 4;
-    ctx->pixel_buffer = (uint8_t *)heap_caps_malloc(
-        buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!ctx->pixel_buffer) {
-        ESP_LOGE(LOTTIE_TAG, "PSRAM alloc failed (%u bytes)", (unsigned)buf_bytes);
-        return false;
+    if (ctx->pixel_buffer == nullptr) {
+        ctx->pixel_buffer = (uint8_t *)heap_caps_malloc(
+            buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!ctx->pixel_buffer) {
+            ESP_LOGE(LOTTIE_TAG, "PSRAM alloc failed (%u bytes)", (unsigned)buf_bytes);
+            return false;
+        }
+        memset(ctx->pixel_buffer, 0, buf_bytes);
     }
-    memset(ctx->pixel_buffer, 0, buf_bytes);
 
-    // Hide temporarily during async load (pixel buffer is blank)
+    // Hide temporarily during async load (pixel buffer is blank or stale)
     lv_obj_add_flag(ctx->obj, LV_OBJ_FLAG_HIDDEN);
 
     // Allocate task stack + TCB
@@ -503,15 +515,15 @@ inline void lottie_screen_unloaded_cb(lv_event_t *e) {
     LottieContext *ctx = (LottieContext *)lv_event_get_user_data(e);
 
     // Don't block the LVGL main loop here. Schedule an lv_timer that will
-    // free the buffers as soon as the render task has self-deleted. Polling
-    // happens between LVGL frames so touch input keeps responding even when
-    // 10 Lottie widgets unload at once (e.g. on auto-lock).
+    // free the task stack/TCB as soon as the render task has self-deleted.
+    // Polling happens between LVGL frames so touch input keeps responding
+    // even when 10 Lottie widgets unload at once (e.g. on auto-lock).
     if (ctx->cleanup_timer != nullptr) {
         // A previous cleanup is somehow still pending – let it finish.
         return;
     }
-    if (ctx->task_handle == nullptr && ctx->pixel_buffer == nullptr) {
-        // Nothing to clean up.
+    if (ctx->task_handle == nullptr) {
+        // Task already gone, nothing to clean up.
         return;
     }
 
@@ -532,7 +544,11 @@ inline void lottie_screen_loaded_cb(lv_event_t *e) {
         lottie_free_resources(ctx);
     }
 
-    if (ctx->pixel_buffer == nullptr) {
+    // Relaunch the task whenever it's gone. The pixel buffer / lv_lottie /
+    // ThorVG state is kept alive across screen unloads, so the relaunched
+    // task only needs to resume the render loop – no buffer or canvas
+    // re-initialisation that could crash ThorVG.
+    if (ctx->task_handle == nullptr) {
         lottie_launch(ctx);
     }
 }
