@@ -63,6 +63,15 @@ struct LottieContext {
     // task stack/TCB so we can never free memory still owned by the task.
     StaticSemaphore_t exit_sem_storage;
     SemaphoreHandle_t exit_sem;
+
+    // --- Non-blocking cleanup (poll task exit from an LVGL timer) ---
+    // The screen-unload callback must NOT block the LVGL main loop, otherwise
+    // touch input becomes laggy when leaving a page with several Lottie
+    // widgets (e.g. the 10-widget weather page). Instead we kick off an
+    // lv_timer that polls exit_sem every few ms and frees memory only once
+    // the task has actually exited.
+    lv_timer_t *cleanup_timer;
+    uint16_t cleanup_attempts;
 };
 
 // --------------------------------------------------------------------------
@@ -259,60 +268,79 @@ inline void lottie_load_task(void *param) {
 }
 
 // --------------------------------------------------------------------------
-// Wait (with timeout) for the render task to acknowledge stop_requested and
-// self-delete via lottie_task_exit(). Returns true on clean shutdown.
-//
-// We MUST wait here before freeing the static stack/TCB. On ESP32-P4 (SMP),
-// the render task may be running on the other core; freeing its stack while
-// it is still executing causes random memory corruption that surfaces much
-// later as a watchdog reset on the loop task.
+// Free task stack/TCB/pixel buffer. Caller MUST have ensured the render task
+// is no longer running (semaphore taken or vTaskDelete acknowledged).
 // --------------------------------------------------------------------------
-inline bool lottie_wait_for_task_exit(LottieContext *ctx, uint32_t timeout_ms) {
-    if (!ctx->task_handle) return true;
-
-    bool clean = false;
-    if (ctx->exit_sem) {
-        if (xSemaphoreTake(ctx->exit_sem, pdMS_TO_TICKS(timeout_ms)) == pdTRUE) {
-            clean = true;
-        }
-    } else {
-        // Should not happen, but degrade gracefully.
-        vTaskDelay(pdMS_TO_TICKS(timeout_ms));
-    }
-
-    if (!clean) {
-        // Last-resort: task did not exit voluntarily. Force-delete and pray
-        // it was not holding lv_lock; then give the scheduler a tick to
-        // process the deletion on both cores before we free its stack.
-        ESP_LOGW(LOTTIE_TAG, "Render task did not exit in %ums – force deleting",
-                 (unsigned)timeout_ms);
-        vTaskDelete(ctx->task_handle);
-        vTaskDelay(pdMS_TO_TICKS(20));
-    } else {
-        // Even after the give, the task still has to execute vTaskDelete(NULL)
-        // and the scheduler has to remove its TCB from internal lists. A
-        // short delay closes the race against memory free in SMP mode.
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
-
-    ctx->task_handle = nullptr;
-    return clean;
-}
-
-// --------------------------------------------------------------------------
-// Free all PSRAM/internal-RAM resources for one Lottie widget.
-// --------------------------------------------------------------------------
-inline void lottie_free_resources(LottieContext *ctx) {
-    ctx->stop_requested = true;
-    lottie_wait_for_task_exit(ctx, 500);
+inline void lottie_free_buffers(LottieContext *ctx) {
     if (ctx->task_stack)    { heap_caps_free(ctx->task_stack);    ctx->task_stack = nullptr; }
     if (ctx->task_tcb)      { heap_caps_free(ctx->task_tcb);      ctx->task_tcb = nullptr; }
     if (ctx->pixel_buffer)  { heap_caps_free(ctx->pixel_buffer);  ctx->pixel_buffer = nullptr; }
     ctx->stop_requested = false;
+    ctx->task_handle = nullptr;
 
-    ESP_LOGI(LOTTIE_TAG, "Lottie PSRAM freed (%ux%u = %u KB + 64 KB stack)",
+    ESP_LOGI(LOTTIE_TAG, "Lottie FREED (%ux%u = %u KB buf + 64 KB stack) → free PSRAM: %u KB, free SRAM: %u KB",
              (unsigned)ctx->width, (unsigned)ctx->height,
-             (unsigned)(ctx->width * ctx->height * 4 / 1024));
+             (unsigned)(ctx->width * ctx->height * 4 / 1024),
+             (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024),
+             (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
+}
+
+// --------------------------------------------------------------------------
+// Synchronous wait + free. Only used as a fallback (e.g. when the screen is
+// being reloaded while a previous cleanup is still pending). Normal unloads
+// go through the asynchronous lv_timer path so they never block the UI.
+// --------------------------------------------------------------------------
+inline void lottie_free_resources(LottieContext *ctx) {
+    ctx->stop_requested = true;
+    if (ctx->task_handle) {
+        bool clean = (ctx->exit_sem &&
+                      xSemaphoreTake(ctx->exit_sem, pdMS_TO_TICKS(300)) == pdTRUE);
+        if (!clean) {
+            ESP_LOGW(LOTTIE_TAG, "Render task did not exit in 300ms – force deleting");
+            vTaskDelete(ctx->task_handle);
+            vTaskDelay(pdMS_TO_TICKS(20));
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(5));
+        }
+    }
+    lottie_free_buffers(ctx);
+}
+
+// --------------------------------------------------------------------------
+// LVGL timer callback that periodically checks whether the render task has
+// finished self-deleting. When it has, the buffers are freed and the timer
+// removes itself. Runs from the LVGL main loop, so each tick is a quick
+// non-blocking check – touch input stays responsive.
+// --------------------------------------------------------------------------
+inline void lottie_cleanup_timer_cb(lv_timer_t *t) {
+    LottieContext *ctx = (LottieContext *)lv_timer_get_user_data(t);
+
+    bool task_exited = (ctx->task_handle == nullptr);
+    if (!task_exited && ctx->exit_sem &&
+        xSemaphoreTake(ctx->exit_sem, 0) == pdTRUE) {
+        task_exited = true;
+    }
+
+    if (task_exited) {
+        lottie_free_buffers(ctx);
+        lv_timer_delete(t);
+        ctx->cleanup_timer = nullptr;
+        return;
+    }
+
+    // Bail out after ~1 s to avoid leaking memory if something went wrong.
+    // 1 s is well above the maximum expected exit time (one frame_delay_ms,
+    // capped at 100 ms, plus a few ms of teardown).
+    if (++ctx->cleanup_attempts >= 40) {  // 40 × 25 ms = 1 s
+        ESP_LOGW(LOTTIE_TAG, "Render task still alive after 1 s – force deleting");
+        if (ctx->task_handle) {
+            vTaskDelete(ctx->task_handle);
+        }
+        lottie_free_buffers(ctx);
+        lv_timer_delete(t);
+        ctx->cleanup_timer = nullptr;
+    }
+    // Otherwise let the timer keep polling.
 }
 
 // --------------------------------------------------------------------------
@@ -413,27 +441,36 @@ inline void lottie_screen_unload_start_cb(lv_event_t *e) {
 inline void lottie_screen_unloaded_cb(lv_event_t *e) {
     LottieContext *ctx = (LottieContext *)lv_event_get_user_data(e);
 
-    // Wait for the render task to actually exit before freeing its memory.
-    // 200 ms is enough headroom for the worst case (frame_delay_ms ≤ 100 ms
-    // + one exec_cb iteration). With several Lottie widgets on the same
-    // screen all stop_requested flags were set during UNLOAD_START, so the
-    // tasks shut down in parallel on both cores – only the slowest matters.
-    lottie_wait_for_task_exit(ctx, 200);
+    // Don't block the LVGL main loop here. Schedule an lv_timer that will
+    // free the buffers as soon as the render task has self-deleted. Polling
+    // happens between LVGL frames so touch input keeps responding even when
+    // 10 Lottie widgets unload at once (e.g. on auto-lock).
+    if (ctx->cleanup_timer != nullptr) {
+        // A previous cleanup is somehow still pending – let it finish.
+        return;
+    }
+    if (ctx->task_handle == nullptr && ctx->pixel_buffer == nullptr) {
+        // Nothing to clean up.
+        return;
+    }
 
-    if (ctx->task_stack)    { heap_caps_free(ctx->task_stack);    ctx->task_stack = nullptr; }
-    if (ctx->task_tcb)      { heap_caps_free(ctx->task_tcb);      ctx->task_tcb = nullptr; }
-    if (ctx->pixel_buffer)  { heap_caps_free(ctx->pixel_buffer);  ctx->pixel_buffer = nullptr; }
-    ctx->stop_requested = false;
-
-    ESP_LOGI(LOTTIE_TAG, "Lottie FREED (%ux%u = %u KB buf + 64 KB stack) → free PSRAM: %u KB, free SRAM: %u KB",
-             (unsigned)ctx->width, (unsigned)ctx->height,
-             (unsigned)(ctx->width * ctx->height * 4 / 1024),
-             (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024),
-             (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
+    ctx->cleanup_attempts = 0;
+    ctx->cleanup_timer = lv_timer_create(lottie_cleanup_timer_cb, 25, ctx);
+    ESP_LOGI(LOTTIE_TAG, "Lottie cleanup scheduled (non-blocking)");
 }
 
 inline void lottie_screen_loaded_cb(lv_event_t *e) {
     LottieContext *ctx = (LottieContext *)lv_event_get_user_data(e);
+
+    // Rare: user came back to the page before the deferred cleanup fired.
+    // Finish it synchronously (still bounded by a short timeout) so the
+    // re-launch starts from a clean slate.
+    if (ctx->cleanup_timer != nullptr) {
+        lv_timer_delete(ctx->cleanup_timer);
+        ctx->cleanup_timer = nullptr;
+        lottie_free_resources(ctx);
+    }
+
     if (ctx->pixel_buffer == nullptr) {
         lottie_launch(ctx);
     }
