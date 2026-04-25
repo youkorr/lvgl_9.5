@@ -69,6 +69,10 @@ CONF_LOTTIE = "lottie"
 CONF_LOOP = "loop"
 CONF_LOTTIE_WIDTH = "lottie_width"
 CONF_LOTTIE_HEIGHT = "lottie_height"
+CONF_MARKERS = "markers"
+CONF_MARKER = "marker"
+CONF_ONE_SHOT = "one_shot"
+CONF_ON_MARKER_COMPLETE = "on_marker_complete"
 
 lv_lottie_t = LvType("lv_lottie_t")
 
@@ -98,8 +102,25 @@ def lottie_file_validator(value):
     return str(path)
 
 
+def _parse_markers_from_json(lottie_data):
+    """Return list of (name, start_frame, end_frame) tuples from a Lottie JSON.
+
+    Mirrors the LottieFiles "Interactivity" marker convention so that
+    play_marker / on_marker_complete can address each segment by name.
+    """
+    out = []
+    for m in lottie_data.get("markers", []) or []:
+        name = m.get("cm")
+        if not name:
+            continue
+        start = int(m.get("tm", 0))
+        dur = int(m.get("dr", 0))
+        out.append((str(name), start, start + dur))
+    return out
+
+
 def validate_lottie_source(config):
-    """Validate source and extract dimensions from JSON if using file method."""
+    """Validate source and extract dimensions / markers from JSON."""
     has_src = CONF_SRC in config
     has_file = CONF_FILE in config
 
@@ -113,7 +134,18 @@ def validate_lottie_source(config):
         if CONF_WIDTH not in config or CONF_HEIGHT not in config:
             raise cv.Invalid("'width' and 'height' are required when using 'src' (filesystem path). Cannot auto-detect dimensions at compile time.")
 
-    # For file method, auto-detect dimensions from JSON (unless user specified width/height for resize)
+        # Markers: if the user pointed `src` at /sdcard/foo.json AND a sibling
+        # file with the same name exists relative to the YAML, we read the
+        # markers from that local copy so they can be embedded in the firmware.
+        local_copy = CORE.relative_config_path(config[CONF_SRC].lstrip("/"))
+        if Path(local_copy).is_file():
+            try:
+                with open(local_copy, "r", encoding="utf-8") as f:
+                    config["_markers_auto"] = _parse_markers_from_json(json.load(f))
+            except (json.JSONDecodeError, OSError):
+                pass  # silently ignore – user can still declare markers manually
+
+    # For file method, auto-detect dimensions and markers from JSON
     if has_file:
         file_path = config[CONF_FILE]
         try:
@@ -128,7 +160,7 @@ def validate_lottie_source(config):
                 if CONF_WIDTH not in config or CONF_HEIGHT not in config:
                     config[CONF_LOTTIE_WIDTH] = int(lottie_width)
                     config[CONF_LOTTIE_HEIGHT] = int(lottie_height)
-                # else: user specified width/height for resize – those will be used
+                config["_markers_auto"] = _parse_markers_from_json(lottie_data)
         except json.JSONDecodeError as e:
             raise cv.Invalid(f"Invalid JSON in Lottie file {file_path}: {e}")
         except Exception as e:
@@ -136,6 +168,14 @@ def validate_lottie_source(config):
 
     return config
 
+
+MARKER_SCHEMA = cv.Schema(
+    {
+        cv.Required("name"): cv.string_strict,
+        cv.Required("start_frame"): cv.positive_int,
+        cv.Required("end_frame"): cv.positive_int,
+    }
+)
 
 LOTTIE_SCHEMA = cv.Schema(
     {
@@ -145,6 +185,10 @@ LOTTIE_SCHEMA = cv.Schema(
         cv.Optional(CONF_FILE): lottie_file_validator,
         cv.Optional(CONF_LOOP, default=True): cv.boolean,
         cv.Optional(CONF_AUTO_START, default=True): cv.boolean,
+        cv.Optional(CONF_MARKERS): cv.ensure_list(MARKER_SCHEMA),
+        cv.Optional(CONF_ON_MARKER_COMPLETE): automation.validate_automation(
+            {cv.GenerateID(): cv.declare_id(automation.Trigger.template(cg.std_string))}
+        ),
         cv.GenerateID(CONF_RAW_DATA_ID): cv.declare_id(cg.uint8),
     }
 ).add_extra(validate_lottie_source)
@@ -206,24 +250,64 @@ class LottieType(WidgetType):
         do_auto_start = "true" if config.get(CONF_AUTO_START, True) else "false"
         user_wants_hidden = "true" if config.get("hidden", False) else "false"
 
+        # --- Markers (LottieFiles "Interactivity" segments) ---
+        # User-declared markers in YAML take priority; otherwise fall back to
+        # the markers auto-extracted from the JSON during validation.
+        markers = config.get(CONF_MARKERS) or [
+            {"name": n, "start_frame": s, "end_frame": e}
+            for (n, s, e) in config.get("_markers_auto", [])
+        ]
+        markers_arg = "nullptr"
+        marker_count = 0
+        if markers:
+            marker_count = len(markers)
+            obj_id = str(w.obj).replace(".", "_").replace("->", "_")
+            marker_array_name = f"_lottie_markers_{obj_id}"
+            entries = ", ".join(
+                f'{{"{m["name"]}", {int(m["start_frame"])}, {int(m["end_frame"])}}}'
+                for m in markers
+            )
+            cg.add_global(cg.RawStatement(
+                f"static const esphome::lvgl::LottieMarker {marker_array_name}[] = {{ {entries} }};"
+            ))
+            markers_arg = marker_array_name
+
         # Use lottie_init() which handles PSRAM allocation, screen events, and task launch
         if src := config.get(CONF_SRC):
-            # File from filesystem
             lv_add(cg.RawStatement(f"""
-    esphome::lvgl::lottie_init({w.obj}, nullptr, 0, "{src}", {width}, {height}, {do_loop}, {do_auto_start}, {user_wants_hidden});"""))
+    esphome::lvgl::lottie_init({w.obj}, nullptr, 0, "{src}", {width}, {height}, {do_loop}, {do_auto_start}, {user_wants_hidden}, {markers_arg}, {marker_count});"""))
         elif file_path := config.get(CONF_FILE):
-            # Embedded data
             with open(file_path, "rb") as f:
                 json_data = f.read()
-
-            # Add null terminator
             json_data_with_null = json_data + b'\x00'
-
             raw_data_id = config[CONF_RAW_DATA_ID]
             prog_arr = cg.progmem_array(raw_data_id, list(json_data_with_null))
-
             lv_add(cg.RawStatement(f"""
-    esphome::lvgl::lottie_init({w.obj}, {prog_arr}, {len(json_data)}, nullptr, {width}, {height}, {do_loop}, {do_auto_start}, {user_wants_hidden});"""))
+    esphome::lvgl::lottie_init({w.obj}, {prog_arr}, {len(json_data)}, nullptr, {width}, {height}, {do_loop}, {do_auto_start}, {user_wants_hidden}, {markers_arg}, {marker_count});"""))
+
+        # --- on_marker_complete trigger ----------------------------------
+        # When the user provides at least one automation under
+        # `on_marker_complete:`, register a C trampoline that fires every
+        # configured automation with the marker name as `x`.
+        on_complete_list = config.get(CONF_ON_MARKER_COMPLETE) or []
+        if on_complete_list:
+            obj_id = str(w.obj).replace(".", "_").replace("->", "_")
+            trampoline_name = f"_lottie_on_complete_{obj_id}"
+            triggers = []
+            for auto_conf in on_complete_list:
+                trig = cg.new_Pvariable(auto_conf[CONF_ID])
+                await automation.build_automation(trig, [(cg.std_string, "x")], auto_conf)
+                triggers.append(str(trig))
+            calls = " ".join(f"{t}->trigger(name);" for t in triggers)
+            cg.add_global(cg.RawStatement(
+                f"static void {trampoline_name}(void *arg, const char *marker) {{"
+                f" std::string name = marker ? marker : \"\"; {calls} }}"
+            ))
+            lv_add(cg.RawStatement(f"""
+    {{
+      auto *_ctx = (esphome::lvgl::LottieContext *)lv_obj_get_user_data({w.obj});
+      if (_ctx) esphome::lvgl::lottie_set_on_complete(_ctx, {trampoline_name}, nullptr);
+    }}"""))
 
 
 lottie_spec = LottieType()
@@ -290,3 +374,39 @@ async def lottie_pause(config, action_id, template_arg, args):
         lv.anim_delete(w.obj, literal("NULL"))
 
     return await action_to_code(widget, do_pause, action_id, template_arg, args)
+
+
+# --------------------------------------------------------------------------
+# lvgl.lottie.play_marker — LottieFiles "Interactivity" *Click event.
+# Switches the active animation segment to the named marker and restarts.
+# --------------------------------------------------------------------------
+@automation.register_action(
+    "lvgl.lottie.play_marker",
+    ObjUpdateAction,
+    cv.Schema(
+        {
+            cv.Required(CONF_ID): cv.use_id(lv_lottie_t),
+            cv.Required(CONF_MARKER): cv.templatable(cv.string_strict),
+            cv.Optional(CONF_ONE_SHOT, default=False): cv.templatable(cv.boolean),
+        }
+    ),
+    synchronous=True,
+)
+async def lottie_play_marker(config, action_id, template_arg, args):
+    """Play a named marker — fires *Complete callback when one_shot=true."""
+    from ..automation import action_to_code as _action_to_code  # local re-export
+
+    widget = await get_widgets(config)
+    marker_tpl = await cg.templatable(config[CONF_MARKER], args, cg.std_string)
+    one_shot_tpl = await cg.templatable(config[CONF_ONE_SHOT], args, bool)
+
+    async def do_play(w: Widget):
+        # Resolve at runtime from the LV object's user_data slot, where
+        # lottie_init() stored the LottieContext pointer.
+        cg.add(cg.RawExpression(
+            f"({{ auto *_ctx = (esphome::lvgl::LottieContext *)lv_obj_get_user_data({w.obj});"
+            f" if (_ctx) esphome::lvgl::lottie_play_marker(_ctx, "
+            f"({marker_tpl}).c_str(), ({one_shot_tpl})); }})"
+        ))
+
+    return await action_to_code(widget, do_play, action_id, template_arg, args)

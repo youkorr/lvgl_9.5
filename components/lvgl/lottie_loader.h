@@ -55,6 +55,24 @@ inline uint32_t lottie_next_load_slot() {
     return __atomic_fetch_add(&counter, 1, __ATOMIC_SEQ_CST);
 }
 
+// --------------------------------------------------------------------------
+// LottieFiles "Interactivity" markers — each segment has a name plus a
+// frame range. Populated either at build time from the YAML config or
+// parsed at first load from the JSON's `markers` array. Drives the
+// play_marker / on_marker_complete API.
+// --------------------------------------------------------------------------
+struct LottieMarker {
+    const char *name;     // string literal: "idle", "yes", "thinking", ...
+    int32_t start_frame;  // inclusive
+    int32_t end_frame;    // exclusive (start + duration)
+};
+
+// Callback invoked from the render task right after an animation segment
+// completes (only fires when the segment is being played in one-shot mode,
+// i.e. loop=false). Implements the *Complete events of the LottieFiles
+// Interactivity vocabulary.
+using LottieMarkerCompleteCb = void (*)(void *user_arg, const char *marker);
+
 // Persistent context for each Lottie widget – tracks all PSRAM allocations,
 // the render task, and cached animation parameters for safe re-load.
 struct LottieContext {
@@ -71,10 +89,23 @@ struct LottieContext {
     // --- Animation params (captured on first load, reused on re-loads) ---
     lv_anim_exec_xcb_t exec_cb;
     void *anim_var;
-    int32_t start_frame;
-    int32_t end_frame;
-    uint32_t duration_ms;
+    int32_t start_frame;        // current segment start (modified by play_marker)
+    int32_t end_frame;          // current segment end   (modified by play_marker)
+    int32_t native_start_frame; // full-animation start (frame 0)
+    int32_t native_end_frame;   // full-animation end   (last frame)
+    uint32_t duration_ms;       // duration of the FULL animation in ms
     bool data_loaded;           // true after first successful parse
+
+    // --- Markers ("Interactivity" segments) ---
+    const LottieMarker *markers;
+    uint8_t marker_count;
+    int8_t  active_marker;       // index into markers[], -1 if playing full anim
+    volatile bool one_shot;      // when true, fire completion cb after one cycle
+    LottieMarkerCompleteCb on_complete;
+    void *on_complete_arg;
+    // Completion event is dispatched via lv_async_call so the YAML script
+    // runs on the LVGL main task rather than from inside the render task.
+    volatile const char *pending_complete_marker;
 
     // --- Runtime state (freed on screen unload) ---
     uint8_t *pixel_buffer;      // PSRAM – width*height*4
@@ -189,6 +220,8 @@ inline void lottie_load_task(void *param) {
             ctx->anim_var    = anim->var;
             ctx->start_frame = anim->start_value;
             ctx->end_frame   = anim->end_value;
+            ctx->native_start_frame = anim->start_value;
+            ctx->native_end_frame   = anim->end_value;
             ctx->duration_ms = (uint32_t)lv_anim_get_time(anim);
 
             ESP_LOGI(LOTTIE_TAG, "Anim: frames %d..%d, duration %u ms",
@@ -254,8 +287,12 @@ inline void lottie_load_task(void *param) {
     }
 
     // --- Frame render loop (64 KB PSRAM stack) ---
-    int32_t total_frames = ctx->end_frame - ctx->start_frame;
-    uint32_t frame_delay_ms = ctx->duration_ms / (uint32_t)total_frames;
+    // The frame delay is computed from the FULL-animation duration so that
+    // every segment plays at its native speed regardless of which marker is
+    // currently active.
+    int32_t native_total = ctx->native_end_frame - ctx->native_start_frame;
+    if (native_total <= 0) native_total = 1;
+    uint32_t frame_delay_ms = ctx->duration_ms / (uint32_t)native_total;
     if (frame_delay_ms < 16)  frame_delay_ms = 16;
     if (frame_delay_ms > 100) frame_delay_ms = 100;
 
@@ -265,26 +302,37 @@ inline void lottie_load_task(void *param) {
     ctx->start_tick = xTaskGetTickCount();  // ✅ Store in context for restart capability
 
     while (!ctx->stop_requested) {
-        // ✅ Check if restart requested
+        // Snapshot the segment range up-front so a play_marker() call
+        // mid-cycle is picked up cleanly on the next iteration without
+        // tearing the maths.
+        int32_t seg_start = ctx->start_frame;
+        int32_t seg_end   = ctx->end_frame;
+        int32_t seg_total = seg_end - seg_start;
+        if (seg_total <= 0) seg_total = 1;
+        uint32_t seg_duration_ms = (uint32_t)seg_total * frame_delay_ms;
+        if (seg_duration_ms == 0) seg_duration_ms = 1;
+        bool seg_loop = ctx->loop && !ctx->one_shot;
+
         if (ctx->restart_requested) {
             ctx->start_tick = xTaskGetTickCount();
             ctx->restart_requested = false;
-            ESP_LOGI(LOTTIE_TAG, "Animation restarted from frame 0");
+            ESP_LOGI(LOTTIE_TAG, "Segment restarted (%d..%d, loop=%d)",
+                     (int)seg_start, (int)seg_end, (int)seg_loop);
         }
 
         uint32_t elapsed_ms = (uint32_t)((xTaskGetTickCount() - ctx->start_tick) * portTICK_PERIOD_MS);
 
         int32_t frame;
-        bool render_end_frame = false;
-        if (ctx->loop) {
-            uint32_t phase = elapsed_ms % ctx->duration_ms;
-            frame = ctx->start_frame + (int32_t)((int64_t)total_frames * phase / ctx->duration_ms);
+        bool segment_complete = false;
+        if (seg_loop) {
+            uint32_t phase = elapsed_ms % seg_duration_ms;
+            frame = seg_start + (int32_t)((int64_t)seg_total * phase / seg_duration_ms);
         } else {
-            if (elapsed_ms >= ctx->duration_ms) {
-                frame = ctx->end_frame;
-                render_end_frame = true;
+            if (elapsed_ms >= seg_duration_ms) {
+                frame = seg_end;
+                segment_complete = true;
             } else {
-                frame = ctx->start_frame + (int32_t)((int64_t)total_frames * elapsed_ms / ctx->duration_ms);
+                frame = seg_start + (int32_t)((int64_t)seg_total * elapsed_ms / seg_duration_ms);
             }
         }
 
@@ -301,8 +349,38 @@ inline void lottie_load_task(void *param) {
         ctx->exec_cb(ctx->anim_var, frame);
         lv_unlock();
 
-        if (render_end_frame) {
-            ESP_LOGI(LOTTIE_TAG, "Animation complete");
+        if (segment_complete) {
+            const char *marker_name = (ctx->active_marker >= 0 &&
+                                       ctx->active_marker < (int8_t)ctx->marker_count)
+                                       ? ctx->markers[ctx->active_marker].name
+                                       : "complete";
+            ESP_LOGI(LOTTIE_TAG, "Segment '%s' complete", marker_name);
+
+            // Hand the completion event off to the LVGL main task (lv_async)
+            // so the YAML on_marker_complete trigger runs in the right
+            // context and does not stall this render task.
+            if (ctx->on_complete != nullptr) {
+                ctx->pending_complete_marker = marker_name;
+                lv_async_call([](void *arg) {
+                    auto *c = (LottieContext *)arg;
+                    if (c->on_complete != nullptr && c->pending_complete_marker != nullptr) {
+                        const char *mn = (const char *)c->pending_complete_marker;
+                        c->pending_complete_marker = nullptr;
+                        c->on_complete(c->on_complete_arg, mn);
+                    }
+                }, ctx);
+            }
+
+            if (ctx->one_shot) {
+                // One-shot done: leave the last frame visible and freeze the
+                // task on a long sleep until play_marker() restarts us.
+                ctx->one_shot = false;
+                while (!ctx->stop_requested && !ctx->restart_requested) {
+                    vTaskDelay(pdMS_TO_TICKS(50));
+                }
+                continue;
+            }
+            // Not one-shot, not loop → exit the render loop entirely.
             break;
         }
 
@@ -565,13 +643,59 @@ inline void lottie_restart(LottieContext *ctx) {
 }
 
 // --------------------------------------------------------------------------
+// Public API: Play a named marker (LottieFiles "Interactivity" *Click event).
+//
+// Looks the marker name up in the context's marker table, swaps the active
+// segment range and triggers a restart from the first frame of that segment.
+// When `one_shot=true` the segment plays once and then fires the
+// on_marker_complete callback (the LottieFiles *Complete event) — perfect for
+// transient states like "yes" / "no". When false, the segment loops — perfect
+// for sustained states like "idle" / "thinking" / "alert".
+//
+// Safe to call from any LVGL task; only sets atomic flags read by the
+// render task.
+// --------------------------------------------------------------------------
+inline bool lottie_play_marker(LottieContext *ctx, const char *name, bool one_shot) {
+    if (!ctx || !ctx->task_handle || !name) return false;
+    for (uint8_t i = 0; i < ctx->marker_count; i++) {
+        if (strcmp(ctx->markers[i].name, name) == 0) {
+            ctx->start_frame  = ctx->markers[i].start_frame;
+            ctx->end_frame    = ctx->markers[i].end_frame;
+            ctx->active_marker = (int8_t)i;
+            ctx->one_shot      = one_shot;
+            ctx->restart_requested = true;
+            ESP_LOGI(LOTTIE_TAG, "play_marker '%s' (%d..%d, one_shot=%d)",
+                     name, (int)ctx->start_frame, (int)ctx->end_frame, (int)one_shot);
+            return true;
+        }
+    }
+    ESP_LOGW(LOTTIE_TAG, "play_marker: unknown marker '%s'", name);
+    return false;
+}
+
+// --------------------------------------------------------------------------
+// Public API: Register a callback that fires once a one-shot segment has
+// finished playing (LottieFiles "Interactivity" *Complete event). Pass
+// nullptr to unregister.
+// --------------------------------------------------------------------------
+inline void lottie_set_on_complete(LottieContext *ctx,
+                                    LottieMarkerCompleteCb cb,
+                                    void *user_arg) {
+    if (!ctx) return;
+    ctx->on_complete     = cb;
+    ctx->on_complete_arg = user_arg;
+}
+
+// --------------------------------------------------------------------------
 // Public API: initialise Lottie widget – allocate buffer, register screen
 // events, and launch the load/render task.
 // Call under lv_lock (from LVGL init code).
 // --------------------------------------------------------------------------
 inline bool lottie_init(lv_obj_t *obj, const void *data, size_t data_size,
                          const char *file_path, uint32_t width, uint32_t height,
-                         bool loop, bool auto_start, bool user_wants_hidden) {
+                         bool loop, bool auto_start, bool user_wants_hidden,
+                         const LottieMarker *markers = nullptr,
+                         uint8_t marker_count = 0) {
     LottieContext *ctx = (LottieContext *)heap_caps_malloc(
         sizeof(LottieContext), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (!ctx) return false;
@@ -587,6 +711,9 @@ inline bool lottie_init(lv_obj_t *obj, const void *data, size_t data_size,
     ctx->height    = height;
     ctx->user_wants_hidden = user_wants_hidden;  // Save user's 'hidden' config from YAML
     ctx->runtime_hidden = user_wants_hidden;    // Initially matches YAML config
+    ctx->markers       = markers;
+    ctx->marker_count  = marker_count;
+    ctx->active_marker = -1;
 
     // Static binary semaphore used to wait for clean task shutdown without
     // ever calling vTaskDelete() from another task. Stored inside the
