@@ -120,6 +120,37 @@ def _parse_markers_from_json(lottie_data):
     return out
 
 
+def _find_local_lottie(src_path):
+    """Locate a JSON sibling of the YAML for marker auto-extraction.
+
+    The user's `src:` typically points at a runtime mount (`/sdcard/...`,
+    `/littlefs/...`) that is not visible from the host running esphome.
+    Try several common locations relative to the YAML config dir before
+    giving up:
+      * the raw path with the leading '/' stripped
+      * the path with a known mount prefix removed
+      * just the basename (when the user keeps the JSON next to the YAML)
+    Returns the first existing Path or None.
+    """
+    candidates = []
+    raw = src_path.lstrip("/")
+    candidates.append(raw)
+    for prefix in ("sdcard/", "littlefs/", "storage/", "fs/", "spiffs/"):
+        if raw.startswith(prefix):
+            candidates.append(raw[len(prefix):])
+    candidates.append(Path(src_path).name)
+
+    seen = set()
+    for c in candidates:
+        if c in seen:
+            continue
+        seen.add(c)
+        p = Path(CORE.relative_config_path(c))
+        if p.is_file():
+            return p
+    return None
+
+
 def validate_lottie_source(config):
     """Validate source and extract dimensions / markers from JSON."""
     has_src = CONF_SRC in config
@@ -135,13 +166,14 @@ def validate_lottie_source(config):
         if CONF_WIDTH not in config or CONF_HEIGHT not in config:
             raise cv.Invalid("'width' and 'height' are required when using 'src' (filesystem path). Cannot auto-detect dimensions at compile time.")
 
-        # Markers: if the user pointed `src` at /sdcard/foo.json AND a sibling
-        # file with the same name exists relative to the YAML, we read the
-        # markers from that local copy so they can be embedded in the firmware.
-        local_copy = CORE.relative_config_path(config[CONF_SRC].lstrip("/"))
-        if Path(local_copy).is_file():
+        # Markers: if a local copy of the JSON is reachable from the YAML
+        # config dir (sibling of the YAML, sdcard/littlefs mirror, etc.)
+        # we read its `markers` array so play_marker can address segments
+        # by name without forcing the user to retype them in YAML.
+        local = _find_local_lottie(config[CONF_SRC])
+        if local is not None:
             try:
-                with open(local_copy, "r", encoding="utf-8") as f:
+                with open(local, "r", encoding="utf-8") as f:
                     config["_markers_auto"] = _parse_markers_from_json(json.load(f))
             except (json.JSONDecodeError, OSError):
                 pass  # silently ignore – user can still declare markers manually
