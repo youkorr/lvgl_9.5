@@ -394,11 +394,26 @@ async def lottie_pause(config, action_id, template_arg, args):
 )
 async def lottie_play_marker(config, action_id, template_arg, args):
     """Play a named marker — fires *Complete callback when one_shot=true."""
-    from ..automation import action_to_code as _action_to_code  # local re-export
-
     widget = await get_widgets(config)
-    marker_tpl = await cg.templatable(config[CONF_MARKER], args, cg.std_string)
-    one_shot_tpl = await cg.templatable(config[CONF_ONE_SHOT], args, bool)
+
+    # marker: accept either a Python literal or a !lambda expression.
+    # Static literal is emitted as a C string literal (no .c_str()).
+    # Lambdas are processed and their std::string return value gets .c_str().
+    marker_val = config[CONF_MARKER]
+    if isinstance(marker_val, str):
+        marker_call = f'"{marker_val}"'
+    else:
+        marker_expr = await cg.templatable(marker_val, args, cg.std_string)
+        marker_call = f"({marker_expr}).c_str()"
+
+    # one_shot: same idea — Python booleans → C++ "true"/"false" literal,
+    # lambdas → expression that evaluates to bool.
+    one_shot_val = config[CONF_ONE_SHOT]
+    if isinstance(one_shot_val, bool):
+        one_shot_call = "true" if one_shot_val else "false"
+    else:
+        one_shot_expr = await cg.templatable(one_shot_val, args, bool)
+        one_shot_call = f"({one_shot_expr})"
 
     async def do_play(w: Widget):
         # Resolve at runtime from the LV object's user_data slot, where
@@ -406,7 +421,7 @@ async def lottie_play_marker(config, action_id, template_arg, args):
         cg.add(cg.RawExpression(
             f"({{ auto *_ctx = (esphome::lvgl::LottieContext *)lv_obj_get_user_data({w.obj});"
             f" if (_ctx) esphome::lvgl::lottie_play_marker(_ctx, "
-            f"({marker_tpl}).c_str(), ({one_shot_tpl})); }})"
+            f"{marker_call}, {one_shot_call}); }})"
         ))
 
     return await action_to_code(widget, do_play, action_id, template_arg, args)
