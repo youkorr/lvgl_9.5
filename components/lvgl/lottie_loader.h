@@ -100,6 +100,7 @@ struct LottieContext {
     const LottieMarker *markers;
     uint8_t marker_count;
     int8_t  active_marker;       // index into markers[], -1 if playing full anim
+    const char *initial_marker;  // optional name selected at first launch
     volatile bool one_shot;      // when true, fire completion cb after one cycle
     LottieMarkerCompleteCb on_complete;
     void *on_complete_arg;
@@ -239,6 +240,27 @@ inline void lottie_load_task(void *param) {
 
             ctx->data_loaded = true;
             ESP_LOGI(LOTTIE_TAG, "LVGL anim removed – rendering from PSRAM task");
+
+            // If the YAML specified an `initial_marker`, narrow the segment
+            // range to that marker right now so auto_start plays only that
+            // state instead of the full timeline (which would visibly cycle
+            // through all 6 LottieFiles "Interactivity" states – idle, yes,
+            // no, alert, thinking, jump – before the voice assistant ever
+            // sends its first play_marker call).
+            if (ctx->initial_marker != nullptr && ctx->initial_marker[0] != '\0' &&
+                ctx->markers != nullptr && ctx->marker_count > 0) {
+                for (uint8_t i = 0; i < ctx->marker_count; i++) {
+                    if (strcmp(ctx->markers[i].name, ctx->initial_marker) == 0) {
+                        ctx->start_frame   = ctx->markers[i].start_frame;
+                        ctx->end_frame     = ctx->markers[i].end_frame;
+                        ctx->active_marker = (int8_t)i;
+                        ESP_LOGI(LOTTIE_TAG, "Initial marker '%s' (%d..%d)",
+                                 ctx->initial_marker,
+                                 (int)ctx->start_frame, (int)ctx->end_frame);
+                        break;
+                    }
+                }
+            }
         } else {
             ESP_LOGE(LOTTIE_TAG, "Animation INVALID – parsing may have failed!");
         }
@@ -695,7 +717,8 @@ inline bool lottie_init(lv_obj_t *obj, const void *data, size_t data_size,
                          const char *file_path, uint32_t width, uint32_t height,
                          bool loop, bool auto_start, bool user_wants_hidden,
                          const LottieMarker *markers = nullptr,
-                         uint8_t marker_count = 0) {
+                         uint8_t marker_count = 0,
+                         const char *initial_marker = nullptr) {
     LottieContext *ctx = (LottieContext *)heap_caps_malloc(
         sizeof(LottieContext), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (!ctx) return false;
@@ -711,9 +734,10 @@ inline bool lottie_init(lv_obj_t *obj, const void *data, size_t data_size,
     ctx->height    = height;
     ctx->user_wants_hidden = user_wants_hidden;  // Save user's 'hidden' config from YAML
     ctx->runtime_hidden = user_wants_hidden;    // Initially matches YAML config
-    ctx->markers       = markers;
-    ctx->marker_count  = marker_count;
-    ctx->active_marker = -1;
+    ctx->markers        = markers;
+    ctx->marker_count   = marker_count;
+    ctx->initial_marker = initial_marker;
+    ctx->active_marker  = -1;
 
     // Static binary semaphore used to wait for clean task shutdown without
     // ever calling vTaskDelete() from another task. Stored inside the

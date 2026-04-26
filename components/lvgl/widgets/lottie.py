@@ -73,6 +73,7 @@ CONF_MARKERS = "markers"
 CONF_MARKER = "marker"
 CONF_ONE_SHOT = "one_shot"
 CONF_ON_MARKER_COMPLETE = "on_marker_complete"
+CONF_INITIAL_MARKER = "initial_marker"
 
 lv_lottie_t = LvType("lv_lottie_t")
 
@@ -185,6 +186,7 @@ LOTTIE_SCHEMA = cv.Schema(
         cv.Optional(CONF_FILE): lottie_file_validator,
         cv.Optional(CONF_LOOP, default=True): cv.boolean,
         cv.Optional(CONF_AUTO_START, default=True): cv.boolean,
+        cv.Optional(CONF_INITIAL_MARKER): cv.string_strict,
         cv.Optional(CONF_MARKERS): cv.ensure_list(MARKER_SCHEMA),
         cv.Optional(CONF_ON_MARKER_COMPLETE): automation.validate_automation(
             {cv.GenerateID(): cv.declare_id(automation.Trigger.template(cg.std_string))}
@@ -272,10 +274,16 @@ class LottieType(WidgetType):
             ))
             markers_arg = marker_array_name
 
+        # Optional initial marker: at first launch, the render task narrows
+        # start/end_frame to this segment so auto_start plays one state
+        # instead of cycling through the whole timeline.
+        initial_marker = config.get(CONF_INITIAL_MARKER)
+        initial_arg = f'"{initial_marker}"' if initial_marker else "nullptr"
+
         # Use lottie_init() which handles PSRAM allocation, screen events, and task launch
         if src := config.get(CONF_SRC):
             lv_add(cg.RawStatement(f"""
-    esphome::lvgl::lottie_init({w.obj}, nullptr, 0, "{src}", {width}, {height}, {do_loop}, {do_auto_start}, {user_wants_hidden}, {markers_arg}, {marker_count});"""))
+    esphome::lvgl::lottie_init({w.obj}, nullptr, 0, "{src}", {width}, {height}, {do_loop}, {do_auto_start}, {user_wants_hidden}, {markers_arg}, {marker_count}, {initial_arg});"""))
         elif file_path := config.get(CONF_FILE):
             with open(file_path, "rb") as f:
                 json_data = f.read()
@@ -283,7 +291,7 @@ class LottieType(WidgetType):
             raw_data_id = config[CONF_RAW_DATA_ID]
             prog_arr = cg.progmem_array(raw_data_id, list(json_data_with_null))
             lv_add(cg.RawStatement(f"""
-    esphome::lvgl::lottie_init({w.obj}, {prog_arr}, {len(json_data)}, nullptr, {width}, {height}, {do_loop}, {do_auto_start}, {user_wants_hidden}, {markers_arg}, {marker_count});"""))
+    esphome::lvgl::lottie_init({w.obj}, {prog_arr}, {len(json_data)}, nullptr, {width}, {height}, {do_loop}, {do_auto_start}, {user_wants_hidden}, {markers_arg}, {marker_count}, {initial_arg});"""))
 
         # --- on_marker_complete trigger ----------------------------------
         # When the user provides at least one automation under
