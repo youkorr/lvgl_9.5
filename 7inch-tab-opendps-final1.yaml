@@ -3500,7 +3500,6 @@ lvgl:
                                   snprintf(buf, sizeof(buf), "%06X", v);
                                   lv_textarea_set_text(id(ce_kb_input), buf);
                                   lv_obj_clear_flag(id(overlay_color_kb), LV_OBJ_FLAG_HIDDEN);
-                                  lv_obj_add_flag(id(ce_input_0), LV_OBJ_FLAG_HIDDEN);
 
                   # voltage
                   - obj:
@@ -3550,7 +3549,6 @@ lvgl:
                                   snprintf(buf, sizeof(buf), "%06X", v);
                                   lv_textarea_set_text(id(ce_kb_input), buf);
                                   lv_obj_clear_flag(id(overlay_color_kb), LV_OBJ_FLAG_HIDDEN);
-                                  lv_obj_add_flag(id(ce_input_1), LV_OBJ_FLAG_HIDDEN);
 
                   # current
                   - obj:
@@ -3600,7 +3598,6 @@ lvgl:
                                   snprintf(buf, sizeof(buf), "%06X", v);
                                   lv_textarea_set_text(id(ce_kb_input), buf);
                                   lv_obj_clear_flag(id(overlay_color_kb), LV_OBJ_FLAG_HIDDEN);
-                                  lv_obj_add_flag(id(ce_input_2), LV_OBJ_FLAG_HIDDEN);
 
                   # bg main
                   - obj:
@@ -3651,7 +3648,6 @@ lvgl:
                                   snprintf(buf, sizeof(buf), "%06X", v);
                                   lv_textarea_set_text(id(ce_kb_input), buf);
                                   lv_obj_clear_flag(id(overlay_color_kb), LV_OBJ_FLAG_HIDDEN);
-                                  lv_obj_add_flag(id(ce_input_3), LV_OBJ_FLAG_HIDDEN);
 
                   # bg panel
                   - obj:
@@ -3702,7 +3698,6 @@ lvgl:
                                   snprintf(buf, sizeof(buf), "%06X", v);
                                   lv_textarea_set_text(id(ce_kb_input), buf);
                                   lv_obj_clear_flag(id(overlay_color_kb), LV_OBJ_FLAG_HIDDEN);
-                                  lv_obj_add_flag(id(ce_input_4), LV_OBJ_FLAG_HIDDEN);
 
                   # text dim
                   - obj:
@@ -3752,7 +3747,6 @@ lvgl:
                                   snprintf(buf, sizeof(buf), "%06X", v);
                                   lv_textarea_set_text(id(ce_kb_input), buf);
                                   lv_obj_clear_flag(id(overlay_color_kb), LV_OBJ_FLAG_HIDDEN);
-                                  lv_obj_add_flag(id(ce_input_5), LV_OBJ_FLAG_HIDDEN);
 
                   # Apply / Cancel row
                   - obj:
@@ -3810,8 +3804,8 @@ lvgl:
             # Contains: title, the shared hex textarea, keyboard, Confirm/Cancel.
             - obj:
                 id: overlay_color_kb
-                x: 0
-                y: 0
+                x: 162
+                y: 30
                 width: 700
                 height: 540
                 bg_color: 0x111111
@@ -3887,7 +3881,7 @@ lvgl:
                                   };
                                   int tok = id(g_editing_color_token);
                                   if (tok >= 0 && tok < 6)
-                                    lv_obj_clear_flag(inputs[tok], LV_OBJ_FLAG_HIDDEN);
+                                    lv_obj_remove_state(inputs[tok], LV_STATE_FOCUSED);
                                   lv_obj_add_flag(id(overlay_color_kb), LV_OBJ_FLAG_HIDDEN);
                             widgets:
                               - label:
@@ -3913,7 +3907,7 @@ lvgl:
                                   };
                                   int tok = id(g_editing_color_token);
                                   if (tok >= 0 && tok < 6)
-                                    lv_obj_clear_flag(inputs[tok], LV_OBJ_FLAG_HIDDEN);
+                                    lv_obj_remove_state(inputs[tok], LV_STATE_FOCUSED);
                                   if (len != 6) {
                                     lv_obj_add_flag(id(overlay_color_kb), LV_OBJ_FLAG_HIDDEN);
                                     return;
