@@ -247,7 +247,7 @@ external_components:
       type: git
       url: https://github.com/youkorr/lvgl_9.4
       ref: main 
-    components: [lvgl, image]
+    components: [lvgl, image, button]
     refresh: always   
 
   - source:
