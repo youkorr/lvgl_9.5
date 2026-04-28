@@ -11,6 +11,7 @@
 #include "freertos/task.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_pthread.h"
 #include <cstring>
 
 // Access lv_lottie_t internals for safe re-initialisation on screen re-load.
@@ -23,6 +24,35 @@ namespace lvgl {
 
 static const char *const LOTTIE_TAG = "lottie";
 static constexpr size_t LOTTIE_TASK_STACK_SIZE = 64 * 1024;
+
+// ThorVG can dispatch work to std::thread workers when CONFIG_THORVG_THREAD_ENABLED=y.
+// Those workers inherit the calling task's pthread config which on ESP-IDF defaults
+// to CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT (typically 3072 bytes) – far too small
+// for ThorVG's recursive vector pipeline and the cause of:
+//   "Guru Meditation Error: Stack protection fault. Detected in task <pthread>"
+// during lv_lottie_set_src_data() / tvg_canvas_draw().
+//
+// Even though our renderer task already has a 64 KB PSRAM stack, ThorVG's worker
+// pool – created lazily inside lv_lottie_create() on the *main* task – needs its
+// own oversized stack. We bump the pthread default cfg from this header so the
+// first tvg::Initializer::init() picks up the correct size regardless of which
+// FreeRTOS task creates the first lv_lottie widget.
+static constexpr size_t THORVG_PTHREAD_STACK_SIZE = 32 * 1024;
+
+inline void lottie_bump_pthread_stack() {
+    static bool s_done = false;
+    if (s_done) return;
+    s_done = true;
+
+    esp_pthread_cfg_t cfg = esp_pthread_get_default_config();
+    if (cfg.stack_size < THORVG_PTHREAD_STACK_SIZE) {
+        cfg.stack_size = THORVG_PTHREAD_STACK_SIZE;
+        // pin_to_core/inherit_cfg/thread_name keep their defaults
+        esp_pthread_set_cfg(&cfg);
+        ESP_LOGI(LOTTIE_TAG, "pthread default stack bumped to %u bytes for ThorVG workers",
+                 (unsigned)THORVG_PTHREAD_STACK_SIZE);
+    }
+}
 
 // Persistent context for each Lottie widget – tracks all PSRAM allocations,
 // the render task, and cached animation parameters for safe re-load.
@@ -358,6 +388,10 @@ inline void lottie_restart(LottieContext *ctx) {
 inline bool lottie_init(lv_obj_t *obj, const void *data, size_t data_size,
                          const char *file_path, uint32_t width, uint32_t height,
                          bool loop, bool auto_start, bool user_wants_hidden) {
+    // Bump pthread default stack BEFORE anything that may trigger ThorVG init.
+    // Safe to call repeatedly – guarded internally with a static flag.
+    lottie_bump_pthread_stack();
+
     LottieContext *ctx = (LottieContext *)heap_caps_malloc(
         sizeof(LottieContext), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (!ctx) return false;

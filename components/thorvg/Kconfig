@@ -8,9 +8,20 @@ menu "ThorVG Support Options"
 
     config THORVG_THREAD_ENABLED
         bool "Enable ThorVG threading support"
-        default y
+        default n
         help
-            Enable ThorVG threading support. This option can be disabled if ThorVG is only used from one FreeRTOS task.
+            Enable ThorVG threading support. When enabled, ThorVG dispatches
+            rendering/parsing work to std::thread workers. On ESP-IDF those
+            workers use the default pthread stack (CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT,
+            typically 3072 bytes) which is far too small for ThorVG's
+            recursive vector pipeline and causes a "Stack protection fault"
+            crash (e.g. when rendering Lottie frames).
+
+            Leave this disabled unless you have explicitly bumped
+            CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT to at least 32768 bytes.
+            With this disabled ThorVG runs synchronously on the calling
+            FreeRTOS task, so make sure that task has a large stack
+            (the bundled lottie_loader.h already uses a 64 KB PSRAM stack).
 
     config THORVG_LOTTIE_EXPRESSIONS_SUPPORT
         bool "Enable Lottie expressions (JerryScript)"
