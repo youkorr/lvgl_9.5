@@ -5,18 +5,9 @@ bg_color: 0x0d1117
 # AI Vision Page - M5Stack Tab5 (1280x720) edition
 # -----------------------------------------------------------------------------
 # Mirrors the four flagship demos of the official esp32_p4_eye factory_demo
-# but laid out for a 1280x720 display:
-#   - Face detection / recognition  (face_detection component)
-#   - COCO object detection         (yolo11_detection component)
-#   - Pedestrian detection          (pedestrian_detection component)
-#   - Painter / freehand drawing    (esp_painter equivalent on LVGL canvas)
-#
-# Layout
-#   1280x720 total
-#   header     : 1280 x 60   at (0, 0)         tab bar
-#   canvas     : 1024 x 576  at (20, 80)       live camera + overlays
-#   side panel : 220 x 576   at (1050, 80)     counters / palette / nav
-#   status     : 1024 x 26   at (20, 668)      mode label
+# but laid out for a 1280x720 display and with single-detector scheduling
+# so only the active mode runs neural inference (the others are paused
+# by setting their detection_interval to a huge value).
 #
 # Required globals at top level of your YAML:
 #   globals:
@@ -45,6 +36,11 @@ bg_color: 0x0d1117
 #   pedestrian_detection:  { id: pedestrian_detect,  camera_id: tab5_cam, canvas_id: ai_vision_canvas, ... }
 # =============================================================================
 
+# Helper macro: pause a detector by pushing its detection_interval far into
+# the future. set_draw_enabled(false) only stops drawing, not inference, so
+# without this the three nets all run in parallel and the CPU burns.
+# Active detectors get sensible defaults (face=5, coco=8, ped=4 frames).
+
 on_load:
   - lambda: |-
       ESP_LOGI("ai_vision", "AI Vision page loaded (1280x720)");
@@ -55,10 +51,23 @@ on_load:
         id(camera_display).configure_canvas(canvas);
       }
       id(camera_display).set_enabled(true);
+
+      // Default tab = Face. Pause the others.
       id(face_detect).set_draw_enabled(true);
+      id(face_detect).set_detection_interval(5);
+      id(yolo_detect).set_draw_enabled(false);
+      id(yolo_detect).set_detection_interval(1000000);
+      id(pedestrian_detect).set_draw_enabled(false);
+      id(pedestrian_detect).set_detection_interval(1000000);
 
 on_unload:
-  - lambda: 'ESP_LOGI("ai_vision", "AI Vision page unloaded");'
+  - lambda: |-
+      // Pause everything when leaving the page so background CPU goes back
+      // to ~0% and the rest of the UI stays smooth.
+      id(face_detect).set_detection_interval(1000000);
+      id(yolo_detect).set_detection_interval(1000000);
+      id(pedestrian_detect).set_detection_interval(1000000);
+      ESP_LOGI("ai_vision", "AI Vision page unloaded - all detectors paused");
 
 widgets:
   # -------------------- Tab bar --------------------
@@ -86,8 +95,11 @@ widgets:
                 - lambda: |-
                     id(ai_vision_mode) = 0;
                     id(face_detect).set_draw_enabled(true);
+                    id(face_detect).set_detection_interval(5);
                     id(yolo_detect).set_draw_enabled(false);
+                    id(yolo_detect).set_detection_interval(1000000);
                     id(pedestrian_detect).set_draw_enabled(false);
+                    id(pedestrian_detect).set_detection_interval(1000000);
                     id(ai_vision_painter_active) = false;
                     id(camera_display).set_enabled(true);
                     lv_label_set_text(id(ai_vision_status), "Mode: Face detection");
@@ -103,8 +115,11 @@ widgets:
                 - lambda: |-
                     id(ai_vision_mode) = 1;
                     id(face_detect).set_draw_enabled(false);
+                    id(face_detect).set_detection_interval(1000000);
                     id(yolo_detect).set_draw_enabled(true);
+                    id(yolo_detect).set_detection_interval(8);
                     id(pedestrian_detect).set_draw_enabled(false);
+                    id(pedestrian_detect).set_detection_interval(1000000);
                     id(ai_vision_painter_active) = false;
                     id(camera_display).set_enabled(true);
                     lv_label_set_text(id(ai_vision_status), "Mode: COCO objects");
@@ -120,8 +135,11 @@ widgets:
                 - lambda: |-
                     id(ai_vision_mode) = 2;
                     id(face_detect).set_draw_enabled(false);
+                    id(face_detect).set_detection_interval(1000000);
                     id(yolo_detect).set_draw_enabled(false);
+                    id(yolo_detect).set_detection_interval(1000000);
                     id(pedestrian_detect).set_draw_enabled(true);
+                    id(pedestrian_detect).set_detection_interval(4);
                     id(ai_vision_painter_active) = false;
                     id(camera_display).set_enabled(true);
                     lv_label_set_text(id(ai_vision_status), "Mode: Pedestrian");
@@ -137,8 +155,11 @@ widgets:
                 - lambda: |-
                     id(ai_vision_mode) = 3;
                     id(face_detect).set_draw_enabled(false);
+                    id(face_detect).set_detection_interval(1000000);
                     id(yolo_detect).set_draw_enabled(false);
+                    id(yolo_detect).set_detection_interval(1000000);
                     id(pedestrian_detect).set_draw_enabled(false);
+                    id(pedestrian_detect).set_detection_interval(1000000);
                     id(ai_vision_painter_active) = true;
                     id(camera_display).set_enabled(false);
                     auto cv = id(ai_vision_canvas);
