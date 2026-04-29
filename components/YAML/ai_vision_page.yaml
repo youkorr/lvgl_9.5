@@ -1,59 +1,9 @@
 id: ai_vision_page
 bg_color: 0x0d1117
 
-# =============================================================================
-# AI Vision Page (ESP32-P4-Eye port for ESPHome)
-# -----------------------------------------------------------------------------
-# Mirrors the four flagship demos of the official esp32_p4_eye factory_demo:
-#   - Face detection / recognition  (face_detection component)
-#   - COCO object detection         (yolo11_detection component)
-#   - Pedestrian detection          (pedestrian_detection component)
-#   - Painter / freehand drawing    (esp_painter equivalent on LVGL canvas)
-#
-# Required globals at top level of your YAML:
-#   globals:
-#     - id: ai_vision_mode
-#       type: int
-#       initial_value: '0'
-#     - id: ai_vision_painter_active
-#       type: bool
-#       initial_value: 'false'
-#     - id: ai_vision_paint_color
-#       type: uint32_t
-#       initial_value: '0xffffff'
-#
-# Required components (configure once at the top level):
-#   lvgl_camera_display:
-#     id: camera_display
-#     camera_id: tab5_cam
-#     canvas_id: ai_vision_canvas
-#     update_interval: 33ms
-#     face_detection_id: face_detect
-#     yolo11_detection_id: yolo_detect
-#     pedestrian_detection_id: pedestrian_detect
-#
-#   face_detection:
-#     id: face_detect
-#     camera_id: tab5_cam
-#     canvas_id: ai_vision_canvas
-#     model_type: face_recognition
-#
-#   yolo11_detection:
-#     id: yolo_detect
-#     camera_id: tab5_cam
-#     canvas_id: ai_vision_canvas
-#     model_variant: s8_v1   # NEW option (s8_v1 / s8_v2 / s8_v3 / 320_s8_v3)
-#
-#   pedestrian_detection:
-#     id: pedestrian_detect
-#     camera_id: tab5_cam
-#     canvas_id: ai_vision_canvas
-#
-# Then add it to lvgl: pages:
-#   lvgl:
-#     pages:
-#       - !include ai_vision_page.yaml
-# =============================================================================
+# AI Vision page combining face/coco/pedestrian/painter — see
+# https://github.com/youkorr/test2_esp_video_esphome for required globals
+# and component setup.
 
 on_load:
   - lambda: |-
@@ -64,13 +14,13 @@ on_load:
       if (canvas != nullptr) {
         id(camera_display).configure_canvas(canvas);
       }
+      id(camera_display).set_enabled(true);
       id(face_detect).set_draw_enabled(true);
 
 on_unload:
   - lambda: 'ESP_LOGI("ai_vision", "AI Vision page unloaded");'
 
 widgets:
-  # -------------------- Tab bar --------------------
   - obj:
       x: 0
       y: 0
@@ -98,7 +48,7 @@ widgets:
                     id(yolo_detect).set_draw_enabled(false);
                     id(pedestrian_detect).set_draw_enabled(false);
                     id(ai_vision_painter_active) = false;
-                    id(camera_display).set_paused(false);
+                    id(camera_display).set_enabled(true);
                     lv_label_set_text(id(ai_vision_status), "Mode: Face detection");
             widgets:
               - label: { align: CENTER, text: "Face", text_color: 0xffffff, text_font: roboto_18 }
@@ -115,7 +65,7 @@ widgets:
                     id(yolo_detect).set_draw_enabled(true);
                     id(pedestrian_detect).set_draw_enabled(false);
                     id(ai_vision_painter_active) = false;
-                    id(camera_display).set_paused(false);
+                    id(camera_display).set_enabled(true);
                     lv_label_set_text(id(ai_vision_status), "Mode: COCO objects");
             widgets:
               - label: { align: CENTER, text: "COCO", text_color: 0xffffff, text_font: roboto_18 }
@@ -132,7 +82,7 @@ widgets:
                     id(yolo_detect).set_draw_enabled(false);
                     id(pedestrian_detect).set_draw_enabled(true);
                     id(ai_vision_painter_active) = false;
-                    id(camera_display).set_paused(false);
+                    id(camera_display).set_enabled(true);
                     lv_label_set_text(id(ai_vision_status), "Mode: Pedestrian");
             widgets:
               - label: { align: CENTER, text: "Pedestrian", text_color: 0xffffff, text_font: roboto_18 }
@@ -149,7 +99,7 @@ widgets:
                     id(yolo_detect).set_draw_enabled(false);
                     id(pedestrian_detect).set_draw_enabled(false);
                     id(ai_vision_painter_active) = true;
-                    id(camera_display).set_paused(true);
+                    id(camera_display).set_enabled(false);
                     auto cv = id(ai_vision_canvas);
                     if (cv != nullptr) {
                       lv_canvas_fill_bg(cv, lv_color_hex(0x000000), LV_OPA_COVER);
@@ -158,7 +108,6 @@ widgets:
             widgets:
               - label: { align: CENTER, text: "Paint", text_color: 0xffffff, text_font: roboto_18 }
 
-  # -------------------- Shared canvas --------------------
   - canvas:
       id: ai_vision_canvas
       x: 192
@@ -188,12 +137,11 @@ widgets:
                   int32_t xx = lx + dx;
                   int32_t yy = ly + dy;
                   if (xx >= 0 && yy >= 0 && xx < 640 && yy < 480) {
-                    lv_canvas_set_px(canvas, xx, yy, col);
+                    lv_canvas_set_px(canvas, xx, yy, col, LV_OPA_COVER);
                   }
                 }
               }
 
-  # -------------------- Status label --------------------
   - label:
       id: ai_vision_status
       x: 192
@@ -204,7 +152,6 @@ widgets:
       text_color: 0x58a6ff
       text_font: roboto_18
 
-  # -------------------- Right side panel --------------------
   - obj:
       x: 840
       y: 70
@@ -279,7 +226,7 @@ widgets:
             on_click:
               then:
                 - lambda: |-
-                    id(camera_display).set_paused(false);
+                    id(camera_display).set_enabled(true);
                     id(ai_vision_painter_active) = false;
             widgets:
               - label: { align: CENTER, text: "Resume cam", text_color: 0xffffff, text_font: roboto_18 }
