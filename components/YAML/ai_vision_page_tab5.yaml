@@ -1,0 +1,285 @@
+id: ai_vision_page
+bg_color: 0x0d1117
+
+# =============================================================================
+# AI Vision Page - M5Stack Tab5 (1280x720) edition
+# -----------------------------------------------------------------------------
+# Mirrors the four flagship demos of the official esp32_p4_eye factory_demo
+# but laid out for a 1280x720 display:
+#   - Face detection / recognition  (face_detection component)
+#   - COCO object detection         (yolo11_detection component)
+#   - Pedestrian detection          (pedestrian_detection component)
+#   - Painter / freehand drawing    (esp_painter equivalent on LVGL canvas)
+#
+# Layout
+#   1280x720 total
+#   header     : 1280 x 60   at (0, 0)         tab bar
+#   canvas     : 1024 x 576  at (20, 80)       live camera + overlays
+#   side panel : 220 x 576   at (1050, 80)     counters / palette / nav
+#   status     : 1024 x 26   at (20, 668)      mode label
+#
+# Required globals at top level of your YAML:
+#   globals:
+#     - id: ai_vision_mode
+#       type: int
+#       initial_value: '0'
+#     - id: ai_vision_painter_active
+#       type: bool
+#       initial_value: 'false'
+#     - id: ai_vision_paint_color
+#       type: uint32_t
+#       initial_value: '0xffffff'
+#
+# Required components (configure once at the top level):
+#   lvgl_camera_display:
+#     id: camera_display
+#     camera_id: tab5_cam
+#     canvas_id: ai_vision_canvas
+#     update_interval: 33ms
+#     face_detection_id: face_detect
+#     yolo11_detection_id: yolo_detect
+#     pedestrian_detection_id: pedestrian_detect
+#
+#   face_detection:        { id: face_detect,        camera_id: tab5_cam, canvas_id: ai_vision_canvas, ... }
+#   yolo11_detection:      { id: yolo_detect,        camera_id: tab5_cam, canvas_id: ai_vision_canvas, ... }
+#   pedestrian_detection:  { id: pedestrian_detect,  camera_id: tab5_cam, canvas_id: ai_vision_canvas, ... }
+# =============================================================================
+
+on_load:
+  - lambda: |-
+      ESP_LOGI("ai_vision", "AI Vision page loaded (1280x720)");
+      id(ai_vision_mode) = 0;
+      id(tab5_cam).start_streaming();
+      auto canvas = id(ai_vision_canvas);
+      if (canvas != nullptr) {
+        id(camera_display).configure_canvas(canvas);
+      }
+      id(camera_display).set_enabled(true);
+      id(face_detect).set_draw_enabled(true);
+
+on_unload:
+  - lambda: 'ESP_LOGI("ai_vision", "AI Vision page unloaded");'
+
+widgets:
+  # -------------------- Tab bar --------------------
+  - obj:
+      x: 0
+      y: 0
+      width: 1280
+      height: 60
+      bg_color: 0x161b22
+      border_opa: TRANSP
+      pad_all: 4
+      layout:
+        type: FLEX
+        flex_flow: ROW
+        flex_align_main: SPACE_EVENLY
+        flex_align_cross: CENTER
+      widgets:
+        - button:
+            id: ai_tab_face
+            width: 280
+            height: 48
+            bg_color: 0x1f6feb
+            on_click:
+              then:
+                - lambda: |-
+                    id(ai_vision_mode) = 0;
+                    id(face_detect).set_draw_enabled(true);
+                    id(yolo_detect).set_draw_enabled(false);
+                    id(pedestrian_detect).set_draw_enabled(false);
+                    id(ai_vision_painter_active) = false;
+                    id(camera_display).set_enabled(true);
+                    lv_label_set_text(id(ai_vision_status), "Mode: Face detection");
+            widgets:
+              - label: { align: CENTER, text: "Face", text_color: 0xffffff, text_font: montserrat_24 }
+        - button:
+            id: ai_tab_coco
+            width: 280
+            height: 48
+            bg_color: 0x238636
+            on_click:
+              then:
+                - lambda: |-
+                    id(ai_vision_mode) = 1;
+                    id(face_detect).set_draw_enabled(false);
+                    id(yolo_detect).set_draw_enabled(true);
+                    id(pedestrian_detect).set_draw_enabled(false);
+                    id(ai_vision_painter_active) = false;
+                    id(camera_display).set_enabled(true);
+                    lv_label_set_text(id(ai_vision_status), "Mode: COCO objects");
+            widgets:
+              - label: { align: CENTER, text: "COCO", text_color: 0xffffff, text_font: montserrat_24 }
+        - button:
+            id: ai_tab_ped
+            width: 280
+            height: 48
+            bg_color: 0xa371f7
+            on_click:
+              then:
+                - lambda: |-
+                    id(ai_vision_mode) = 2;
+                    id(face_detect).set_draw_enabled(false);
+                    id(yolo_detect).set_draw_enabled(false);
+                    id(pedestrian_detect).set_draw_enabled(true);
+                    id(ai_vision_painter_active) = false;
+                    id(camera_display).set_enabled(true);
+                    lv_label_set_text(id(ai_vision_status), "Mode: Pedestrian");
+            widgets:
+              - label: { align: CENTER, text: "Pedestrian", text_color: 0xffffff, text_font: montserrat_24 }
+        - button:
+            id: ai_tab_paint
+            width: 280
+            height: 48
+            bg_color: 0xdb6d28
+            on_click:
+              then:
+                - lambda: |-
+                    id(ai_vision_mode) = 3;
+                    id(face_detect).set_draw_enabled(false);
+                    id(yolo_detect).set_draw_enabled(false);
+                    id(pedestrian_detect).set_draw_enabled(false);
+                    id(ai_vision_painter_active) = true;
+                    id(camera_display).set_enabled(false);
+                    auto cv = id(ai_vision_canvas);
+                    if (cv != nullptr) {
+                      lv_canvas_fill_bg(cv, lv_color_hex(0x000000), LV_OPA_COVER);
+                    }
+                    lv_label_set_text(id(ai_vision_status), "Mode: Painter (drag to draw)");
+            widgets:
+              - label: { align: CENTER, text: "Paint", text_color: 0xffffff, text_font: montserrat_24 }
+
+  # -------------------- Shared canvas (1024x576, 16:9) --------------------
+  - canvas:
+      id: ai_vision_canvas
+      x: 20
+      y: 80
+      width: 1024
+      height: 576
+      bg_color: 0x000000
+      radius: 8
+      on_pressing:
+        then:
+          - lambda: |-
+              if (!id(ai_vision_painter_active)) return;
+              auto canvas = id(ai_vision_canvas);
+              if (canvas == nullptr) return;
+              lv_indev_t * indev = lv_indev_get_act();
+              if (indev == nullptr) return;
+              lv_point_t p;
+              lv_indev_get_point(indev, &p);
+              lv_area_t a;
+              lv_obj_get_coords(canvas, &a);
+              int32_t lx = p.x - a.x1;
+              int32_t ly = p.y - a.y1;
+              if (lx < 0 || ly < 0 || lx >= 1024 || ly >= 576) return;
+              lv_color_t col = lv_color_hex(id(ai_vision_paint_color));
+              for (int dy = -3; dy <= 3; dy++) {
+                for (int dx = -3; dx <= 3; dx++) {
+                  int32_t xx = lx + dx;
+                  int32_t yy = ly + dy;
+                  if (xx >= 0 && yy >= 0 && xx < 1024 && yy < 576) {
+                    lv_canvas_set_px(canvas, xx, yy, col, LV_OPA_COVER);
+                  }
+                }
+              }
+
+  # -------------------- Status label --------------------
+  - label:
+      id: ai_vision_status
+      x: 20
+      y: 668
+      width: 1024
+      text: "Mode: Face detection"
+      text_align: CENTER
+      text_color: 0x58a6ff
+      text_font: montserrat_24
+
+  # -------------------- Right side panel --------------------
+  - obj:
+      x: 1050
+      y: 80
+      width: 220
+      height: 576
+      bg_color: 0x161b22
+      border_color: 0x30363d
+      border_width: 1
+      radius: 8
+      pad_all: 10
+      layout:
+        type: FLEX
+        flex_flow: COLUMN
+        flex_align_cross: CENTER
+        pad_row: 10
+      widgets:
+        - label: { text: "Detected", text_color: 0x8b949e, text_font: montserrat_18 }
+        - label: { id: ai_vision_count, text: "0", text_color: 0xffffff, text_font: montserrat_48 }
+        - label: { text: "Painter color", text_color: 0x8b949e, text_font: montserrat_18 }
+        - obj:
+            width: 200
+            height: 50
+            bg_opa: TRANSP
+            border_opa: TRANSP
+            layout:
+              type: FLEX
+              flex_flow: ROW
+              flex_align_main: SPACE_EVENLY
+              flex_align_cross: CENTER
+            widgets:
+              - button:
+                  width: 40
+                  height: 40
+                  bg_color: 0xff4040
+                  on_click:
+                    then: { lambda: 'id(ai_vision_paint_color) = 0xff4040;' }
+              - button:
+                  width: 40
+                  height: 40
+                  bg_color: 0x40d040
+                  on_click:
+                    then: { lambda: 'id(ai_vision_paint_color) = 0x40d040;' }
+              - button:
+                  width: 40
+                  height: 40
+                  bg_color: 0x4080ff
+                  on_click:
+                    then: { lambda: 'id(ai_vision_paint_color) = 0x4080ff;' }
+              - button:
+                  width: 40
+                  height: 40
+                  bg_color: 0xffffff
+                  on_click:
+                    then: { lambda: 'id(ai_vision_paint_color) = 0xffffff;' }
+        - button:
+            width: 200
+            height: 48
+            bg_color: 0x30363d
+            on_click:
+              then:
+                - lambda: |-
+                    auto cv = id(ai_vision_canvas);
+                    if (cv != nullptr) {
+                      lv_canvas_fill_bg(cv, lv_color_hex(0x000000), LV_OPA_COVER);
+                    }
+            widgets:
+              - label: { align: CENTER, text: "Clear canvas", text_color: 0xffffff, text_font: montserrat_18 }
+        - button:
+            width: 200
+            height: 48
+            bg_color: 0x1f6feb
+            on_click:
+              then:
+                - lambda: |-
+                    id(camera_display).set_enabled(true);
+                    id(ai_vision_painter_active) = false;
+            widgets:
+              - label: { align: CENTER, text: "Resume cam", text_color: 0xffffff, text_font: montserrat_18 }
+        - button:
+            width: 200
+            height: 52
+            bg_color: 0x6e7681
+            on_click:
+              then:
+                - lvgl.page.show: home_page
+            widgets:
+              - label: { align: CENTER, text: "Back", text_color: 0xffffff, text_font: montserrat_24 }
