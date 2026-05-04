@@ -1,15 +1,20 @@
 id: ai_vision_page
-bg_color: 0x0d1117
+bg_color: 0x000000
 
 # =============================================================================
-# AI Vision Page - M5Stack Tab5 (1280x720) edition
+# AI Vision Page - M5Stack Tab5 (1280x720) edition - FULLSCREEN ZERO-COPY
 # -----------------------------------------------------------------------------
-# Mirrors the four flagship demos of the official esp32_p4_eye factory_demo
-# but laid out for a 1280x720 display and with single-detector scheduling
-# so only the active mode runs neural inference (the others are paused
-# by setting their detection_interval to a huge value).
+# Layout inspired by esp32_p4_eye factory_demo (app_ai_detect.cpp): the
+# canvas covers the full display at the exact camera resolution so:
+#   - lvgl_camera_display takes its zero-copy path (no PPA, no scaling)
+#   - no overdraw / alpha blend (every widget on top is fully opaque)
+#   - the camera frame is presented 1:1 with no software work
 #
-# Required globals at top level of your YAML:
+# This is the configuration that gave esp32_p4_eye factory_demo its 30 FPS.
+# Tested with sensor at 1280x720 and display at native 1280x720 (or with
+# `display: rotation: 270` flipping a 720x1280 panel into landscape).
+#
+# Required globals:
 #   globals:
 #     - id: ai_vision_mode
 #       type: int
@@ -21,29 +26,13 @@ bg_color: 0x0d1117
 #       type: uint32_t
 #       initial_value: '0xffffff'
 #
-# Required components (configure once at the top level):
-#   lvgl_camera_display:
-#     id: camera_display
-#     camera_id: tab5_cam
-#     canvas_id: ai_vision_canvas
-#     update_interval: 33ms
-#     face_detection_id: face_detect
-#     yolo11_detection_id: yolo_detect
-#     pedestrian_detection_id: pedestrian_detect
-#
-#   face_detection:        { id: face_detect,        camera_id: tab5_cam, canvas_id: ai_vision_canvas, ... }
-#   yolo11_detection:      { id: yolo_detect,        camera_id: tab5_cam, canvas_id: ai_vision_canvas, ... }
-#   pedestrian_detection:  { id: pedestrian_detect,  camera_id: tab5_cam, canvas_id: ai_vision_canvas, ... }
+# Required components: see lvgl_camera_display, face_detection,
+# yolo11_detection, pedestrian_detection blocks in your tab5.yaml.
 # =============================================================================
-
-# Helper macro: pause a detector by pushing its detection_interval far into
-# the future. set_draw_enabled(false) only stops drawing, not inference, so
-# without this the three nets all run in parallel and the CPU burns.
-# Active detectors get sensible defaults (face=5, coco=8, ped=4 frames).
 
 on_load:
   - lambda: |-
-      ESP_LOGI("ai_vision", "AI Vision page loaded (1280x720)");
+      ESP_LOGI("ai_vision", "AI Vision page loaded (1280x720 fullscreen)");
       id(ai_vision_mode) = 0;
       id(tab5_cam).start_streaming();
       auto canvas = id(ai_vision_canvas);
@@ -52,7 +41,7 @@ on_load:
       }
       id(camera_display).set_enabled(true);
 
-      // Default tab = Face. Pause the others.
+      // Default tab = Face. Pause the others so only one neural net runs.
       id(face_detect).set_draw_enabled(true);
       id(face_detect).set_detection_interval(5);
       id(yolo_detect).set_draw_enabled(false);
@@ -62,23 +51,65 @@ on_load:
 
 on_unload:
   - lambda: |-
-      // Pause everything when leaving the page so background CPU goes back
-      // to ~0% and the rest of the UI stays smooth.
       id(face_detect).set_detection_interval(1000000);
       id(yolo_detect).set_detection_interval(1000000);
       id(pedestrian_detect).set_detection_interval(1000000);
       ESP_LOGI("ai_vision", "AI Vision page unloaded - all detectors paused");
 
 widgets:
-  # -------------------- Tab bar --------------------
-  - obj:
+  # -----------------------------------------------------------------------
+  # 1) FULLSCREEN CANVAS (1280x720, exactly the camera native resolution).
+  #    lvgl_camera_display detects camera_size == canvas_size and uses the
+  #    zero-copy path. NO PPA, NO software scaling.
+  # -----------------------------------------------------------------------
+  - canvas:
+      id: ai_vision_canvas
       x: 0
       y: 0
       width: 1280
-      height: 60
+      height: 720
+      bg_color: 0x000000
+      on_pressing:
+        then:
+          - lambda: |-
+              if (!id(ai_vision_painter_active)) return;
+              auto canvas = id(ai_vision_canvas);
+              if (canvas == nullptr) return;
+              lv_indev_t * indev = lv_indev_get_act();
+              if (indev == nullptr) return;
+              lv_point_t p;
+              lv_indev_get_point(indev, &p);
+              lv_area_t a;
+              lv_obj_get_coords(canvas, &a);
+              int32_t lx = p.x - a.x1;
+              int32_t ly = p.y - a.y1;
+              if (lx < 0 || ly < 0 || lx >= 1280 || ly >= 720) return;
+              lv_color_t col = lv_color_hex(id(ai_vision_paint_color));
+              for (int dy = -3; dy <= 3; dy++) {
+                for (int dx = -3; dx <= 3; dx++) {
+                  int32_t xx = lx + dx;
+                  int32_t yy = ly + dy;
+                  if (xx >= 0 && yy >= 0 && xx < 1280 && yy < 720) {
+                    lv_canvas_set_px(canvas, xx, yy, col, LV_OPA_COVER);
+                  }
+                }
+              }
+
+  # -----------------------------------------------------------------------
+  # 2) BOTTOM CONTROL BAR (1280x48, FULLY OPAQUE).
+  #    Sits over the bottom 48 pixels of the camera image. No transparency
+  #    so LVGL just overwrites those pixels - no alpha blend, no fps cost.
+  #    All four mode buttons inline + the detected counter.
+  # -----------------------------------------------------------------------
+  - obj:
+      x: 0
+      y: 672              # 720 - 48
+      width: 1280
+      height: 48
       bg_color: 0x161b22
+      bg_opa: COVER       # opaque - no alpha blending
       border_opa: TRANSP
-      pad_all: 4
+      pad_all: 2
       layout:
         type: FLEX
         flex_flow: ROW
@@ -87,9 +118,10 @@ widgets:
       widgets:
         - button:
             id: ai_tab_face
-            width: 280
-            height: 48
+            width: 200
+            height: 40
             bg_color: 0x1f6feb
+            bg_opa: COVER
             on_click:
               then:
                 - lambda: |-
@@ -102,14 +134,14 @@ widgets:
                     id(pedestrian_detect).set_detection_interval(1000000);
                     id(ai_vision_painter_active) = false;
                     id(camera_display).set_enabled(true);
-                    lv_label_set_text(id(ai_vision_status), "Mode: Face detection");
             widgets:
-              - label: { align: CENTER, text: "Face", text_color: 0xffffff, text_font: montserrat_24 }
+              - label: { align: CENTER, text: "Face", text_color: 0xffffff, text_font: montserrat_18 }
         - button:
             id: ai_tab_coco
-            width: 280
-            height: 48
+            width: 200
+            height: 40
             bg_color: 0x238636
+            bg_opa: COVER
             on_click:
               then:
                 - lambda: |-
@@ -122,14 +154,14 @@ widgets:
                     id(pedestrian_detect).set_detection_interval(1000000);
                     id(ai_vision_painter_active) = false;
                     id(camera_display).set_enabled(true);
-                    lv_label_set_text(id(ai_vision_status), "Mode: COCO objects");
             widgets:
-              - label: { align: CENTER, text: "COCO", text_color: 0xffffff, text_font: montserrat_24 }
+              - label: { align: CENTER, text: "COCO", text_color: 0xffffff, text_font: montserrat_18 }
         - button:
             id: ai_tab_ped
-            width: 280
-            height: 48
+            width: 200
+            height: 40
             bg_color: 0xa371f7
+            bg_opa: COVER
             on_click:
               then:
                 - lambda: |-
@@ -142,14 +174,14 @@ widgets:
                     id(pedestrian_detect).set_detection_interval(4);
                     id(ai_vision_painter_active) = false;
                     id(camera_display).set_enabled(true);
-                    lv_label_set_text(id(ai_vision_status), "Mode: Pedestrian");
             widgets:
-              - label: { align: CENTER, text: "Pedestrian", text_color: 0xffffff, text_font: montserrat_24 }
+              - label: { align: CENTER, text: "Pedestrian", text_color: 0xffffff, text_font: montserrat_18 }
         - button:
             id: ai_tab_paint
-            width: 280
-            height: 48
+            width: 160
+            height: 40
             bg_color: 0xdb6d28
+            bg_opa: COVER
             on_click:
               then:
                 - lambda: |-
@@ -166,141 +198,21 @@ widgets:
                     if (cv != nullptr) {
                       lv_canvas_fill_bg(cv, lv_color_hex(0x000000), LV_OPA_COVER);
                     }
-                    lv_label_set_text(id(ai_vision_status), "Mode: Painter (drag to draw)");
             widgets:
-              - label: { align: CENTER, text: "Paint", text_color: 0xffffff, text_font: montserrat_24 }
-
-  # -------------------- Shared canvas (1024x576, 16:9) --------------------
-  - canvas:
-      id: ai_vision_canvas
-      x: 20
-      y: 80
-      width: 1024
-      height: 576
-      bg_color: 0x000000
-      radius: 8
-      on_pressing:
-        then:
-          - lambda: |-
-              if (!id(ai_vision_painter_active)) return;
-              auto canvas = id(ai_vision_canvas);
-              if (canvas == nullptr) return;
-              lv_indev_t * indev = lv_indev_get_act();
-              if (indev == nullptr) return;
-              lv_point_t p;
-              lv_indev_get_point(indev, &p);
-              lv_area_t a;
-              lv_obj_get_coords(canvas, &a);
-              int32_t lx = p.x - a.x1;
-              int32_t ly = p.y - a.y1;
-              if (lx < 0 || ly < 0 || lx >= 1024 || ly >= 576) return;
-              lv_color_t col = lv_color_hex(id(ai_vision_paint_color));
-              for (int dy = -3; dy <= 3; dy++) {
-                for (int dx = -3; dx <= 3; dx++) {
-                  int32_t xx = lx + dx;
-                  int32_t yy = ly + dy;
-                  if (xx >= 0 && yy >= 0 && xx < 1024 && yy < 576) {
-                    lv_canvas_set_px(canvas, xx, yy, col, LV_OPA_COVER);
-                  }
-                }
-              }
-
-  # -------------------- Status label --------------------
-  - label:
-      id: ai_vision_status
-      x: 20
-      y: 668
-      width: 1024
-      text: "Mode: Face detection"
-      text_align: CENTER
-      text_color: 0x58a6ff
-      text_font: montserrat_24
-
-  # -------------------- Right side panel --------------------
-  - obj:
-      x: 1050
-      y: 80
-      width: 220
-      height: 576
-      bg_color: 0x161b22
-      border_color: 0x30363d
-      border_width: 1
-      radius: 8
-      pad_all: 10
-      layout:
-        type: FLEX
-        flex_flow: COLUMN
-        flex_align_cross: CENTER
-        pad_row: 10
-      widgets:
-        - label: { text: "Detected", text_color: 0x8b949e, text_font: montserrat_18 }
-        - label: { id: ai_vision_count, text: "0", text_color: 0xffffff, text_font: montserrat_48 }
-        - label: { text: "Painter color", text_color: 0x8b949e, text_font: montserrat_18 }
-        - obj:
-            width: 200
-            height: 50
-            bg_opa: TRANSP
-            border_opa: TRANSP
-            layout:
-              type: FLEX
-              flex_flow: ROW
-              flex_align_main: SPACE_EVENLY
-              flex_align_cross: CENTER
-            widgets:
-              - button:
-                  width: 40
-                  height: 40
-                  bg_color: 0xff4040
-                  on_click:
-                    then: { lambda: 'id(ai_vision_paint_color) = 0xff4040;' }
-              - button:
-                  width: 40
-                  height: 40
-                  bg_color: 0x40d040
-                  on_click:
-                    then: { lambda: 'id(ai_vision_paint_color) = 0x40d040;' }
-              - button:
-                  width: 40
-                  height: 40
-                  bg_color: 0x4080ff
-                  on_click:
-                    then: { lambda: 'id(ai_vision_paint_color) = 0x4080ff;' }
-              - button:
-                  width: 40
-                  height: 40
-                  bg_color: 0xffffff
-                  on_click:
-                    then: { lambda: 'id(ai_vision_paint_color) = 0xffffff;' }
+              - label: { align: CENTER, text: "Paint", text_color: 0xffffff, text_font: montserrat_18 }
+        # Counter (visible always, updated by an interval at top level)
+        - label:
+            id: ai_vision_count
+            text: "0"
+            text_color: 0xffffff
+            text_font: montserrat_24
         - button:
-            width: 200
-            height: 48
-            bg_color: 0x30363d
-            on_click:
-              then:
-                - lambda: |-
-                    auto cv = id(ai_vision_canvas);
-                    if (cv != nullptr) {
-                      lv_canvas_fill_bg(cv, lv_color_hex(0x000000), LV_OPA_COVER);
-                    }
-            widgets:
-              - label: { align: CENTER, text: "Clear canvas", text_color: 0xffffff, text_font: montserrat_18 }
-        - button:
-            width: 200
-            height: 48
-            bg_color: 0x1f6feb
-            on_click:
-              then:
-                - lambda: |-
-                    id(camera_display).set_enabled(true);
-                    id(ai_vision_painter_active) = false;
-            widgets:
-              - label: { align: CENTER, text: "Resume cam", text_color: 0xffffff, text_font: montserrat_18 }
-        - button:
-            width: 200
-            height: 52
+            width: 110
+            height: 40
             bg_color: 0x6e7681
+            bg_opa: COVER
             on_click:
               then:
                 - lvgl.page.show: home_page
             widgets:
-              - label: { align: CENTER, text: "Back", text_color: 0xffffff, text_font: montserrat_24 }
+              - label: { align: CENTER, text: "Back", text_color: 0xffffff, text_font: montserrat_18 }
