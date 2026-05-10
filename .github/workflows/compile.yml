@@ -1,0 +1,91 @@
+name: ESPHome compile
+
+# Two triggers:
+#  1. Manual run (workflow_dispatch) — pick board+branch from the GitHub UI.
+#  2. API trigger (repository_dispatch with event_type=compile) — used by the
+#     Cloudflare Worker proxy that the web app calls.
+on:
+  workflow_dispatch:
+    inputs:
+      board:
+        description: 'Board id (see web/boards.js)'
+        required: true
+        default: 'esp32-s3-devkitc-1'
+      branch:
+        description: 'ESPHome branch'
+        required: true
+        default: 'stable'
+        type: choice
+        options: [stable, dev]
+      yaml_b64:
+        description: 'YAML config (base64)'
+        required: true
+  repository_dispatch:
+    types: [compile]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Resolve inputs
+        id: in
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            echo "board=${{ github.event.client_payload.board }}"   >> $GITHUB_OUTPUT
+            echo "branch=${{ github.event.client_payload.branch }}" >> $GITHUB_OUTPUT
+            echo "yaml_b64=${{ github.event.client_payload.yaml_b64 }}" >> $GITHUB_OUTPUT
+          else
+            echo "board=${{ inputs.board }}"     >> $GITHUB_OUTPUT
+            echo "branch=${{ inputs.branch }}"   >> $GITHUB_OUTPUT
+            echo "yaml_b64=${{ inputs.yaml_b64 }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Decode YAML
+        run: |
+          mkdir -p build
+          echo "${{ steps.in.outputs.yaml_b64 }}" | base64 -d > build/device.yaml
+          echo "─── device.yaml ───"
+          head -n 40 build/device.yaml
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install ESPHome (${{ steps.in.outputs.branch }})
+        run: |
+          if [ "${{ steps.in.outputs.branch }}" = "dev" ]; then
+            pip install --upgrade "git+https://github.com/esphome/esphome.git@dev"
+          else
+            pip install --upgrade esphome
+          fi
+          esphome version
+
+      - name: Create dummy secrets
+        run: |
+          cat > build/secrets.yaml <<'EOF'
+          wifi_ssid: "compile-dummy"
+          wifi_password: "compile-dummy"
+          EOF
+
+      - name: Compile
+        working-directory: build
+        run: |
+          esphome compile device.yaml
+
+      - name: Locate firmware
+        id: fw
+        run: |
+          BIN=$(find build/.esphome -name 'firmware*.bin' -o -name 'firmware-factory.bin' | head -n1 || true)
+          [ -z "$BIN" ] && BIN=$(find build -name '*.bin' | head -n1)
+          echo "bin=$BIN" >> $GITHUB_OUTPUT
+          ls -lh "$BIN" || true
+
+      - name: Upload firmware artifact
+        if: steps.fw.outputs.bin != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ steps.in.outputs.board }}-${{ steps.in.outputs.branch }}
+          path: ${{ steps.fw.outputs.bin }}
+          if-no-files-found: error

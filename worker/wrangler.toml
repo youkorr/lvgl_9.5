@@ -1,0 +1,9 @@
+name = "ncaseonetwo-api"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[vars]
+COMPILE_REPO   = "youkorr/ncaseonetwo-builds"
+ALLOWED_ORIGIN = "https://ncaseonetwo.xyz"
+
+# Set the secret with:  wrangler secret put GH_TOKEN

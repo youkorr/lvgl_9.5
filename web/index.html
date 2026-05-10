@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>ncaseonetwo · ESPHome YAML Studio</title>
+<meta name="description" content="Vérifiez votre YAML ESPHome et compilez du firmware pour ESP32-S3, P4, C6 et plus. Stable et dev." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%2300d4ff'/%3E%3Ctext x='32' y='42' font-size='32' text-anchor='middle' fill='%23000' font-family='monospace' font-weight='900'%3En12%3C/text%3E%3C/svg%3E"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: { sans: ['Inter','ui-sans-serif','system-ui'], mono: ['JetBrains Mono','ui-monospace'] },
+        colors: {
+          ink: { 950:'#05060a', 900:'#0a0c14', 800:'#10131c', 700:'#1a1f2e', 600:'#272d40' },
+          neon: { cyan:'#00e5ff', violet:'#8b5cf6', pink:'#ec4899', lime:'#a3e635' },
+        },
+        boxShadow: {
+          glow: '0 0 60px -10px rgba(0,229,255,0.45)',
+          card: '0 1px 0 rgba(255,255,255,0.05) inset, 0 20px 40px -20px rgba(0,0,0,0.6)',
+        },
+        animation: {
+          'spin-slow': 'spin 12s linear infinite',
+          'fade-in':   'fadeIn .35s ease both',
+          'slide-up':  'slideUp .35s ease both',
+        },
+        keyframes: {
+          fadeIn:  { '0%':{opacity:0}, '100%':{opacity:1} },
+          slideUp: { '0%':{opacity:0, transform:'translateY(8px)'}, '100%':{opacity:1, transform:'translateY(0)'} },
+        }
+      }
+    }
+  }
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body class="bg-ink-950 text-zinc-100 font-sans antialiased min-h-screen overflow-x-hidden">
+
+<!-- Animated background -->
+<div class="bg-aurora pointer-events-none fixed inset-0 -z-10"></div>
+<div class="bg-grid pointer-events-none fixed inset-0 -z-10 opacity-[0.06]"></div>
+
+<!-- NAV ────────────────────────────────────────────────────── -->
+<nav class="sticky top-0 z-30 backdrop-blur-xl bg-ink-950/60 border-b border-white/5">
+  <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+    <a href="/" class="flex items-center gap-2.5 group">
+      <span class="grid place-items-center w-9 h-9 rounded-xl bg-gradient-to-br from-neon-cyan to-neon-violet text-ink-950 font-black text-sm">n12</span>
+      <span class="font-bold tracking-tight">ncaseonetwo<span class="text-zinc-500">.xyz</span></span>
+    </a>
+    <div class="hidden md:flex items-center gap-1 text-sm text-zinc-400">
+      <a href="#validate" class="px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/5 transition">Validate</a>
+      <a href="#boards"   class="px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/5 transition">Boards</a>
+      <a href="#compile"  class="px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/5 transition">Compile</a>
+      <a href="https://github.com/youkorr" target="_blank" rel="noopener" class="ml-2 px-3 py-1.5 rounded-lg border border-white/10 hover:border-neon-cyan/40 hover:text-white transition">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<!-- HERO ───────────────────────────────────────────────────── -->
+<header class="relative pt-24 pb-16 px-6">
+  <div class="max-w-5xl mx-auto text-center">
+    <div class="inline-flex items-center gap-2 mb-6 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-zinc-400 animate-fade-in">
+      <span class="w-1.5 h-1.5 rounded-full bg-neon-lime animate-pulse"></span>
+      ESPHome <strong class="text-zinc-200">stable</strong> · <strong class="text-zinc-200">dev</strong> · live builds
+    </div>
+    <h1 class="text-5xl sm:text-7xl font-extrabold tracking-tighter leading-[1.05] animate-slide-up">
+      Validate &amp; compile <br/>
+      <span class="bg-gradient-to-r from-neon-cyan via-neon-violet to-neon-pink bg-clip-text text-transparent">ESPHome firmware</span><br/>
+      from your browser.
+    </h1>
+    <p class="mt-6 text-lg text-zinc-400 max-w-2xl mx-auto animate-slide-up [animation-delay:.1s]">
+      Drop a YAML, pick a board, ship a <code class="font-mono text-zinc-200">.bin</code>. No CLI, no Python, no Docker. 30+ boards. Stable &amp; dev. Open-source.
+    </p>
+    <div class="mt-8 flex flex-wrap items-center justify-center gap-3 animate-slide-up [animation-delay:.2s]">
+      <a href="#validate" class="btn-primary">Get started →</a>
+      <a href="#boards"   class="btn-ghost">Browse boards</a>
+    </div>
+  </div>
+</header>
+
+<!-- VALIDATE ───────────────────────────────────────────────── -->
+<section id="validate" class="px-6 py-16">
+  <div class="max-w-7xl mx-auto">
+    <div class="flex items-end justify-between mb-6">
+      <div>
+        <p class="text-xs uppercase tracking-[0.2em] text-neon-cyan/80 mb-2">01 — Validate</p>
+        <h2 class="text-3xl font-bold tracking-tight">Drop your YAML</h2>
+      </div>
+      <div class="text-xs text-zinc-500 hidden md:block">Parsing happens in your browser. Nothing is uploaded.</div>
+    </div>
+
+    <div class="grid lg:grid-cols-5 gap-4">
+      <!-- Drop zone -->
+      <div id="dropzone" class="lg:col-span-2 card p-6 flex flex-col items-center justify-center text-center cursor-pointer min-h-[320px] hover:border-neon-cyan/40 transition">
+        <div class="w-14 h-14 grid place-items-center rounded-2xl bg-gradient-to-br from-neon-cyan/20 to-neon-violet/20 border border-white/10 mb-4">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-neon-cyan"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </div>
+        <div class="font-semibold">Drop a <code class="font-mono">.yaml</code> here</div>
+        <div class="text-sm text-zinc-500 mt-1">or click to choose · paste from clipboard</div>
+        <input id="file-input" type="file" accept=".yaml,.yml,.txt" class="hidden">
+        <div id="dz-meta" class="mt-4 text-xs text-zinc-500"></div>
+      </div>
+
+      <!-- Editor -->
+      <div class="lg:col-span-3 card p-0 overflow-hidden">
+        <div class="flex items-center justify-between px-4 h-10 border-b border-white/5 bg-ink-900/60">
+          <div class="flex items-center gap-1.5">
+            <span class="w-2.5 h-2.5 rounded-full bg-red-500/70"></span>
+            <span class="w-2.5 h-2.5 rounded-full bg-yellow-500/70"></span>
+            <span class="w-2.5 h-2.5 rounded-full bg-green-500/70"></span>
+            <span class="ml-3 text-xs text-zinc-500 font-mono">device.yaml</span>
+          </div>
+          <div class="flex items-center gap-2 text-xs">
+            <button id="btn-format"  class="text-zinc-400 hover:text-white">Format</button>
+            <span class="text-zinc-700">·</span>
+            <button id="btn-clear"   class="text-zinc-400 hover:text-white">Clear</button>
+            <span class="text-zinc-700">·</span>
+            <button id="btn-copy"    class="text-zinc-400 hover:text-white">Copy</button>
+          </div>
+        </div>
+        <textarea id="editor" spellcheck="false"
+          class="w-full h-[420px] bg-transparent text-zinc-200 font-mono text-[13px] leading-[1.55] p-4 outline-none resize-none"
+          placeholder="# Drop or paste your ESPHome YAML here..."></textarea>
+      </div>
+    </div>
+
+    <!-- Validation results -->
+    <div id="result" class="mt-4 hidden card p-5 animate-fade-in"></div>
+  </div>
+</section>
+
+<!-- BOARDS ─────────────────────────────────────────────────── -->
+<section id="boards" class="px-6 py-16 border-t border-white/5">
+  <div class="max-w-7xl mx-auto">
+    <div class="flex flex-wrap items-end justify-between gap-4 mb-6">
+      <div>
+        <p class="text-xs uppercase tracking-[0.2em] text-neon-violet mb-2">02 — Board</p>
+        <h2 class="text-3xl font-bold tracking-tight">Pick your hardware</h2>
+        <p class="text-sm text-zinc-500 mt-1">30 boards · Espressif, M5Stack, LilyGO, Waveshare, Seeed, Adafruit, UM…</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <input id="board-search" type="text" placeholder="Search board…" class="px-3 h-10 rounded-xl bg-ink-800 border border-white/10 focus:border-neon-cyan/50 outline-none text-sm w-64"/>
+        <select id="board-chip" class="px-3 h-10 rounded-xl bg-ink-800 border border-white/10 outline-none text-sm">
+          <option value="">All chips</option>
+        </select>
+      </div>
+    </div>
+    <div id="board-grid" class="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3"></div>
+  </div>
+</section>
+
+<!-- COMPILE ────────────────────────────────────────────────── -->
+<section id="compile" class="px-6 py-16 border-t border-white/5">
+  <div class="max-w-7xl mx-auto">
+    <p class="text-xs uppercase tracking-[0.2em] text-neon-pink mb-2">03 — Compile</p>
+    <h2 class="text-3xl font-bold tracking-tight mb-6">Build the firmware</h2>
+
+    <div class="grid lg:grid-cols-3 gap-4">
+      <!-- Options -->
+      <div class="card p-5 space-y-5">
+        <div>
+          <label class="text-xs uppercase tracking-wider text-zinc-500">Selected board</label>
+          <div id="sel-board" class="mt-1 font-medium text-zinc-300">— pick one above —</div>
+        </div>
+        <div>
+          <label class="text-xs uppercase tracking-wider text-zinc-500">ESPHome branch</label>
+          <div class="mt-2 inline-flex rounded-xl border border-white/10 p-1 bg-ink-800">
+            <button data-branch="stable" class="branch-btn px-4 py-1.5 rounded-lg text-sm font-medium bg-white/10">stable</button>
+            <button data-branch="dev"    class="branch-btn px-4 py-1.5 rounded-lg text-sm font-medium text-zinc-400">dev</button>
+          </div>
+        </div>
+        <div>
+          <label class="text-xs uppercase tracking-wider text-zinc-500">External component</label>
+          <div class="mt-1 text-sm text-zinc-400 font-mono">github://youkorr/lvgl_9.5</div>
+        </div>
+        <button id="btn-compile" class="btn-primary w-full justify-center !py-3">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          Compile firmware
+        </button>
+        <p class="text-[11px] text-zinc-500 leading-relaxed">
+          The compile is dispatched to GitHub Actions. You'll get a link to the run and the resulting <code class="font-mono">.bin</code>.
+        </p>
+      </div>
+
+      <!-- Build log -->
+      <div class="lg:col-span-2 card p-0 overflow-hidden">
+        <div class="flex items-center justify-between px-4 h-10 border-b border-white/5 bg-ink-900/60">
+          <div class="flex items-center gap-2">
+            <span id="status-dot" class="w-2 h-2 rounded-full bg-zinc-600"></span>
+            <span id="status-label" class="text-xs font-mono text-zinc-400">idle</span>
+          </div>
+          <a id="run-link" href="#" target="_blank" rel="noopener" class="hidden text-xs text-neon-cyan hover:underline">Open run ↗</a>
+        </div>
+        <pre id="log" class="font-mono text-[12px] leading-[1.55] p-4 h-[360px] overflow-auto text-zinc-300 whitespace-pre-wrap">Waiting for a build…</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER ─────────────────────────────────────────────────── -->
+<footer class="px-6 py-12 border-t border-white/5 text-sm text-zinc-500">
+  <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+    <div>© ncaseonetwo.xyz — open source, no tracking.</div>
+    <div class="flex items-center gap-4">
+      <a href="https://github.com/youkorr" target="_blank" rel="noopener" class="hover:text-zinc-200">GitHub</a>
+      <a href="https://esphome.io" target="_blank" rel="noopener" class="hover:text-zinc-200">ESPHome</a>
+    </div>
+  </div>
+</footer>
+
+<script src="./boards.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>

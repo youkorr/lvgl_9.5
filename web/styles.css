@@ -1,0 +1,109 @@
+/* ─── ncaseonetwo.xyz — custom styles ─── */
+
+/* Aurora animated background */
+.bg-aurora {
+  background:
+    radial-gradient(60vw 40vw at 10% 10%, rgba(0,229,255,0.18), transparent 60%),
+    radial-gradient(50vw 40vw at 90% 20%, rgba(139,92,246,0.22), transparent 60%),
+    radial-gradient(60vw 50vw at 50% 100%, rgba(236,72,153,0.15), transparent 60%);
+  filter: blur(40px) saturate(120%);
+  animation: aurora 18s ease-in-out infinite alternate;
+}
+@keyframes aurora {
+  0%   { transform: translate3d(0,0,0)    scale(1);    }
+  100% { transform: translate3d(-3%,2%,0) scale(1.08); }
+}
+
+/* Subtle grid overlay */
+.bg-grid {
+  background-image:
+    linear-gradient(to right,  rgba(255,255,255,0.4) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.4) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 70%);
+}
+
+/* Card */
+.card {
+  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 1.25rem;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 20px 40px -20px rgba(0,0,0,0.6);
+  backdrop-filter: blur(8px);
+}
+
+/* Buttons */
+.btn-primary {
+  display: inline-flex; align-items: center; gap: .5rem;
+  padding: .65rem 1.1rem; border-radius: .9rem; font-weight: 600;
+  color: #05060a;
+  background: linear-gradient(120deg, #00e5ff, #8b5cf6 60%, #ec4899);
+  box-shadow: 0 10px 30px -10px rgba(0,229,255,0.55), 0 0 0 1px rgba(255,255,255,0.15) inset;
+  transition: transform .15s ease, box-shadow .25s ease, filter .2s ease;
+}
+.btn-primary:hover { transform: translateY(-1px); filter: brightness(1.05); }
+.btn-primary:active { transform: translateY(0); }
+.btn-ghost {
+  display: inline-flex; align-items: center; gap: .5rem;
+  padding: .65rem 1.1rem; border-radius: .9rem; font-weight: 500;
+  border: 1px solid rgba(255,255,255,0.12); color: #e4e4e7;
+  background: rgba(255,255,255,0.03);
+}
+.btn-ghost:hover { background: rgba(255,255,255,0.06); border-color: rgba(0,229,255,0.35); color: #fff; }
+
+/* Editor textarea look */
+#editor {
+  caret-color: #00e5ff;
+  background-image:
+    linear-gradient(180deg, rgba(0,229,255,0.04), transparent 30%);
+}
+#editor::-webkit-scrollbar { width: 10px; height: 10px; }
+#editor::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
+
+/* Board card */
+.board-card {
+  position: relative; overflow: hidden;
+  padding: 14px 14px 12px;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 1rem;
+  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+  cursor: pointer;
+  transition: border-color .2s, transform .15s, box-shadow .25s;
+}
+.board-card:hover { border-color: rgba(0,229,255,0.35); transform: translateY(-2px);
+  box-shadow: 0 14px 30px -16px rgba(0,229,255,0.4); }
+.board-card.selected {
+  border-color: rgba(0,229,255,0.7);
+  box-shadow: 0 0 0 1px rgba(0,229,255,0.4), 0 14px 36px -14px rgba(0,229,255,0.55);
+  background: linear-gradient(180deg, rgba(0,229,255,0.06), rgba(139,92,246,0.04));
+}
+.board-card .chip-pill {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  background: rgba(255,255,255,0.06); font-size: 10px; letter-spacing: .04em;
+  color: #a1a1aa; text-transform: uppercase;
+}
+.board-card .tag-pill {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  background: linear-gradient(120deg, rgba(0,229,255,0.18), rgba(139,92,246,0.18));
+  border: 1px solid rgba(0,229,255,0.25);
+  font-size: 10px; letter-spacing: .04em; color: #e4f7ff;
+}
+
+/* Result panel states */
+.result-ok    { border-color: rgba(163,230,53,0.35) !important; background: linear-gradient(180deg, rgba(163,230,53,0.06), transparent); }
+.result-warn  { border-color: rgba(250,204,21,0.35) !important; background: linear-gradient(180deg, rgba(250,204,21,0.06), transparent); }
+.result-error { border-color: rgba(244,63,94,0.4)  !important; background: linear-gradient(180deg, rgba(244,63,94,0.06), transparent); }
+
+/* Branch toggle */
+.branch-btn { transition: all .15s ease; }
+.branch-btn.active { background: linear-gradient(120deg, #00e5ff, #8b5cf6); color: #05060a; }
+
+/* Log */
+#log::-webkit-scrollbar { width: 10px; }
+#log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
+
+/* Status dot variants */
+.status-running { background: #facc15 !important; box-shadow: 0 0 12px rgba(250,204,21,0.7); animation: pulse 1.4s ease-in-out infinite; }
+.status-ok      { background: #a3e635 !important; box-shadow: 0 0 12px rgba(163,230,53,0.7); }
+.status-err     { background: #f43f5e !important; box-shadow: 0 0 12px rgba(244,63,94,0.7); }
+@keyframes pulse { 50% { opacity: .4; } }
