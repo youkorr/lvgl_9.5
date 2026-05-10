@@ -254,22 +254,44 @@ async function loadRepos() {
     `https://api.github.com/users/${owner}/repos?per_page=100&sort=updated`,
     `https://api.github.com/orgs/${owner}/repos?per_page=100&sort=updated`,
   ];
-  let data = null, lastErr = null;
+  let data = null, lastErr = null, lastStatus = null, rateRemaining = null, rateReset = null;
   for (const u of urls) {
     try {
+      console.log("[repos] fetching", u);
       const r = await fetch(u);
+      lastStatus    = r.status;
+      rateRemaining = r.headers.get("x-ratelimit-remaining");
+      rateReset     = r.headers.get("x-ratelimit-reset");
       if (r.ok) { data = await r.json(); break; }
+      const body = await r.text();
+      console.warn("[repos] non-ok", r.status, body.slice(0, 200));
       lastErr = `HTTP ${r.status}`;
-    } catch (e) { lastErr = e.message; }
+      if (r.status === 403) lastErr += " (rate limit?)";
+      if (r.status === 404) lastErr += " (not found)";
+    } catch (e) {
+      console.error("[repos] fetch error", e);
+      lastErr = e.message || "network error";
+    }
   }
   if (!data) {
-    repoStatus.innerHTML = `<span class="text-rose-400">Failed to load repos for "${owner}": ${lastErr}</span>`;
+    let extra = "";
+    if (lastStatus === 403 && rateRemaining === "0" && rateReset) {
+      const reset = new Date(parseInt(rateReset, 10) * 1000);
+      extra = ` — GitHub anonymous rate limit reached, resets at ${reset.toLocaleTimeString()}.`;
+    }
+    repoStatus.innerHTML =
+      `<span class="text-rose-400">Failed to load repos for "<b>${escapeHTML(owner)}</b>": ${escapeHTML(lastErr || "unknown")}${escapeHTML(extra)}</span>`;
     return;
   }
 
   repoCache = data
     .filter(r => !r.fork && !r.archived)
     .sort((a,b) => new Date(b.updated_at) - new Date(a.updated_at));
+
+  if (repoCache.length === 0) {
+    repoStatus.innerHTML = `<span class="text-amber-300">No public repos found for "<b>${escapeHTML(owner)}</b>".</span>`;
+    return;
+  }
 
   repoStatus.innerHTML = `<span class="text-zinc-400">${repoCache.length} repos loaded · click one to use it as <code class="font-mono">external_components</code> source.</span>`;
   renderRepos();
