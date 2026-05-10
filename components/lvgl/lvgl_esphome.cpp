@@ -28,12 +28,16 @@ static ppa_client_handle_t s_display_srm_client = nullptr;
 /// Per-second telemetry for the display-rotation PPA path.
 /// All counters are reset after each periodic log line.
 struct PpaRotStats {
-  uint64_t ppa_us_accum;   ///< total microseconds spent inside ppa_do_scale_rotate_mirror
-  uint32_t ppa_calls;      ///< number of successful PPA rotations
-  uint32_t sw_fallbacks;   ///< number of frames that fell back to software rotation
-  uint32_t align_rejects;  ///< times PPA was skipped because src/dst was not 64B aligned
-  uint32_t ppa_errors;     ///< times ppa_do_scale_rotate_mirror returned non-OK
-  uint32_t last_log_ms;    ///< last time we emitted a log line (millis)
+  uint64_t ppa_us_accum;       ///< total microseconds spent inside ppa_do_scale_rotate_mirror
+  uint64_t flush_us_accum;     ///< total microseconds spent inside flush_cb_ (whole call)
+  uint64_t draw_us_accum;      ///< total microseconds spent in display->draw_pixels_at
+  uint32_t ppa_calls;          ///< number of successful PPA rotations
+  uint32_t flush_calls;        ///< number of flush_cb_ invocations
+  uint32_t sw_fallbacks;       ///< number of frames that fell back to software rotation
+  uint32_t align_rejects;      ///< times PPA was skipped because src/dst was not 64B aligned
+  uint32_t ppa_errors;         ///< times ppa_do_scale_rotate_mirror returned non-OK
+  uint32_t bytes_pushed;       ///< approximate KB/s pushed to the display via draw_pixels_at
+  uint32_t last_log_ms;        ///< last time we emitted a log line (millis)
 };
 static PpaRotStats s_ppa_stats = {};
 
@@ -165,18 +169,35 @@ static void ppa_rot_maybe_log_stats() {
   uint32_t errs = s_ppa_stats.ppa_errors;
   uint64_t total_us = s_ppa_stats.ppa_us_accum;
 
-  if (calls > 0 || sw > 0) {
-    uint32_t avg_us = calls > 0 ? (uint32_t) (total_us / calls) : 0;
-    ESP_LOGI(TAG, "PPA rot: %u calls/s avg=%u us total=%llu us | SW fb=%u align_rej=%u err=%u",
-             (unsigned) calls, (unsigned) avg_us, (unsigned long long) total_us, (unsigned) sw,
+  uint32_t flush_calls = s_ppa_stats.flush_calls;
+  uint64_t flush_total_us = s_ppa_stats.flush_us_accum;
+  uint64_t draw_total_us = s_ppa_stats.draw_us_accum;
+  uint32_t kb_per_sec = s_ppa_stats.bytes_pushed / 1024;
+
+  if (calls > 0 || sw > 0 || flush_calls > 0) {
+    uint32_t avg_ppa = calls > 0 ? (uint32_t) (total_us / calls) : 0;
+    uint32_t avg_flush = flush_calls > 0 ? (uint32_t) (flush_total_us / flush_calls) : 0;
+    uint32_t avg_draw = flush_calls > 0 ? (uint32_t) (draw_total_us / flush_calls) : 0;
+    // Per-frame timing breakdown + per-second budget consumption.
+    // budget_pct shows what fraction of one full second is spent inside flush_cb_.
+    uint32_t budget_pct = (uint32_t) (flush_total_us / 10000ULL);  // /1e6 * 100
+    ESP_LOGI(TAG,
+             "PPA rot: flushes=%u/s ppa=%u us draw=%u us total=%u us | budget=%u%% push=%u KB/s | "
+             "ppa_ok=%u SW fb=%u align_rej=%u err=%u",
+             (unsigned) flush_calls, (unsigned) avg_ppa, (unsigned) avg_draw, (unsigned) avg_flush,
+             (unsigned) budget_pct, (unsigned) kb_per_sec, (unsigned) calls, (unsigned) sw,
              (unsigned) align, (unsigned) errs);
   }
 
   s_ppa_stats.ppa_us_accum = 0;
+  s_ppa_stats.flush_us_accum = 0;
+  s_ppa_stats.draw_us_accum = 0;
   s_ppa_stats.ppa_calls = 0;
+  s_ppa_stats.flush_calls = 0;
   s_ppa_stats.sw_fallbacks = 0;
   s_ppa_stats.align_rejects = 0;
   s_ppa_stats.ppa_errors = 0;
+  s_ppa_stats.bytes_pushed = 0;
   s_ppa_stats.last_log_ms = now;
 }
 #endif  // USE_LVGL_PPA
@@ -418,9 +439,15 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
         default:
           break;
       }
-      for (auto *display : this->displays_) {
-        display->draw_pixels_at(x1, y1, width, height, (const uint8_t *) dst, display::COLOR_ORDER_RGB, LV_BITNESS,
-                                this->big_endian_);
+      {
+        int64_t t_draw = esp_timer_get_time();
+        for (auto *display : this->displays_) {
+          display->draw_pixels_at(x1, y1, width, height, (const uint8_t *) dst, display::COLOR_ORDER_RGB,
+                                  LV_BITNESS, this->big_endian_);
+        }
+        s_ppa_stats.draw_us_accum += (uint64_t) (esp_timer_get_time() - t_draw);
+        s_ppa_stats.bytes_pushed += (uint32_t) width * (uint32_t) height *
+                                    (LV_COLOR_DEPTH == 32 ? 3u : 2u);
       }
       return;
     }
@@ -516,16 +543,30 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
       dst = ptr;
       break;
   }
+#ifdef USE_LVGL_PPA
+  int64_t t_draw = esp_timer_get_time();
+#endif
   for (auto *display : this->displays_) {
     display->draw_pixels_at(x1, y1, width, height, (const uint8_t *) dst, display::COLOR_ORDER_RGB, LV_BITNESS,
                             this->big_endian_);
   }
+#ifdef USE_LVGL_PPA
+  s_ppa_stats.draw_us_accum += (uint64_t) (esp_timer_get_time() - t_draw);
+  s_ppa_stats.bytes_pushed += (uint32_t) width * (uint32_t) height * (LV_COLOR_DEPTH == 32 ? 3u : 2u);
+#endif
 }
 
 void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p) {
   if (!this->is_paused()) {
     auto now = millis();
+#ifdef USE_LVGL_PPA
+    int64_t t_flush = esp_timer_get_time();
+#endif
     this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
+#ifdef USE_LVGL_PPA
+    s_ppa_stats.flush_us_accum += (uint64_t) (esp_timer_get_time() - t_flush);
+    s_ppa_stats.flush_calls++;
+#endif
     ESP_LOGV(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
              lv_area_get_height(area), (int) (millis() - now));
   }
