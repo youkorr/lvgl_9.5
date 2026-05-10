@@ -100,11 +100,11 @@ static bool ppa_rotate_display_buf(const void *src, void *dst, int32_t w, int32_
   size_t aligned_out_bytes = (out_bytes + CACHE_LINE - 1) & ~(CACHE_LINE - 1);
 
   // Cache coherency: PPA reads `src` via DMA so any CPU writes still pending
-  // in cache must be written back before the op. Skipped on internal SRAM
-  // buffers (heap_caps_check_integrity isn't needed; esp_cache_msync handles
-  // both PSRAM and internal-cached regions and is a no-op when not needed).
-  esp_cache_msync(const_cast<void *>(src), aligned_in_bytes,
-                  ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+  // in cache must be written back before the op. Both buffers were verified
+  // 64-byte aligned above, and aligned_in_bytes/aligned_out_bytes are rounded
+  // up to a cache-line multiple, so no UNALIGNED flag is needed (and M2C
+  // would reject it anyway per esp_cache.h contract).
+  esp_cache_msync(const_cast<void *>(src), aligned_in_bytes, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
 
   ppa_srm_oper_config_t cfg = {};
   cfg.in.buffer = (void *) src;
@@ -139,9 +139,9 @@ static bool ppa_rotate_display_buf(const void *src, void *dst, int32_t w, int32_
   }
 
   // PPA wrote `dst` via DMA bypassing cache; invalidate so subsequent CPU
-  // reads (draw_pixels_at) see the fresh pixels.
-  esp_cache_msync(dst, aligned_out_bytes,
-                  ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+  // reads (draw_pixels_at) see the fresh pixels. dst is 64B aligned and
+  // aligned_out_bytes is a multiple of 64, so M2C is happy.
+  esp_cache_msync(dst, aligned_out_bytes, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
 
   s_ppa_stats.ppa_us_accum += (uint64_t) dt;
   s_ppa_stats.ppa_calls++;
