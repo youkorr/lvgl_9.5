@@ -5,12 +5,9 @@
 // back to a "Copy YAML + Open GitHub Actions" flow — no token ever in the
 // browser.
 const CONFIG = {
-  // Set this to your Worker / serverless URL once deployed, e.g.:
-  //   "https://ncaseonetwo-api.<your-worker>.workers.dev"
-  // The worker must expose:
-  //   POST /compile  { yaml, board, branch }       -> { run_id, html_url }
-  //   GET  /status?run_id=...                      -> { status, conclusion, artifacts:[{name,url}] }
-  apiBase: "",
+  // Cloudflare Worker that holds the GitHub PAT and dispatches the compile
+  // workflow. Set up in worker/worker.js — never put a token in this file.
+  apiBase:     "https://ncaseonetwo-api.sapphire-younes.workers.dev",
   // Repo that hosts the compile workflow.
   compileRepo: "youkorr/ncaseonetwo-builds",
 };
