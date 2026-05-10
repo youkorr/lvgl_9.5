@@ -53,6 +53,7 @@
     </a>
     <div class="hidden md:flex items-center gap-1 text-sm text-zinc-400">
       <a href="#validate" class="px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/5 transition">Validate</a>
+      <a href="#repo"     class="px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/5 transition">Repo</a>
       <a href="#boards"   class="px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/5 transition">Boards</a>
       <a href="#compile"  class="px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/5 transition">Compile</a>
       <a href="https://github.com/youkorr" target="_blank" rel="noopener" class="ml-2 px-3 py-1.5 rounded-lg border border-white/10 hover:border-neon-cyan/40 hover:text-white transition">GitHub ↗</a>
@@ -133,12 +134,34 @@
   </div>
 </section>
 
+<!-- REPO PICKER ────────────────────────────────────────────── -->
+<section id="repo" class="px-6 py-16 border-t border-white/5">
+  <div class="max-w-7xl mx-auto">
+    <div class="flex flex-wrap items-end justify-between gap-4 mb-6">
+      <div>
+        <p class="text-xs uppercase tracking-[0.2em] text-neon-lime mb-2">02 — Repo</p>
+        <h2 class="text-3xl font-bold tracking-tight">Pick a GitHub repo</h2>
+        <p class="text-sm text-zinc-500 mt-1">All public repos under <code class="font-mono text-zinc-300">github.com/<span id="repo-owner-label">youkorr</span></code> — used as <code class="font-mono">external_components</code> in the generated YAML.</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <input id="repo-owner" type="text" value="youkorr"
+          class="px-3 h-10 rounded-xl bg-ink-800 border border-white/10 focus:border-neon-lime/50 outline-none text-sm w-40 font-mono"/>
+        <input id="repo-search" type="text" placeholder="Filter repos…"
+          class="px-3 h-10 rounded-xl bg-ink-800 border border-white/10 focus:border-neon-lime/50 outline-none text-sm w-64"/>
+        <button id="repo-reload" class="px-3 h-10 rounded-xl border border-white/10 hover:border-neon-lime/40 text-sm">↻ Reload</button>
+      </div>
+    </div>
+    <div id="repo-status" class="text-sm text-zinc-500 mb-3">Loading repos…</div>
+    <div id="repo-grid" class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+  </div>
+</section>
+
 <!-- BOARDS ─────────────────────────────────────────────────── -->
 <section id="boards" class="px-6 py-16 border-t border-white/5">
   <div class="max-w-7xl mx-auto">
     <div class="flex flex-wrap items-end justify-between gap-4 mb-6">
       <div>
-        <p class="text-xs uppercase tracking-[0.2em] text-neon-violet mb-2">02 — Board</p>
+        <p class="text-xs uppercase tracking-[0.2em] text-neon-violet mb-2">03 — Board</p>
         <h2 class="text-3xl font-bold tracking-tight">Pick your hardware</h2>
         <p class="text-sm text-zinc-500 mt-1">30 boards · Espressif, M5Stack, LilyGO, Waveshare, Seeed, Adafruit, UM…</p>
       </div>
@@ -156,7 +179,7 @@
 <!-- COMPILE ────────────────────────────────────────────────── -->
 <section id="compile" class="px-6 py-16 border-t border-white/5">
   <div class="max-w-7xl mx-auto">
-    <p class="text-xs uppercase tracking-[0.2em] text-neon-pink mb-2">03 — Compile</p>
+    <p class="text-xs uppercase tracking-[0.2em] text-neon-pink mb-2">04 — Compile</p>
     <h2 class="text-3xl font-bold tracking-tight mb-6">Build the firmware</h2>
 
     <div class="grid lg:grid-cols-3 gap-4">
@@ -175,7 +198,7 @@
         </div>
         <div>
           <label class="text-xs uppercase tracking-wider text-zinc-500">External component</label>
-          <div class="mt-1 text-sm text-zinc-400 font-mono">github://youkorr/lvgl_9.5</div>
+          <div id="sel-repo" class="mt-1 text-sm text-zinc-400 font-mono">— pick a repo above —</div>
         </div>
         <button id="btn-compile" class="btn-primary w-full justify-center !py-3">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
