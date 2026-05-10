@@ -9,7 +9,6 @@
 #ifdef USE_LVGL_PPA
 #include "driver/ppa.h"
 #include "esp_cache.h"
-#include "esp_timer.h"
 extern "C" {
 void lv_draw_ppa_init(void);
 }
@@ -24,22 +23,6 @@ static const char *const TAG = "lvgl";
 #ifdef USE_LVGL_PPA
 /// Dedicated PPA SRM client for display framebuffer rotation (separate from LVGL draw unit).
 static ppa_client_handle_t s_display_srm_client = nullptr;
-
-/// Per-second telemetry for the display-rotation PPA path.
-/// All counters are reset after each periodic log line.
-struct PpaRotStats {
-  uint64_t ppa_us_accum;       ///< total microseconds spent inside ppa_do_scale_rotate_mirror
-  uint64_t flush_us_accum;     ///< total microseconds spent inside flush_cb_ (whole call)
-  uint64_t draw_us_accum;      ///< total microseconds spent in display->draw_pixels_at
-  uint32_t ppa_calls;          ///< number of successful PPA rotations
-  uint32_t flush_calls;        ///< number of flush_cb_ invocations
-  uint32_t sw_fallbacks;       ///< number of frames that fell back to software rotation
-  uint32_t align_rejects;      ///< times PPA was skipped because src/dst was not 64B aligned
-  uint32_t ppa_errors;         ///< times ppa_do_scale_rotate_mirror returned non-OK
-  uint32_t bytes_pushed;       ///< approximate KB/s pushed to the display via draw_pixels_at
-  uint32_t last_log_ms;        ///< last time we emitted a log line (millis)
-};
-static PpaRotStats s_ppa_stats = {};
 
 /**
  * Attempt to rotate a display framebuffer using the PPA SRM hardware.
@@ -59,14 +42,10 @@ static bool ppa_rotate_display_buf(const void *src, void *dst, int32_t w, int32_
   // to the data cache line size (64 bytes). If inputs aren't aligned, fall
   // back to software rotation rather than flood the log with PPA errors.
   constexpr uintptr_t CACHE_LINE = 64;
-  if ((reinterpret_cast<uintptr_t>(src) & (CACHE_LINE - 1)) != 0) {
-    s_ppa_stats.align_rejects++;
+  if ((reinterpret_cast<uintptr_t>(src) & (CACHE_LINE - 1)) != 0)
     return false;
-  }
-  if ((reinterpret_cast<uintptr_t>(dst) & (CACHE_LINE - 1)) != 0) {
-    s_ppa_stats.align_rejects++;
+  if ((reinterpret_cast<uintptr_t>(dst) & (CACHE_LINE - 1)) != 0)
     return false;
-  }
 
   ppa_srm_rotation_angle_t ppa_angle;
   int32_t out_w, out_h;
@@ -128,12 +107,8 @@ static bool ppa_rotate_display_buf(const void *src, void *dst, int32_t w, int32_
   cfg.alpha_update_mode = PPA_ALPHA_NO_CHANGE;
   cfg.mode = PPA_TRANS_MODE_BLOCKING;
 
-  int64_t t0 = esp_timer_get_time();
   esp_err_t ret = ppa_do_scale_rotate_mirror(s_display_srm_client, &cfg);
-  int64_t dt = esp_timer_get_time() - t0;
-
   if (ret != ESP_OK) {
-    s_ppa_stats.ppa_errors++;
     static bool warned = false;
     if (!warned) {
       ESP_LOGW(TAG, "PPA display rotation unavailable (err=%d), using SW fallback", ret);
@@ -146,59 +121,7 @@ static bool ppa_rotate_display_buf(const void *src, void *dst, int32_t w, int32_
   // reads (draw_pixels_at) see the fresh pixels. dst is 64B aligned and
   // aligned_out_bytes is a multiple of 64, so M2C is happy.
   esp_cache_msync(dst, aligned_out_bytes, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
-
-  s_ppa_stats.ppa_us_accum += (uint64_t) dt;
-  s_ppa_stats.ppa_calls++;
   return true;
-}
-
-/// Emit periodic stats (~1Hz) so we can see whether rotation is actually
-/// hitting the PPA path and how much time it consumes per frame.
-static void ppa_rot_maybe_log_stats() {
-  uint32_t now = millis();
-  if (s_ppa_stats.last_log_ms == 0) {
-    s_ppa_stats.last_log_ms = now;
-    return;
-  }
-  if (now - s_ppa_stats.last_log_ms < 1000)
-    return;
-
-  uint32_t calls = s_ppa_stats.ppa_calls;
-  uint32_t sw = s_ppa_stats.sw_fallbacks;
-  uint32_t align = s_ppa_stats.align_rejects;
-  uint32_t errs = s_ppa_stats.ppa_errors;
-  uint64_t total_us = s_ppa_stats.ppa_us_accum;
-
-  uint32_t flush_calls = s_ppa_stats.flush_calls;
-  uint64_t flush_total_us = s_ppa_stats.flush_us_accum;
-  uint64_t draw_total_us = s_ppa_stats.draw_us_accum;
-  uint32_t kb_per_sec = s_ppa_stats.bytes_pushed / 1024;
-
-  if (calls > 0 || sw > 0 || flush_calls > 0) {
-    uint32_t avg_ppa = calls > 0 ? (uint32_t) (total_us / calls) : 0;
-    uint32_t avg_flush = flush_calls > 0 ? (uint32_t) (flush_total_us / flush_calls) : 0;
-    uint32_t avg_draw = flush_calls > 0 ? (uint32_t) (draw_total_us / flush_calls) : 0;
-    // Per-frame timing breakdown + per-second budget consumption.
-    // budget_pct shows what fraction of one full second is spent inside flush_cb_.
-    uint32_t budget_pct = (uint32_t) (flush_total_us / 10000ULL);  // /1e6 * 100
-    ESP_LOGI(TAG,
-             "PPA rot: flushes=%u/s ppa=%u us draw=%u us total=%u us | budget=%u%% push=%u KB/s | "
-             "ppa_ok=%u SW fb=%u align_rej=%u err=%u",
-             (unsigned) flush_calls, (unsigned) avg_ppa, (unsigned) avg_draw, (unsigned) avg_flush,
-             (unsigned) budget_pct, (unsigned) kb_per_sec, (unsigned) calls, (unsigned) sw,
-             (unsigned) align, (unsigned) errs);
-  }
-
-  s_ppa_stats.ppa_us_accum = 0;
-  s_ppa_stats.flush_us_accum = 0;
-  s_ppa_stats.draw_us_accum = 0;
-  s_ppa_stats.ppa_calls = 0;
-  s_ppa_stats.flush_calls = 0;
-  s_ppa_stats.sw_fallbacks = 0;
-  s_ppa_stats.align_rejects = 0;
-  s_ppa_stats.ppa_errors = 0;
-  s_ppa_stats.bytes_pushed = 0;
-  s_ppa_stats.last_log_ms = now;
 }
 #endif  // USE_LVGL_PPA
 
@@ -414,7 +337,6 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
 #ifdef USE_LVGL_PPA
   // Try PPA hardware rotation first (zero CPU cost, ~10x faster than SW loops).
   // Falls back to software automatically if PPA rejects the operation.
-  ppa_rot_maybe_log_stats();
   if (s_display_srm_client != nullptr && this->rotation != display::DISPLAY_ROTATION_0_DEGREES) {
     if (ppa_rotate_display_buf(ptr, this->rotate_buf_, width, height, this->rotation)) {
       // dst already points to rotate_buf_ (initialized above)
@@ -439,20 +361,13 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
         default:
           break;
       }
-      {
-        int64_t t_draw = esp_timer_get_time();
-        for (auto *display : this->displays_) {
-          display->draw_pixels_at(x1, y1, width, height, (const uint8_t *) dst, display::COLOR_ORDER_RGB,
-                                  LV_BITNESS, this->big_endian_);
-        }
-        s_ppa_stats.draw_us_accum += (uint64_t) (esp_timer_get_time() - t_draw);
-        s_ppa_stats.bytes_pushed += (uint32_t) width * (uint32_t) height *
-                                    (LV_COLOR_DEPTH == 32 ? 3u : 2u);
+      for (auto *display : this->displays_) {
+        display->draw_pixels_at(x1, y1, width, height, (const uint8_t *) dst, display::COLOR_ORDER_RGB, LV_BITNESS,
+                                this->big_endian_);
       }
       return;
     }
     // PPA failed → fall through to software rotation below
-    s_ppa_stats.sw_fallbacks++;
   }
 #endif  // USE_LVGL_PPA
 
@@ -543,30 +458,16 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
       dst = ptr;
       break;
   }
-#ifdef USE_LVGL_PPA
-  int64_t t_draw = esp_timer_get_time();
-#endif
   for (auto *display : this->displays_) {
     display->draw_pixels_at(x1, y1, width, height, (const uint8_t *) dst, display::COLOR_ORDER_RGB, LV_BITNESS,
                             this->big_endian_);
   }
-#ifdef USE_LVGL_PPA
-  s_ppa_stats.draw_us_accum += (uint64_t) (esp_timer_get_time() - t_draw);
-  s_ppa_stats.bytes_pushed += (uint32_t) width * (uint32_t) height * (LV_COLOR_DEPTH == 32 ? 3u : 2u);
-#endif
 }
 
 void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p) {
   if (!this->is_paused()) {
     auto now = millis();
-#ifdef USE_LVGL_PPA
-    int64_t t_flush = esp_timer_get_time();
-#endif
     this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
-#ifdef USE_LVGL_PPA
-    s_ppa_stats.flush_us_accum += (uint64_t) (esp_timer_get_time() - t_flush);
-    s_ppa_stats.flush_calls++;
-#endif
     ESP_LOGV(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
              lv_area_get_height(area), (int) (millis() - now));
   }
