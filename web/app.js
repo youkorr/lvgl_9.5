@@ -27,7 +27,11 @@ const $$ = (s) => document.querySelectorAll(s);
 
 // ──────────────────────────────────────────────────────────────
 // Lightweight YAML loader (js-yaml from CDN, loaded lazily)
+// We extend the default schema with the custom tags ESPHome uses so the
+// parser doesn't choke on `!secret`, `!include`, `!lambda`, `!extend`,
+// `!remove`, `!force` and similar markers.
 let YAML = null;
+let ESPHOME_SCHEMA = null;
 async function ensureYAML() {
   if (YAML) return YAML;
   await new Promise((res, rej) => {
@@ -36,6 +40,20 @@ async function ensureYAML() {
     s.onload = res; s.onerror = rej; document.head.appendChild(s);
   });
   YAML = window.jsyaml;
+
+  const tagNames = ["!secret","!include","!include_dir_list","!include_dir_merge_list",
+                    "!include_dir_named","!include_dir_merge_named","!lambda",
+                    "!extend","!remove","!force"];
+  const types = [];
+  for (const name of tagNames) {
+    for (const kind of ["scalar","sequence","mapping"]) {
+      types.push(new YAML.Type(name, {
+        kind,
+        construct: (data) => ({ __tag: name, value: data }),
+      }));
+    }
+  }
+  ESPHOME_SCHEMA = YAML.DEFAULT_SCHEMA.extend(types);
   return YAML;
 }
 
@@ -77,8 +95,8 @@ $("#btn-copy").onclick   = () => navigator.clipboard.writeText(editor.value);
 $("#btn-format").onclick = async () => {
   try {
     const Y = await ensureYAML();
-    const doc = Y.load(editor.value || "");
-    editor.value = Y.dump(doc, { lineWidth: 120, noRefs: true });
+    const doc = Y.load(editor.value || "", { schema: ESPHOME_SCHEMA });
+    editor.value = Y.dump(doc, { lineWidth: 120, noRefs: true, schema: ESPHOME_SCHEMA });
     validate();
   } catch (e) { /* validation will show error */ }
 };
@@ -92,7 +110,7 @@ async function validate() {
 
   const Y = await ensureYAML();
   let doc, err;
-  try { doc = Y.load(text); } catch (e) { err = e; }
+  try { doc = Y.load(text, { schema: ESPHOME_SCHEMA }); } catch (e) { err = e; }
 
   box.classList.remove("hidden","result-ok","result-warn","result-error");
 
