@@ -767,6 +767,7 @@ $("#btn-compile").onclick = async () => {
   }
 
   log.textContent = "";
+  hideErrorLog();
   setStatus("running", "queued…");
   setMockupState("compiling", { progress: 5, runner: state.runner === "self" ? "Unraid" : "GitHub" });
   appendLog(`▶ board    : ${state.board.brand} ${state.board.name} (${state.board.id})`);
@@ -857,6 +858,7 @@ async function pollStatus(runId) {
     }
 
     if (s.status === "completed") {
+      const finishedRunId = currentRunId;
       currentRunId = null;
       if (s.conclusion === "success") {
         setStatus("ok", "success");
@@ -872,6 +874,9 @@ async function pollStatus(runId) {
         setStatus("err", s.conclusion || "failed");
         setMockupState("error", { message: `build ${s.conclusion || "failed"}` });
         appendLog("✖ build " + s.conclusion);
+        // Auto-pull the failed step's log tail so the user sees the GCC /
+        // ESPHome error inline — no need to dig through GitHub Actions UI.
+        fetchErrorLog(finishedRunId, s.jobs || []);
       }
       return;
     }
@@ -881,6 +886,64 @@ async function pollStatus(runId) {
 // Paint the initial idle state. The script tag lives at the end of <body>
 // so the SVG nodes are already parsed by the time we get here.
 setMockupState("idle");
+
+// ──────────────────────────────────────────────────────────────
+// Error log panel — populated on build failure.
+const errorWrap   = $("#error-log-wrap");
+const errorPre    = $("#error-log");
+const errorStep   = $("#error-log-step");
+const errorOpen   = $("#error-log-open");
+const errorCopy   = $("#error-log-copy");
+
+function hideErrorLog() {
+  if (errorWrap) errorWrap.classList.add("hidden");
+}
+function showErrorLog(text, opts = {}) {
+  if (!errorWrap) return;
+  errorWrap.classList.remove("hidden");
+  errorPre.textContent = text || "(empty log)";
+  errorPre.scrollTop = errorPre.scrollHeight;     // jump to bottom
+  if (opts.step)       errorStep.textContent = opts.step;
+  if (opts.html_url)   { errorOpen.href = opts.html_url; errorOpen.classList.remove("hidden"); }
+  else                 errorOpen.classList.add("hidden");
+}
+
+async function fetchErrorLog(runId, jobs) {
+  if (!runId) return;
+  // Use the failed step name from the timeline we already have, so the
+  // header label is accurate even before /logs responds.
+  const failed = (jobs[0]?.steps || []).find(s => s.conclusion === "failure");
+  showErrorLog("Loading the failed step's log…",
+               { step: failed?.name || "Build" });
+  try {
+    const r = await fetch(`${CONFIG.apiBase}/logs?run_id=${runId}&tail=180`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+    const j = await r.json();
+    showErrorLog(j.tail, {
+      step:     j.failed_step || failed?.name || "Build",
+      html_url: j.job_html_url,
+    });
+  } catch (e) {
+    showErrorLog(`Couldn't fetch the log automatically (${e.message}).
+Open the run in GitHub to see the full output.`,
+                 { step: failed?.name || "Build", html_url: runLink.href });
+  }
+}
+
+if (errorCopy) errorCopy.onclick = async () => {
+  try {
+    await navigator.clipboard.writeText(errorPre.textContent || "");
+    const original = errorCopy.textContent;
+    errorCopy.textContent = "Copied ✓";
+    setTimeout(() => { errorCopy.textContent = original; }, 1400);
+  } catch (e) {
+    // Fallback: select the <pre> for manual copy.
+    const range = document.createRange();
+    range.selectNodeContents(errorPre);
+    const sel = window.getSelection();
+    sel.removeAllRanges(); sel.addRange(range);
+  }
+};
 
 // ──────────────────────────────────────────────────────────────
 // Step timeline rendering

@@ -318,6 +318,27 @@
         </div>
         <!-- Compact textual feed (dispatch info, errors, artifact links) -->
         <pre id="log" class="font-mono text-[11px] leading-[1.5] px-4 pb-3 max-h-[140px] overflow-auto text-zinc-400 whitespace-pre-wrap border-t border-white/5 pt-3"></pre>
+
+        <!-- Error log panel — hidden until the build conclusion is 'failure'.
+             Populated from /logs (last ~150 lines of the failed step). -->
+        <div id="error-log-wrap" class="hidden border-t border-rose-500/20 bg-rose-500/5">
+          <div class="flex items-center justify-between px-4 h-9">
+            <div class="text-xs text-rose-300/90 font-medium">
+              ✕ <span id="error-log-step">Compile</span> · last lines
+            </div>
+            <div class="flex items-center gap-3">
+              <button id="error-log-copy" type="button"
+                      class="text-[11px] px-2 py-0.5 rounded border border-rose-500/30 text-rose-200/90 hover:bg-rose-500/10 transition">
+                Copy
+              </button>
+              <a id="error-log-open" href="#" target="_blank" rel="noopener"
+                 class="text-[11px] text-rose-200/90 hover:text-rose-100 underline">
+                Open in GitHub ↗
+              </a>
+            </div>
+          </div>
+          <pre id="error-log" class="font-mono text-[11px] leading-[1.45] px-4 pb-4 max-h-[260px] overflow-auto text-rose-100/90 whitespace-pre-wrap"></pre>
+        </div>
       </div>
 
     </div>
@@ -401,7 +422,7 @@
   </div>
 </footer>
 
-<script src="./boards.js?v=25"></script>
-<script src="./app.js?v=25"></script>
+<script src="./boards.js?v=26"></script>
+<script src="./app.js?v=26"></script>
 </body>
 </html>

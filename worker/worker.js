@@ -299,6 +299,53 @@ export default {
       );
     }
 
+    // GET /logs?run_id=…&tail=150 — pulls the raw job log from GitHub
+    // Actions, strips line-leading timestamps, and returns the last N
+    // lines. The frontend calls this on failure so the user can read the
+    // actual GCC / ESPHome error without leaving the page.
+    if (url.pathname === "/logs" && req.method === "GET") {
+      const runId = url.searchParams.get("run_id");
+      const tailN = Math.max(20, Math.min(parseInt(url.searchParams.get("tail"), 10) || 150, 600));
+      if (!runId) return json({ error: "missing run_id" }, 400, origin);
+
+      // First grab the job id (a run usually has one job for us).
+      const jr = await fetch(
+        `https://api.github.com/repos/${env.COMPILE_REPO}/actions/runs/${runId}/jobs`,
+        { headers: ghHeaders(env.GH_TOKEN) }
+      );
+      if (!jr.ok)
+        return json({ error: "jobs lookup failed", detail: await jr.text() }, 502, origin);
+      const jd = await jr.json();
+      const job = (jd.jobs || [])[0];
+      if (!job) return json({ error: "no job in this run yet" }, 404, origin);
+
+      // The /jobs/<id>/logs endpoint 302s to a presigned url; fetch follows
+      // it transparently and returns the plain-text log.
+      const lr = await fetch(
+        `https://api.github.com/repos/${env.COMPILE_REPO}/actions/jobs/${job.id}/logs`,
+        { headers: ghHeaders(env.GH_TOKEN), redirect: "follow" }
+      );
+      if (!lr.ok)
+        return json({ error: "logs fetch failed", status: lr.status, detail: await lr.text() }, 502, origin);
+
+      let text = await lr.text();
+      // Strip the leading ISO timestamp on every line — they bloat the
+      // tail and aren't useful to the user.
+      text = text.replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s?/gm, "");
+      const lines = text.split("\n");
+      const tail  = lines.slice(-tailN).join("\n");
+
+      const failedStep = (job.steps || []).find(s => s.conclusion === "failure");
+      return json({
+        tail,
+        total_lines:  lines.length,
+        returned:     Math.min(lines.length, tailN),
+        job_name:     job.name,
+        job_html_url: job.html_url,
+        failed_step:  failedStep ? failedStep.name : null,
+      }, 200, origin);
+    }
+
     return json({ error: "not found" }, 404, origin);
   },
 };
