@@ -149,6 +149,28 @@
         Drag &amp; drop small files (≤60 KB total inline) — for bigger ones (models, fonts), use <b>+ Add URL</b> so the build server fetches them with <code class="font-mono">curl</code>.
       </div>
       <div id="extras-list" class="mt-3 flex flex-wrap gap-2"></div>
+
+      <!-- URL dialog (hidden by default) -->
+      <div id="url-dialog" class="hidden mt-3 p-4 rounded-xl bg-ink-800 border border-neon-cyan/30 animate-fade-in">
+        <div class="text-sm font-semibold mb-3">Add a remote file</div>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <label class="block">
+            <span class="text-xs uppercase tracking-wider text-zinc-500">URL (https only)</span>
+            <input id="url-input" type="url" placeholder="https://raw.githubusercontent.com/owner/repo/main/model.bin"
+              class="mt-1 w-full px-3 h-10 rounded-lg bg-ink-900 border border-white/10 focus:border-neon-cyan/50 outline-none text-sm font-mono"/>
+          </label>
+          <label class="block">
+            <span class="text-xs uppercase tracking-wider text-zinc-500">Filename in build dir</span>
+            <input id="url-name" type="text" placeholder="model.bin"
+              class="mt-1 w-full px-3 h-10 rounded-lg bg-ink-900 border border-white/10 focus:border-neon-cyan/50 outline-none text-sm font-mono"/>
+          </label>
+        </div>
+        <div id="url-error" class="hidden mt-2 text-xs text-rose-400"></div>
+        <div class="mt-3 flex items-center justify-end gap-2">
+          <button id="url-cancel" class="btn-ghost !py-1.5 !px-3 text-sm">Cancel</button>
+          <button id="url-confirm" class="btn-primary !py-1.5 !px-3 text-sm">Add</button>
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -254,7 +276,7 @@
   </div>
 </footer>
 
-<script src="./boards.js?v=7"></script>
-<script src="./app.js?v=7"></script>
+<script src="./boards.js?v=8"></script>
+<script src="./app.js?v=8"></script>
 </body>
 </html>

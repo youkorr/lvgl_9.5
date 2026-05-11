@@ -100,24 +100,57 @@ const extrasDropzone = $("#extras-dropzone");
 const extrasList     = $("#extras-list");
 
 extrasAddBtn.onclick = () => extrasInput.click();
-$("#extras-add-url").onclick = async () => {
-  const url = prompt("URL of the file to fetch at build time (https only):");
-  if (!url) return;
-  if (!/^https:\/\//i.test(url)) { alert("Only https:// URLs are accepted."); return; }
-  // Derive filename from the URL.
-  let name = "";
+extrasInput.addEventListener("change", e => addExtras([...e.target.files]));
+
+// ── Inline URL dialog (replaces browser prompt() which some browsers block) ──
+const urlDialog  = $("#url-dialog");
+const urlInput   = $("#url-input");
+const urlNameEl  = $("#url-name");
+const urlError   = $("#url-error");
+
+function showUrlError(msg) {
+  if (!msg) { urlError.classList.add("hidden"); urlError.textContent = ""; return; }
+  urlError.textContent = msg; urlError.classList.remove("hidden");
+}
+function openUrlDialog() {
+  urlDialog.classList.remove("hidden");
+  urlInput.value = ""; urlNameEl.value = ""; showUrlError("");
+  setTimeout(() => urlInput.focus(), 0);
+}
+function closeUrlDialog() { urlDialog.classList.add("hidden"); showUrlError(""); }
+
+$("#extras-add-url").onclick = openUrlDialog;
+$("#url-cancel").onclick      = closeUrlDialog;
+
+urlInput.addEventListener("input", () => {
+  // Auto-fill the filename field based on the URL the first time the user types.
+  if (urlNameEl.value) return;
   try {
-    const u = new URL(url);
-    name = decodeURIComponent(u.pathname.split("/").filter(Boolean).pop() || "");
-  } catch (_) {}
-  name = prompt("Destination filename (relative to the build dir):", name || "file.bin") || "";
-  if (!name) return;
-  if (/^\/|\.\.|\\/.test(name)) { alert("Filename cannot start with /, contain .. or backslashes."); return; }
-  if (state.extras.some(x => x.name === name)) { alert(`An entry named "${name}" already exists.`); return; }
+    const u = new URL(urlInput.value);
+    const last = decodeURIComponent(u.pathname.split("/").filter(Boolean).pop() || "");
+    if (last) urlNameEl.value = last;
+  } catch (_) { /* incomplete URL, ignore */ }
+});
+
+$("#url-confirm").onclick = () => {
+  const url  = urlInput.value.trim();
+  const name = urlNameEl.value.trim();
+  if (!url)  return showUrlError("URL is required.");
+  if (!/^https:\/\//i.test(url)) return showUrlError("Only https:// URLs are accepted.");
+  if (!name) return showUrlError("Destination filename is required.");
+  if (/^\/|\.\.|\\/.test(name)) return showUrlError("Filename cannot start with /, contain .. or backslashes.");
+  if (state.extras.some(x => x.name === name)) return showUrlError(`An entry named "${name}" already exists.`);
   state.extras.push({ name, url, kind: "url" });
   renderExtras();
+  closeUrlDialog();
 };
-extrasInput.addEventListener("change", e => addExtras([...e.target.files]));
+
+[urlInput, urlNameEl].forEach(el =>
+  el.addEventListener("keydown", e => {
+    if (e.key === "Enter")  { e.preventDefault(); $("#url-confirm").click(); }
+    if (e.key === "Escape") { e.preventDefault(); closeUrlDialog(); }
+  })
+);
 ["dragenter","dragover"].forEach(ev => extrasDropzone.addEventListener(ev, e => { e.preventDefault(); extrasDropzone.classList.add("border-neon-cyan/60"); }));
 ["dragleave","drop" ].forEach(ev => extrasDropzone.addEventListener(ev, e => { e.preventDefault(); extrasDropzone.classList.remove("border-neon-cyan/60"); }));
 extrasDropzone.addEventListener("drop", e => addExtras([...e.dataTransfer.files]));
