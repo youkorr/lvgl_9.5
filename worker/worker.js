@@ -121,6 +121,35 @@ export default {
         return json({ error: "status failed", detail: await r.text() }, 502, origin);
       const run = await r.json();
 
+      // Fetch the list of jobs for this run so the frontend can render a live
+      // step-by-step timeline (which step is queued / running / done / failed).
+      let jobs = [];
+      const jr = await fetch(
+        `https://api.github.com/repos/${env.COMPILE_REPO}/actions/runs/${runId}/jobs`,
+        { headers: ghHeaders(env.GH_TOKEN) }
+      );
+      if (jr.ok) {
+        const jd = await jr.json();
+        jobs = (jd.jobs || []).map((job) => ({
+          id:          job.id,
+          name:        job.name,
+          status:      job.status,
+          conclusion:  job.conclusion,
+          runner_name: job.runner_name,
+          started_at:  job.started_at,
+          completed_at: job.completed_at,
+          html_url:    job.html_url,
+          steps: (job.steps || []).map((s) => ({
+            number:       s.number,
+            name:         s.name,
+            status:       s.status,
+            conclusion:   s.conclusion,
+            started_at:   s.started_at,
+            completed_at: s.completed_at,
+          })),
+        }));
+      }
+
       let artifacts = [];
       if (run.status === "completed" && run.conclusion === "success") {
         const a = await fetch(
@@ -138,6 +167,7 @@ export default {
         status:     run.status,
         conclusion: run.conclusion,
         html_url:   run.html_url,
+        jobs,
         artifacts,
       }, 200, origin);
     }

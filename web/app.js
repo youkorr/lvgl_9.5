@@ -605,12 +605,23 @@ $("#btn-compile").onclick = async () => {
 async function pollStatus(runId) {
   let dots = 0;
   while (true) {
-    await sleep(4000);
+    await sleep(3000);
     let s;
     try {
       const r = await fetch(`${CONFIG.apiBase}/status?run_id=${runId}`);
       s = await r.json();
     } catch (e) { appendLog("… retry"); continue; }
+
+    renderSteps(s.jobs || []);
+
+    // Surface which runner picked up the job, if any.
+    const job = (s.jobs || [])[0];
+    if (job && job.runner_name) {
+      const ri = $("#runner-info");
+      ri.classList.remove("hidden");
+      ri.textContent = `runner: ${job.runner_name}`;
+    }
+
     setStatus("running", `${s.status}${".".repeat(++dots % 4)}`);
     if (s.status === "completed") {
       if (s.conclusion === "success") {
@@ -625,6 +636,66 @@ async function pollStatus(runId) {
       return;
     }
   }
+}
+
+// ──────────────────────────────────────────────────────────────
+// Step timeline rendering
+const stepsEl = $("#steps");
+
+function renderSteps(jobs) {
+  if (!jobs.length) {
+    stepsEl.innerHTML = `<div class="text-zinc-500 text-xs">Waiting for runner to pick up the job…</div>`;
+    return;
+  }
+  let html = "";
+  for (const job of jobs) {
+    for (const step of (job.steps || [])) {
+      const icon = stepIcon(step);
+      const dur  = stepDuration(step);
+      const cls  = stepRowClass(step);
+      html += `
+        <div class="flex items-center gap-3 py-1.5 ${cls}">
+          <span class="w-5 h-5 grid place-items-center shrink-0">${icon}</span>
+          <span class="flex-1 truncate ${step.status === 'in_progress' ? 'text-zinc-100' : 'text-zinc-300'}">${escapeHTML(step.name)}</span>
+          ${dur ? `<span class="text-[11px] font-mono text-zinc-500 shrink-0">${dur}</span>` : ""}
+        </div>`;
+    }
+  }
+  stepsEl.innerHTML = html;
+  // Auto-scroll so the running step stays in view.
+  const running = stepsEl.querySelector(".step-running");
+  if (running) running.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+function stepIcon(step) {
+  if (step.status === "in_progress") {
+    return `<svg class="animate-spin text-neon-cyan" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
+      <path d="M12 2a10 10 0 0 1 10 10" /></svg>`;
+  }
+  if (step.status !== "completed") {
+    return `<span class="w-2 h-2 rounded-full bg-zinc-600 block"></span>`;
+  }
+  if (step.conclusion === "success") return `<span class="text-lime-400">✓</span>`;
+  if (step.conclusion === "failure") return `<span class="text-rose-400">✕</span>`;
+  if (step.conclusion === "skipped") return `<span class="text-zinc-600">⊘</span>`;
+  if (step.conclusion === "cancelled") return `<span class="text-zinc-500">⊗</span>`;
+  return `<span class="text-zinc-500">·</span>`;
+}
+
+function stepRowClass(step) {
+  if (step.status === "in_progress")            return "step-running bg-neon-cyan/5 -mx-2 px-2 rounded-md";
+  if (step.conclusion === "failure")            return "bg-rose-500/5 -mx-2 px-2 rounded-md";
+  return "";
+}
+
+function stepDuration(step) {
+  if (!step.started_at) return "";
+  const start = new Date(step.started_at).getTime();
+  const end   = step.completed_at ? new Date(step.completed_at).getTime() : Date.now();
+  const sec   = Math.max(0, Math.round((end - start) / 1000));
+  if (sec < 60)  return `${sec}s`;
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return `${m}m${s.toString().padStart(2,"0")}s`;
 }
 
 // ──────────────────────────────────────────────────────────────

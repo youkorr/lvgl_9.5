@@ -257,16 +257,22 @@
         </p>
       </div>
 
-      <!-- Build log -->
+      <!-- Build progress -->
       <div class="lg:col-span-2 card p-0 overflow-hidden">
         <div class="flex items-center justify-between px-4 h-10 border-b border-white/5 bg-ink-900/60">
           <div class="flex items-center gap-2">
             <span id="status-dot" class="w-2 h-2 rounded-full bg-zinc-600"></span>
             <span id="status-label" class="text-xs font-mono text-zinc-400">idle</span>
+            <span id="runner-info" class="hidden ml-2 text-[10px] uppercase tracking-wider text-zinc-500">runner: —</span>
           </div>
           <a id="run-link" href="#" target="_blank" rel="noopener" class="hidden text-xs text-neon-cyan hover:underline">Open run ↗</a>
         </div>
-        <pre id="log" class="font-mono text-[12px] leading-[1.55] p-4 h-[360px] overflow-auto text-zinc-300 whitespace-pre-wrap">Waiting for a build…</pre>
+        <!-- Step-by-step timeline -->
+        <div id="steps" class="p-4 h-[260px] overflow-auto text-sm">
+          <div class="text-zinc-500 text-xs">Waiting for a build…</div>
+        </div>
+        <!-- Compact textual feed (dispatch info, errors, artifact links) -->
+        <pre id="log" class="font-mono text-[11px] leading-[1.5] px-4 pb-3 max-h-[120px] overflow-auto text-zinc-400 whitespace-pre-wrap border-t border-white/5 pt-3"></pre>
       </div>
     </div>
   </div>
@@ -283,7 +289,7 @@
   </div>
 </footer>
 
-<script src="./boards.js?v=9"></script>
-<script src="./app.js?v=9"></script>
+<script src="./boards.js?v=10"></script>
+<script src="./app.js?v=10"></script>
 </body>
 </html>
