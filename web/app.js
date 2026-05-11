@@ -704,6 +704,7 @@ $("#btn-compile").onclick = async () => {
     currentRunId = run_id;
     appendLog(`✓ dispatched · run_id=${run_id}`);
     runLink.href = html_url; runLink.classList.remove("hidden");
+    if (btnStop) { btnStop.classList.remove("hidden"); btnStop.disabled = false; }
     pollStatus(run_id);
   } catch (e) {
     appendLog("✖ " + e.message);
