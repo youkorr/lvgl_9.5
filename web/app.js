@@ -372,7 +372,7 @@ renderBoards();
 // and once the scroll settles, opts.onCenter(item) is called so the parent
 // can react (e.g. select the board / repo behind the scenes).
 function rollerRender(track, items, opts) {
-  const ROW_H = 64;                 // must match .roller-item height in CSS
+  const ROW_H = 56;                 // must match .roller-item height in CSS
   const trackH = track.clientHeight || 320;
   const padPx = Math.max(0, (trackH - ROW_H) / 2);
 
@@ -381,7 +381,8 @@ function rollerRender(track, items, opts) {
     return;
   }
 
-  // Spacers ensure the first and last item can be scrolled to the centre.
+  // Spacers above and below let the first / last item be scrolled to the
+  // centre of the viewport.
   const html = [];
   html.push(`<div style="height:${padPx}px"></div>`);
   for (const it of items) {
@@ -397,8 +398,9 @@ function rollerRender(track, items, opts) {
   html.push(`<div style="height:${padPx}px"></div>`);
   track.innerHTML = html.join("");
 
-  // Wire click handlers (an alternative to scrolling).
   const itemEls = [...track.querySelectorAll(".roller-item")];
+
+  // Click an item → smooth-scroll it to the centre + commit.
   itemEls.forEach((el, i) => {
     el.onclick = () => {
       track.scrollTo({ top: i * ROW_H, behavior: "smooth" });
@@ -406,84 +408,48 @@ function rollerRender(track, items, opts) {
     };
   });
 
-  // Walk every visible item once per frame: compute its distance from the
-  // viewport centre, then apply a scale + opacity gradient so it really
-  // looks like a 3D wheel. Items 1.5 rows away start fading visibly; items
-  // 3+ rows away are minimally visible. The wheel feel comes from these
-  // continuous transforms, not the static mask alone.
-  const FADE_RADIUS = ROW_H * 3;     // distance at which an item is fully faded
-  const MIN_SCALE   = 0.78;
-  const MIN_OPACITY = 0.30;
-
-  // Read-once / write-many. paint() is the hot path; on long lists we cull
-  // every item more than ~5 rows away from the centre — those are off-screen
-  // behind the mask anyway, so updating their transforms is wasted work and
-  // can cost milliseconds per frame.
-  const CULL_RADIUS = ROW_H * 5;
-
-  const paint = () => {
-    const scrollTop = track.scrollTop;
-    const cy = scrollTop + trackH / 2;
-    let bestIdx = 0, bestDist = Infinity;
-    for (let i = 0; i < itemEls.length; i++) {
+  // Find the row currently closest to the centre of the viewport. Used
+  // both for the .is-center highlight and for the auto-select on settle.
+  const centerIndex = () => {
+    const cy = track.scrollTop + trackH / 2;
+    let best = 0, bestDist = Infinity;
+    for (let i = 0; i < items.length; i++) {
       const itemCenter = padPx + i * ROW_H + ROW_H / 2;
-      const dist = itemCenter - cy;
-      const absDist = Math.abs(dist);
-      if (absDist < bestDist) { bestDist = absDist; bestIdx = i; }
-      if (absDist > CULL_RADIUS) {
-        // Far away — leave it alone (its CSS-mask hides it anyway).
-        continue;
-      }
-      const t = Math.min(absDist / FADE_RADIUS, 1);
-      const scale   = 1 - t * (1 - MIN_SCALE);
-      const opacity = 1 - t * (1 - MIN_OPACITY);
-      itemEls[i].style.transform = `translateZ(0) scale(${scale.toFixed(3)})`;
-      itemEls[i].style.opacity   = opacity.toFixed(3);
+      const d = Math.abs(itemCenter - cy);
+      if (d < bestDist) { bestDist = d; best = i; }
     }
-    for (let i = 0; i < itemEls.length; i++) {
-      itemEls[i].classList.toggle("is-center", i === bestIdx);
-    }
-    return bestIdx;
+    return best;
   };
 
-  // Continuous RAF loop while the user is actively scrolling. `onscroll` is
-  // throttled by the browser (especially during fast flicks on touchpads),
-  // so a per-frame loop is what makes the wheel effect feel smooth. The
-  // loop self-terminates ~80 ms after the last scroll event.
-  let rafRunning = false;
-  let lastScrollAt = 0;
+  // Native browser scroll. We just listen for the event (cheap) to mark
+  // which row is under the centre band, and debounce a settle callback
+  // that fires onCenter() ~140 ms after the user stops scrolling. No
+  // RAF loops, no per-frame transforms — the browser does all the work.
+  let lastCenter = -1;
   let settleTimer = null;
-  const startRafLoop = () => {
-    if (rafRunning) return;
-    rafRunning = true;
-    const tick = () => {
-      paint();
-      if (performance.now() - lastScrollAt < 80) {
-        requestAnimationFrame(tick);
-      } else {
-        rafRunning = false;
-      }
-    };
-    requestAnimationFrame(tick);
+  const updateHighlight = () => {
+    const idx = centerIndex();
+    if (idx !== lastCenter) {
+      if (lastCenter >= 0) itemEls[lastCenter]?.classList.remove("is-center");
+      itemEls[idx]?.classList.add("is-center");
+      lastCenter = idx;
+    }
+    return idx;
   };
 
-  track.onscroll = () => {
-    lastScrollAt = performance.now();
-    startRafLoop();
+  track.addEventListener("scroll", () => {
+    updateHighlight();
     if (settleTimer) clearTimeout(settleTimer);
     settleTimer = setTimeout(() => {
-      const idx = paint();
-      // Nudge to the centre when the user has stopped (manual snap — gentler
-      // than CSS mandatory because we only run it after a real settle).
-      track.scrollTo({ top: idx * ROW_H, behavior: "smooth" });
+      const idx = updateHighlight();
       if (opts.onCenter) opts.onCenter(items[idx]);
     }, 140);
-  };
+  }, { passive: true });
 
-  // Initial frame: centre the selected item (no animation) and paint once.
-  const initialIdx = items.findIndex(it => opts.isSelected && opts.isSelected(it));
-  if (initialIdx > 0) track.scrollTop = initialIdx * ROW_H;
-  paint();
+  // Initial position: centre the currently-selected item, then highlight it.
+  const initialIdx = Math.max(0, items.findIndex(it => opts.isSelected && opts.isSelected(it)));
+  track.scrollTop = initialIdx * ROW_H;
+  updateHighlight();
 }
 
 // ──────────────────────────────────────────────────────────────
