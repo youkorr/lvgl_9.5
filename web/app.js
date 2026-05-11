@@ -446,7 +446,9 @@ function renderRepos() {
   const list = repoCache.filter(r => !q || (r.name + " " + (r.description||"")).toLowerCase().includes(q));
   list.forEach(r => {
     const el = document.createElement("div");
-    el.className = "board-card";
+    // board-card style + roller sizing: each tile is a fixed-width snap point
+    // so the user can flick through their repos like a carousel.
+    el.className = "board-card w-[280px] shrink-0 snap-start";
     if (state.repo && state.repo.full_name === r.full_name) el.classList.add("selected");
     const updated = new Date(r.updated_at);
     const ago = timeAgo(updated);
@@ -467,8 +469,15 @@ function renderRepos() {
     el.onclick = () => selectRepo(r);
     repoGrid.appendChild(el);
   });
-  if (list.length === 0) repoGrid.innerHTML = `<div class="col-span-full text-sm text-zinc-500">No repo matches "${escapeHTML(q)}".</div>`;
+  if (list.length === 0) repoGrid.innerHTML = `<div class="text-sm text-zinc-500 px-3 py-4">No repo matches "${escapeHTML(q)}".</div>`;
 }
+
+// Roller arrow buttons: scroll one tile-width per click.
+const REPO_TILE_STEP = 296; // 280px tile + 16px gap
+const repoLeft  = $("#repo-scroll-left");
+const repoRight = $("#repo-scroll-right");
+if (repoLeft)  repoLeft.onclick  = () => repoGrid.scrollBy({ left: -REPO_TILE_STEP, behavior: "smooth" });
+if (repoRight) repoRight.onclick = () => repoGrid.scrollBy({ left:  REPO_TILE_STEP, behavior: "smooth" });
 
 function selectRepo(r) {
   state.repo = r;
@@ -623,6 +632,26 @@ function setMockupState(s, info = {}) {
     led.setAttribute("fill", c);
   }
 }
+
+// Device preview modal: open via #btn-mockup, close via #btn-mockup-close,
+// backdrop click, or Escape key. setMockupState() keeps the SVG in sync
+// continuously in the background, so opening the modal always shows the
+// current state instantly.
+const mockupModal = $("#mockup-modal");
+const btnMockup   = $("#btn-mockup");
+const btnMockupX  = $("#btn-mockup-close");
+function openMockup()  { if (mockupModal) mockupModal.classList.remove("hidden"); }
+function closeMockup() { if (mockupModal) mockupModal.classList.add("hidden"); }
+if (btnMockup)  btnMockup.onclick  = openMockup;
+if (btnMockupX) btnMockupX.onclick = closeMockup;
+if (mockupModal) mockupModal.addEventListener("click", (e) => {
+  if (e.target === mockupModal) closeMockup();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && mockupModal && !mockupModal.classList.contains("hidden")) {
+    closeMockup();
+  }
+});
 
 // Stop button → ask Worker to cancel the current run.
 if (btnStop) {

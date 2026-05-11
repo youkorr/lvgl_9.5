@@ -193,7 +193,25 @@
       </div>
     </div>
     <div id="repo-status" class="text-sm text-zinc-500 mb-3">Loading repos…</div>
-    <div id="repo-grid" class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+    <!-- Horizontal roller: tiles sit on a single row, scroll-snap aligned. -->
+    <div class="relative">
+      <button id="repo-scroll-left" type="button" aria-label="Scroll left"
+              class="hidden sm:grid place-items-center absolute left-0 top-1/2 -translate-y-1/2 z-10
+                     w-9 h-9 rounded-full bg-ink-800/90 border border-white/10
+                     text-zinc-300 hover:bg-ink-700 transition shadow-lg backdrop-blur">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <button id="repo-scroll-right" type="button" aria-label="Scroll right"
+              class="hidden sm:grid place-items-center absolute right-0 top-1/2 -translate-y-1/2 z-10
+                     w-9 h-9 rounded-full bg-ink-800/90 border border-white/10
+                     text-zinc-300 hover:bg-ink-700 transition shadow-lg backdrop-blur">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+      </button>
+      <div id="repo-grid"
+           class="flex gap-3 overflow-x-auto pb-3 snap-x snap-mandatory
+                  scroll-smooth px-1 sm:px-12"
+           style="scrollbar-width: thin;"></div>
+    </div>
   </div>
 </section>
 
@@ -258,7 +276,7 @@
       </div>
 
       <!-- Build progress -->
-      <div class="lg:col-span-6 card p-0 overflow-hidden">
+      <div class="lg:col-span-9 card p-0 overflow-hidden">
         <div class="flex items-center justify-between px-4 h-10 border-b border-white/5 bg-ink-900/60">
           <div class="flex items-center gap-2">
             <span id="status-dot" class="w-2 h-2 rounded-full bg-zinc-600"></span>
@@ -270,6 +288,12 @@
                     class="hidden text-xs px-2 py-1 rounded-md border border-rose-500/40 text-rose-300 hover:bg-rose-500/10 transition"
                     title="Cancel the running build on GitHub">
               ■ Stop
+            </button>
+            <button id="btn-mockup" type="button"
+                    class="text-xs text-zinc-500 hover:text-neon-cyan transition flex items-center gap-1"
+                    title="Show device preview">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 22h8M12 18v4"/></svg>
+              Device preview
             </button>
             <a id="lvgl-preview-link" href="./lvgl/preview.html" target="_blank" rel="noopener"
                class="text-xs text-zinc-500 hover:text-neon-cyan transition" title="Open the live LVGL WASM canvas in a new tab">
@@ -303,12 +327,28 @@
         <pre id="log" class="font-mono text-[11px] leading-[1.5] px-4 pb-3 max-h-[140px] overflow-auto text-zinc-400 whitespace-pre-wrap border-t border-white/5 pt-3"></pre>
       </div>
 
-      <!-- Device mockup (SVG, state-driven). The card stretches to match the
-           build-progress card height (CSS grid auto-stretch); the inner SVG
-           container uses flex-1 so it fills the remaining vertical space. -->
-      <div class="lg:col-span-3 card p-4 flex flex-col items-stretch gap-3">
-        <label class="text-xs uppercase tracking-wider text-zinc-500">Device preview</label>
-        <div id="mockup" class="w-full flex-1 min-h-[320px] relative">
+    </div>
+  </div>
+</section>
+
+<!-- Device preview modal — hidden by default, opened via #btn-mockup.
+     The SVG keeps its IDs so setMockupState() works whether or not the
+     modal is visible (state is updated continuously in the background). -->
+<div id="mockup-modal"
+     class="hidden fixed inset-0 z-50 bg-ink-900/80 backdrop-blur-sm
+            flex items-center justify-center p-6"
+     role="dialog" aria-modal="true" aria-label="Device preview">
+  <div class="card max-w-2xl w-full p-5 space-y-4 relative">
+    <div class="flex items-center justify-between">
+      <div>
+        <p class="text-[10px] uppercase tracking-wider text-zinc-500">Device preview</p>
+        <p id="mockup-caption" class="text-sm text-zinc-300 mt-1">Idle — pick a board and hit Compile.</p>
+      </div>
+      <button id="btn-mockup-close" type="button"
+              class="text-zinc-500 hover:text-zinc-200 text-2xl leading-none px-2"
+              aria-label="Close">×</button>
+    </div>
+    <div id="mockup" class="w-full aspect-[10/9] relative">
           <svg viewBox="0 0 400 360" preserveAspectRatio="xMidYMid meet"
                class="w-full h-full" xmlns="http://www.w3.org/2000/svg">
             <defs>
@@ -354,13 +394,8 @@
                   font-family="ui-monospace, monospace">ncaseonetwo</text>
           </svg>
         </div>
-        <p id="mockup-caption" class="text-[11px] text-center text-zinc-500 leading-relaxed">
-          Idle — pick a board and hit <span class="text-neon-cyan">Compile</span>.
-        </p>
       </div>
-    </div>
-  </div>
-</section>
+</div>
 
 <!-- FOOTER ─────────────────────────────────────────────────── -->
 <footer class="px-6 py-12 border-t border-white/5 text-sm text-zinc-500">
@@ -373,7 +408,7 @@
   </div>
 </footer>
 
-<script src="./boards.js?v=15"></script>
-<script src="./app.js?v=15"></script>
+<script src="./boards.js?v=16"></script>
+<script src="./app.js?v=16"></script>
 </body>
 </html>
