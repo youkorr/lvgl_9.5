@@ -265,7 +265,13 @@
             <span id="status-label" class="text-xs font-mono text-zinc-400">idle</span>
             <span id="runner-info" class="hidden ml-2 text-[10px] uppercase tracking-wider text-zinc-500">runner: —</span>
           </div>
-          <a id="run-link" href="#" target="_blank" rel="noopener" class="hidden text-xs text-neon-cyan hover:underline">Open run ↗</a>
+          <div class="flex items-center gap-3">
+            <a id="lvgl-preview-link" href="./lvgl/preview.html" target="_blank" rel="noopener"
+               class="text-xs text-zinc-500 hover:text-neon-cyan transition" title="Open the LVGL WASM canvas in a new tab">
+              LVGL preview ↗
+            </a>
+            <a id="run-link" href="#" target="_blank" rel="noopener" class="hidden text-xs text-neon-cyan hover:underline">Open run ↗</a>
+          </div>
         </div>
         <!-- Step-by-step timeline -->
         <div id="steps" class="p-4 h-[260px] overflow-auto text-sm">

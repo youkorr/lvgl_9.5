@@ -1,0 +1,55 @@
+name: Build LVGL WASM preview
+
+# Recompiles lvgl_wasm/main.c against an upstream LVGL v9 release into a
+# canvas-ready lvgl.js + lvgl.wasm bundle, then commits the artefacts back
+# into web/lvgl/. Triggers manually or whenever the bridge / build script
+# changes — the binaries are big-ish (~1 MB) but small enough to ship in git.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - claude/yaml-verification-webpage-Dzbd0
+    paths:
+      - 'lvgl_wasm/**'
+      - '.github/workflows/lvgl-wasm.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Emscripten SDK
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.64
+          actions-cache-folder: emsdk-cache
+
+      - name: Verify toolchain
+        run: emcc -v
+
+      - name: Build lvgl.wasm
+        run: bash lvgl_wasm/build.sh
+
+      - name: Stage artefacts under web/lvgl/
+        run: |
+          mkdir -p web/lvgl
+          cp lvgl_wasm/dist/lvgl.js   web/lvgl/lvgl.js
+          cp lvgl_wasm/dist/lvgl.wasm web/lvgl/lvgl.wasm
+          ls -lh web/lvgl/
+
+      - name: Commit artefacts back to branch
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/lvgl/lvgl.js web/lvgl/lvgl.wasm
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "build(lvgl-wasm): refresh lvgl.{js,wasm} from $(git rev-parse --short HEAD~0)"
+          git push origin HEAD:${{ github.ref_name }}

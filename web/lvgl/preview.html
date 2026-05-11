@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ncaseonetwo · LVGL preview</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root { color-scheme: dark; }
+  html, body {
+    margin: 0; padding: 0;
+    height: 100%;
+    background: #06080d;
+    color: #e4e4e7;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro", "Segoe UI",
+                 system-ui, sans-serif;
+  }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
+  .frame {
+    padding: 14px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #18181b 0%, #0a0a0f 100%);
+    box-shadow: 0 0 0 1px rgba(255,255,255,.05),
+                0 24px 48px -16px rgba(0,0,0,.6),
+                inset 0 0 0 1px rgba(255,255,255,.03);
+  }
+  canvas {
+    display: block;
+    background: #000;
+    border-radius: 6px;
+    image-rendering: pixelated;
+  }
+  .meta { font: 11px/1.5 ui-monospace, "JetBrains Mono", monospace; color: #71717a; text-align: center; }
+  .meta b { color: #00f5d4; font-weight: 500; }
+  #status { color: #f59e0b; }
+  #status.ok  { color: #84cc16; }
+  #status.err { color: #f43f5e; }
+  .err-box {
+    max-width: 520px;
+    margin-top: 10px;
+    padding: 12px 16px;
+    border: 1px solid #f43f5e33;
+    border-radius: 8px;
+    background: #f43f5e11;
+    color: #fda4af;
+    font: 12px/1.5 ui-monospace, monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .err-box.hidden { display: none; }
+</style>
+</head>
+<body>
+
+<div class="frame">
+  <canvas id="screen" width="480" height="320"></canvas>
+</div>
+<div class="meta">
+  <b>LVGL v9 / WebAssembly</b> &nbsp;·&nbsp; status: <span id="status">loading…</span>
+  &nbsp;·&nbsp; <span id="dims">480 × 320</span>
+</div>
+<pre id="err" class="err-box hidden"></pre>
+
+<script>
+  // ───────────────────────────────────────────────────────────────
+  // Read display geometry from URL params (?w=800&h=480) so the same
+  // page can preview different boards.
+  const params = new URLSearchParams(location.search);
+  const W = clamp(parseInt(params.get("w"), 10) || 480, 80, 1280);
+  const H = clamp(parseInt(params.get("h"), 10) || 320, 80, 800);
+
+  const canvas = document.getElementById("screen");
+  canvas.width  = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d", { alpha: false });
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+
+  document.getElementById("dims").textContent = `${W} × ${H}`;
+  const statusEl = document.getElementById("status");
+  const errEl    = document.getElementById("err");
+
+  function clamp(v, a, b) { return Math.min(Math.max(v, a), b); }
+  function setStatus(text, kind) {
+    statusEl.textContent = text;
+    statusEl.className = kind || "";
+  }
+  function showError(msg) {
+    setStatus("error", "err");
+    errEl.classList.remove("hidden");
+    errEl.textContent = msg;
+  }
+
+  // ───────────────────────────────────────────────────────────────
+  // Bridge: LVGL's flush_cb → js_blit() → this function → canvas.
+  //
+  // pixels: Uint8Array RGBA (already swizzled C-side).
+  window.Module = window.Module || {};
+  Module.lvglBlit = function (x1, y1, x2, y2, pixels) {
+    const w = x2 - x1 + 1;
+    const h = y2 - y1 + 1;
+    const img = new ImageData(new Uint8ClampedArray(pixels), w, h);
+    ctx.putImageData(img, x1, y1);
+  };
+
+  // Load the wasm bundle via classic <script> (emscripten emits a UMD factory
+  // bound to window.createLvglModule when built with MODULARIZE=1).
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = src; s.async = true;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error("404 " + src));
+      document.head.appendChild(s);
+    });
+  }
+
+  setStatus("loading wasm…");
+  loadScript("./lvgl.js")
+    .catch((e) => {
+      showError(
+        "Failed to load lvgl.js — the WASM bundle has not been built yet.\n\n" +
+        "Trigger the “Build LVGL WASM preview” workflow from the GitHub\n" +
+        "Actions tab. It will compile the bundle and commit it back to this\n" +
+        "branch. Once that lands, refresh this page.\n\n" +
+        e.message
+      );
+      throw e;
+    })
+    .then(() => {
+      setStatus("instantiating…");
+      return window.createLvglModule({});
+    })
+    .then((M) => {
+      Object.assign(Module, M);
+      setStatus("running", "ok");
+      const start = M.cwrap("lvgl_start", "number", ["number", "number"]);
+      start(W, H);
+    })
+    .catch((e) => {
+      if (errEl.classList.contains("hidden")) {
+        showError("LVGL runtime failed to start:\n" + (e && e.stack || e));
+      }
+    });
+</script>
+</body>
+</html>
