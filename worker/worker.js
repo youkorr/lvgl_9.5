@@ -67,34 +67,30 @@ export default {
       const yamlBytes = new TextEncoder().encode(yaml).length;
       let filesList = Array.isArray(files) ? [...files] : [];
       let yaml_b64;
-      let gist_id = null;
+      let blob_id = null;
 
       if (yamlBytes > YAML_RAW_INLINE_LIMIT) {
-        // Create a "secret" (= unlisted) gist holding the YAML. The raw URL
-        // we get back is unauthenticated but unguessable — same threat model
-        // as a presigned S3 URL, fine for a one-shot build.
-        const gr = await fetch("https://api.github.com/gists", {
-          method: "POST",
-          headers: ghHeaders(env.GH_TOKEN),
-          body: JSON.stringify({
-            description: "ncaseonetwo.xyz transient compile YAML",
-            public: false,
-            files: { "device.yaml": { content: yaml } },
-          }),
-        });
-        if (!gr.ok)
-          return json({ error: "gist upload failed", detail: await gr.text() }, 502, origin);
-        const gist = await gr.json();
-        const raw  = gist?.files?.["device.yaml"]?.raw_url;
-        if (!raw)
-          return json({ error: "gist missing raw_url" }, 502, origin);
-        gist_id = gist.id;
+        // Offload to Cloudflare KV (binding name: BLOBS). The compile
+        // workflow's "Write extra files" step fetches it from /blob/<id>
+        // and overwrites build/device.yaml before the cache + compile
+        // steps run.
+        if (!env.BLOBS) {
+          return json({
+            error: "no BLOBS KV binding configured",
+            hint:  "Create a KV namespace in Cloudflare and bind it to this Worker as `BLOBS`.",
+          }, 500, origin);
+        }
+        blob_id = crypto.randomUUID();
+        // TTL 1 h — much longer than any reasonable build, but short enough
+        // that nothing lingers if something goes sideways.
+        await env.BLOBS.put(blob_id, yaml, { expirationTtl: 3600 });
+        const blobUrl = `${new URL(req.url).origin}/blob/${blob_id}`;
         // Drop any existing same-named entry to avoid double-fetch ambiguity.
         filesList = filesList.filter(f => f && f.name !== "device.yaml");
-        filesList.push({ name: "device.yaml", url: raw });
+        filesList.push({ name: "device.yaml", url: blobUrl });
         // Inline payload becomes a tiny placeholder so "Decode YAML" still
-        // writes a valid (overwritten) file.
-        yaml_b64 = btoa("# (fetched from gist " + gist_id + ")\n");
+        // writes a valid (immediately overwritten) file.
+        yaml_b64 = btoa(`# (fetched from blob ${blob_id})\n`);
       } else {
         yaml_b64 = btoa(unescape(encodeURIComponent(yaml)));
       }
@@ -147,7 +143,29 @@ export default {
       if (!run)
         return json({ error: "could not locate triggered run" }, 504, origin);
 
-      return json({ run_id: run.id, html_url: run.html_url, gist_id }, 200, origin);
+      return json({ run_id: run.id, html_url: run.html_url, blob_id }, 200, origin);
+    }
+
+    // GET /blob/<uuid> — serves a previously-stashed large YAML so the
+    // compile workflow can fetch it server-side. UUIDs are unguessable
+    // (~122 bits of entropy) and entries TTL out after 1 h, so the
+    // route is effectively a presigned URL without needing auth.
+    if (url.pathname.startsWith("/blob/") && req.method === "GET") {
+      if (!env.BLOBS)
+        return new Response("KV binding `BLOBS` not configured", { status: 500 });
+      const id = url.pathname.slice("/blob/".length);
+      if (!/^[a-f0-9-]{16,}$/i.test(id))
+        return new Response("invalid blob id", { status: 400 });
+      const content = await env.BLOBS.get(id);
+      if (content === null)
+        return new Response("not found or expired", { status: 404 });
+      return new Response(content, {
+        status: 200,
+        headers: {
+          "content-type":  "text/yaml; charset=utf-8",
+          "cache-control": "no-store",
+        },
+      });
     }
 
     if (url.pathname === "/status" && req.method === "GET") {
