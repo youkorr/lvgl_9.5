@@ -129,10 +129,16 @@
   display: flex; align-items: center; gap: 12px;
   padding: 0 18px;
   scroll-snap-align: center;
-  scroll-snap-stop: always;
+  /* Allow multi-item swipes (was: always — too sticky for fast scrolls). */
+  scroll-snap-stop: normal;
   cursor: pointer;
   color: #71717a;
-  transition: color .2s, transform .2s, opacity .2s;
+  /* Only the colour transitions on hover/select. The scale/opacity wheel
+     effect is driven from JS on every scroll frame, so transitioning them
+     here would fight the JS updates and feel laggy. */
+  transition: color .2s ease;
+  transform-origin: center;
+  will-change: transform, opacity;
   font-size: 13px;
   line-height: 1.25;
   user-select: none;

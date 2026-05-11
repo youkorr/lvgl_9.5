@@ -406,33 +406,57 @@ function rollerRender(track, items, opts) {
     };
   });
 
-  // Find the item closest to the centre on each scroll, mark it .is-center.
-  let scrollTimer = null;
-  const updateCenter = () => {
+  // Walk every visible item once per frame: compute its distance from the
+  // viewport centre, then apply a scale + opacity gradient so it really
+  // looks like a 3D wheel. Items 1.5 rows away start fading visibly; items
+  // 3+ rows away are minimally visible. The wheel feel comes from these
+  // continuous transforms, not the static mask alone.
+  const FADE_RADIUS = ROW_H * 3;     // distance at which an item is fully faded
+  const MIN_SCALE   = 0.78;
+  const MIN_OPACITY = 0.30;
+
+  const paint = () => {
     const cy = track.scrollTop + trackH / 2;
     let bestIdx = 0, bestDist = Infinity;
-    for (let i = 0; i < items.length; i++) {
+    for (let i = 0; i < itemEls.length; i++) {
       const itemCenter = padPx + i * ROW_H + ROW_H / 2;
-      const d = Math.abs(itemCenter - cy);
-      if (d < bestDist) { bestDist = d; bestIdx = i; }
+      const dist = itemCenter - cy;
+      const absDist = Math.abs(dist);
+      const t = Math.min(absDist / FADE_RADIUS, 1); // 0 at centre, 1 at edge
+      const scale   = 1 - t * (1 - MIN_SCALE);
+      const opacity = 1 - t * (1 - MIN_OPACITY);
+      // translateZ(0) forces a GPU layer so transforms don't trash layout.
+      itemEls[i].style.transform = `translateZ(0) scale(${scale.toFixed(3)})`;
+      itemEls[i].style.opacity   = opacity.toFixed(3);
+      if (absDist < bestDist) { bestDist = absDist; bestIdx = i; }
     }
-    itemEls.forEach((el, i) => el.classList.toggle("is-center", i === bestIdx));
+    for (let i = 0; i < itemEls.length; i++) {
+      itemEls[i].classList.toggle("is-center", i === bestIdx);
+    }
     return bestIdx;
   };
 
+  // Throttle to one repaint per frame, fire onCenter() ~120 ms after the
+  // user stops scrolling (long enough that we don't churn through every
+  // intermediate item on a fast flick).
+  let rafQueued = false;
+  let stopTimer = null;
   track.onscroll = () => {
-    updateCenter();
-    if (scrollTimer) clearTimeout(scrollTimer);
-    scrollTimer = setTimeout(() => {
-      const idx = updateCenter();
+    if (!rafQueued) {
+      rafQueued = true;
+      requestAnimationFrame(() => { rafQueued = false; paint(); });
+    }
+    if (stopTimer) clearTimeout(stopTimer);
+    stopTimer = setTimeout(() => {
+      const idx = paint();
       if (opts.onCenter) opts.onCenter(items[idx]);
-    }, 140);
+    }, 120);
   };
 
-  // Initial center: scroll to the currently-selected item, or top.
+  // Initial frame: centre the selected item (no animation) and paint once.
   const initialIdx = items.findIndex(it => opts.isSelected && opts.isSelected(it));
   if (initialIdx > 0) track.scrollTop = initialIdx * ROW_H;
-  updateCenter();
+  paint();
 }
 
 // ──────────────────────────────────────────────────────────────
