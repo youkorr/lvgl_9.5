@@ -95,6 +95,26 @@ export default {
         yaml_b64 = btoa(unescape(encodeURIComponent(yaml)));
       }
 
+      // The frontend already strips font/image binaries on drop (they would
+      // overflow the 60 KB dispatch limit), but the user's YAML still
+      // references them by relative path (e.g. `file: fonts/foo.ttf`).
+      // Without those files on disk, esphome compile fails before doing
+      // anything useful. So we scan the YAML for local font/image refs and
+      // inject URL-backed stub entries — ESPHome reads them, validates, and
+      // produces a buildable firmware (with placeholder glyphs / images).
+      const workerOrigin = new URL(req.url).origin;
+      const localRefs    = scanLocalAssetRefs(yaml);
+      for (const ref of localRefs) {
+        if (filesList.some(f => f && f.name === ref.name)) continue; // user-provided
+        filesList.push({
+          name: ref.name,
+          url:  ref.kind === "font"
+                  ? `${workerOrigin}/stub.ttf`
+                  : `${workerOrigin}/stub.png`,
+          stub: true,
+        });
+      }
+
       // Pack extra files into a single base64 JSON string so the workflow
       // receives them as one client_payload field.
       let files_b64 = "";
@@ -248,8 +268,73 @@ export default {
       return json({ ok: true }, 200, origin);
     }
 
+    // GET /stub.png — 1×1 transparent PNG served as a placeholder for any
+    // image: ref the user's YAML keeps pointing at after we stripped the
+    // real PNG/JPG from extras.
+    if (url.pathname === "/stub.png" && req.method === "GET") {
+      return new Response(STUB_PNG, {
+        status: 200,
+        headers: {
+          "content-type":  "image/png",
+          "cache-control": "public, max-age=86400",
+        },
+      });
+    }
+
+    // GET /stub.ttf — redirects to a real public TTF (Material Design Icons
+    // from jsdelivr). Using a redirect rather than serving the bytes keeps
+    // the Worker small and lets us swap fonts later without redeploying.
+    // urllib.request.urlopen follows 302s by default, so the workflow sees
+    // a normal TTF response.
+    if (url.pathname === "/stub.ttf" && req.method === "GET") {
+      return Response.redirect(
+        "https://cdn.jsdelivr.net/npm/@mdi/font@latest/fonts/materialdesignicons-webfont.ttf",
+        302
+      );
+    }
+
     return json({ error: "not found" }, 404, origin);
   },
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ─────────────────────────────────────────────────────────────────
+// YAML local-asset scanner.
+//
+// Matches lines of the form
+//   <indent>file: path/to/something.<ext>
+//   <indent>- file: 'path/to/foo.png'
+// where the value is a bare path (not a nested mapping with url:/type:).
+// Returns a deduped list of { name, kind } where kind ∈ {"font","image"}.
+const FONT_EXT_RE  = /\.(ttf|otf|woff2?|eot|bdf|pcf|fnt)$/i;
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|bmp|svg|webp|ico|tiff?)$/i;
+const FILE_REF_RE  =
+  /^[ \t]+(?:-[ \t]+)?file:[ \t]*(['"]?)([^'"\s][^'"\n]*\.(?:ttf|otf|woff2?|eot|bdf|pcf|fnt|png|jpe?g|gif|bmp|svg|webp|ico|tiff?))\1[ \t]*$/gim;
+
+function scanLocalAssetRefs(yaml) {
+  const out = new Map();          // name → { name, kind }, deduped
+  FILE_REF_RE.lastIndex = 0;
+  let m;
+  while ((m = FILE_REF_RE.exec(yaml))) {
+    const path = m[2].trim();
+    if (/^https?:\/\//i.test(path)) continue; // already a URL, not a local ref
+    const kind = FONT_EXT_RE.test(path) ? "font"
+               : IMAGE_EXT_RE.test(path) ? "image"
+               : null;
+    if (!kind) continue;
+    if (!out.has(path)) out.set(path, { name: path, kind });
+  }
+  return [...out.values()];
+}
+
+// 1×1 fully transparent PNG (67 bytes). Returned by GET /stub.png and used
+// to satisfy `file: foo.png` references that point to assets we filtered
+// out client-side.
+const STUB_PNG = new Uint8Array([
+  0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A,0x00,0x00,0x00,0x0D,0x49,0x48,0x44,0x52,
+  0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01,0x08,0x06,0x00,0x00,0x00,0x1F,0x15,0xC4,
+  0x89,0x00,0x00,0x00,0x0D,0x49,0x44,0x41,0x54,0x78,0x9C,0x63,0x00,0x01,0x00,0x00,
+  0x05,0x00,0x01,0x0D,0x0A,0x2D,0xB4,0x00,0x00,0x00,0x00,0x49,0x45,0x4E,0x44,0xAE,
+  0x42,0x60,0x82,
+]);
