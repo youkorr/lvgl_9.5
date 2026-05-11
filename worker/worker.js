@@ -61,10 +61,13 @@ export default {
       // receives them as one client_payload field.
       let files_b64 = "";
       if (Array.isArray(files) && files.length) {
-        // Reject anything that looks like a path traversal up front.
         for (const f of files) {
           if (typeof f.name !== "string" || /(^\/|\.\.|\\)/.test(f.name))
             return json({ error: `invalid file name: ${f && f.name}` }, 400, origin);
+          if (f.url && !/^https:\/\//i.test(f.url))
+            return json({ error: `only https:// urls allowed: ${f.url}` }, 400, origin);
+          if (!f.url && !f.content_b64)
+            return json({ error: `file ${f.name} has neither content_b64 nor url` }, 400, origin);
         }
         files_b64 = btoa(unescape(encodeURIComponent(JSON.stringify(files))));
       }

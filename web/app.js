@@ -100,6 +100,23 @@ const extrasDropzone = $("#extras-dropzone");
 const extrasList     = $("#extras-list");
 
 extrasAddBtn.onclick = () => extrasInput.click();
+$("#extras-add-url").onclick = async () => {
+  const url = prompt("URL of the file to fetch at build time (https only):");
+  if (!url) return;
+  if (!/^https:\/\//i.test(url)) { alert("Only https:// URLs are accepted."); return; }
+  // Derive filename from the URL.
+  let name = "";
+  try {
+    const u = new URL(url);
+    name = decodeURIComponent(u.pathname.split("/").filter(Boolean).pop() || "");
+  } catch (_) {}
+  name = prompt("Destination filename (relative to the build dir):", name || "file.bin") || "";
+  if (!name) return;
+  if (/^\/|\.\.|\\/.test(name)) { alert("Filename cannot start with /, contain .. or backslashes."); return; }
+  if (state.extras.some(x => x.name === name)) { alert(`An entry named "${name}" already exists.`); return; }
+  state.extras.push({ name, url, kind: "url" });
+  renderExtras();
+};
 extrasInput.addEventListener("change", e => addExtras([...e.target.files]));
 ["dragenter","dragover"].forEach(ev => extrasDropzone.addEventListener(ev, e => { e.preventDefault(); extrasDropzone.classList.add("border-neon-cyan/60"); }));
 ["dragleave","drop" ].forEach(ev => extrasDropzone.addEventListener(ev, e => { e.preventDefault(); extrasDropzone.classList.remove("border-neon-cyan/60"); }));
@@ -111,7 +128,7 @@ async function addExtras(files) {
     if (state.extras.some(x => x.name === f.name)) continue; // dedup
     const buf = await f.arrayBuffer();
     const b64 = arrayBufferToBase64(buf);
-    state.extras.push({ name: f.name, size: f.size, content_b64: b64 });
+    state.extras.push({ name: f.name, size: f.size, content_b64: b64, kind: "inline" });
   }
   renderExtras();
 }
@@ -122,9 +139,11 @@ function removeExtra(name) {
 }
 
 function extrasTotalSize() {
-  // Size we will actually push through repository_dispatch: the JSON-encoded
-  // base64 payload, not the raw file size.
-  return state.extras.reduce((s, x) => s + (x.content_b64.length + x.name.length + 32), 0);
+  // Only inline (base64) entries count against the repository_dispatch limit.
+  // URL entries are fetched server-side, so their size is irrelevant here.
+  return state.extras
+    .filter(x => x.kind === "inline")
+    .reduce((s, x) => s + (x.content_b64.length + x.name.length + 32), 0);
 }
 
 function renderExtras() {
@@ -132,21 +151,30 @@ function renderExtras() {
   state.extras.forEach(x => {
     const el = document.createElement("span");
     el.className = "inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-ink-800 border border-white/10 text-xs";
+    const badge = x.kind === "url"
+      ? `<span class="tag-pill">URL</span>`
+      : `<span class="text-zinc-500">${(x.size/1024).toFixed(1)} KB</span>`;
+    const meta = x.kind === "url"
+      ? `<span class="text-zinc-600 max-w-[14rem] truncate" title="${escapeHTML(x.url)}">${escapeHTML(x.url)}</span>`
+      : "";
     el.innerHTML = `
+      ${badge}
       <span class="text-zinc-300 font-mono">${escapeHTML(x.name)}</span>
-      <span class="text-zinc-500">${(x.size/1024).toFixed(1)} KB</span>
+      ${meta}
       <button class="text-zinc-500 hover:text-rose-400 ml-1" title="Remove">✕</button>`;
     el.querySelector("button").onclick = () => removeExtra(x.name);
     extrasList.appendChild(el);
   });
+  if (state.extras.length === 0) return;
   const total = extrasTotalSize();
-  if (total > 0) {
-    const meta = document.createElement("span");
-    const over = total > EXTRAS_MAX_BYTES;
-    meta.className = "ml-auto text-xs " + (over ? "text-rose-400" : "text-zinc-500");
-    meta.textContent = `${state.extras.length} file${state.extras.length>1?"s":""} · ~${(total/1024).toFixed(1)} KB payload${over ? " — over GitHub limit!" : ""}`;
-    extrasList.appendChild(meta);
-  }
+  const meta = document.createElement("span");
+  const over = total > EXTRAS_MAX_BYTES;
+  meta.className = "ml-auto text-xs " + (over ? "text-rose-400" : "text-zinc-500");
+  const urlN  = state.extras.filter(x => x.kind === "url").length;
+  const inN   = state.extras.length - urlN;
+  meta.textContent =
+    `${inN} inline · ${urlN} URL · ~${(total/1024).toFixed(1)} KB inline payload${over ? " — over GitHub limit!" : ""}`;
+  extrasList.appendChild(meta);
 }
 
 function arrayBufferToBase64(buf) {
@@ -513,7 +541,9 @@ $("#btn-compile").onclick = async () => {
         yaml: editor.value,
         board: state.board.id,
         branch: state.branch,
-        files: state.extras.map(x => ({ name: x.name, content_b64: x.content_b64 })),
+        files: state.extras.map(x => x.kind === "url"
+          ? ({ name: x.name, url: x.url })
+          : ({ name: x.name, content_b64: x.content_b64 })),
       }),
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);

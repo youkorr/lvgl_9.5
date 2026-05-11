@@ -64,7 +64,7 @@ jobs:
           FILES_B64: ${{ steps.in.outputs.files_b64 }}
         run: |
           python3 - <<'PY'
-          import base64, json, os, sys, pathlib
+          import base64, json, os, sys, pathlib, urllib.request, urllib.parse
           raw = os.environ.get("FILES_B64", "")
           if not raw:
               print("(no extra files)"); sys.exit(0)
@@ -73,17 +73,33 @@ jobs:
           except Exception as e:
               print(f"::error::failed to decode files_b64: {e}"); sys.exit(1)
           build = pathlib.Path("build").resolve()
+          MAX_FETCH_BYTES = 100 * 1024 * 1024  # 100 MB safety cap per URL
           for f in files:
               name = f.get("name", "")
-              # Reject path traversal and absolute paths server-side too.
               if not name or name.startswith("/") or ".." in name.split("/") or "\\" in name:
                   print(f"::warning::skipping suspicious file name: {name!r}"); continue
               dst = (build / name).resolve()
               if not str(dst).startswith(str(build) + os.sep) and dst != build:
                   print(f"::warning::skipping out-of-tree file: {name!r}"); continue
               dst.parent.mkdir(parents=True, exist_ok=True)
-              dst.write_bytes(base64.b64decode(f["content_b64"]))
-              print(f" + build/{name}  ({dst.stat().st_size} bytes)")
+              if f.get("url"):
+                  url = f["url"]
+                  if not url.lower().startswith("https://"):
+                      print(f"::error::non-https url for {name!r}: {url}"); sys.exit(1)
+                  print(f" ↓ fetching {url}")
+                  with urllib.request.urlopen(url, timeout=120) as r, dst.open("wb") as out:
+                      total = 0
+                      while True:
+                          chunk = r.read(1024 * 1024)
+                          if not chunk: break
+                          total += len(chunk)
+                          if total > MAX_FETCH_BYTES:
+                              print(f"::error::file {name!r} exceeds {MAX_FETCH_BYTES} bytes"); sys.exit(1)
+                          out.write(chunk)
+                  print(f" + build/{name}  ({dst.stat().st_size} bytes, fetched)")
+              else:
+                  dst.write_bytes(base64.b64decode(f["content_b64"]))
+                  print(f" + build/{name}  ({dst.stat().st_size} bytes, inline)")
           PY
 
       - name: Set up Python
