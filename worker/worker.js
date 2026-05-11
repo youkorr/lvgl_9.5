@@ -392,25 +392,87 @@ const STUB_PNG = new Uint8Array([
   0x42,0x60,0x82,
 ]);
 
-// Patch the YAML in place so every font entry whose `file:` points at a
-// local font path also gains `ignore_missing_glyphs: true`. We stub the
-// missing font binary with a generic Material Design Icons TTF, which
-// won't carry the user's exact PUA codepoints — ESPHome would otherwise
-// abort with "Font X is missing N glyphs". This makes the build test-only
-// (icons might render as boxes), but the compile completes.
+// Patch the YAML in place so font entries whose `file:` points at a local
+// font path become buildable even though our generic stub TTF doesn't
+// carry the user's exact codepoints. We do TWO things to each such entry:
 //
-// Match handles both '- file:' (inside list) and '  file:' (root-of-item)
-// indent styles, single or double quotes, and ttf/otf/woff variants.
+//   1. Inject `ignore_missing_glyphs: true` at the entry's key column.
+//      Demotes ESPHome's "missing glyph" check from error to warning.
+//
+//   2. Replace the entry's `glyphs: [...]` list with `glyphs: []`. The
+//      ESPHome dev branch validates explicit glyph lists strictly and
+//      still aborts with "missing N glyphs" even when ignore_missing_glyphs
+//      is true, when the requested PUA codepoints (+) don't exist
+//      in our stub MDI font. Clearing the list sidesteps the validation.
+//      The compiled font then has no custom glyphs (icons render as
+//      tofu boxes) but the build succeeds — exactly the test-compile
+//      semantics the user wants.
+//
+// Implementation: simple line-based state machine. Robust enough for
+// well-formatted ESPHome YAMLs; doesn't need a full YAML parser. We
+// only modify entries we deliberately stub on the file side, so legit
+// user-provided fonts are untouched.
+const FILE_LOCAL_FONT_RE =
+  /^([ \t]*)(-[ \t]+)file:[ \t]*(['"]?)([^'"\s][^'"\n]*\.(?:ttf|otf|woff2?|eot|bdf|pcf|fnt))\3[ \t]*$/;
+const KEY_RE       = /^([ \t]*)([a-z_]+):[ \t]*(.*)$/;
+const LIST_ITEM_RE = /^([ \t]+)-[ \t]/;
+
 function patchFontGlyphChecks(yaml) {
-  return yaml.replace(
-    /^([ \t]*)(-[ \t]+)?(file:[ \t]*['"]?[^'"\s][^'"\n]*\.(?:ttf|otf|woff2?|eot|bdf|pcf|fnt)['"]?[ \t]*)(\r?\n)/gim,
-    (_full, leading, dash, fileLine, eol) => {
-      // The dict key column is where 'file:' itself starts. For '- file:',
-      // that's leading + the dash-and-spaces width. For plain 'file:', it's
-      // just leading. We re-emit the original line and append the sibling
-      // key at that same column.
-      const keyIndent = leading + (dash ? " ".repeat(dash.length) : "");
-      return `${leading}${dash || ""}${fileLine}${eol}${keyIndent}ignore_missing_glyphs: true${eol}`;
+  const lines = yaml.split("\n");
+  const out   = [];
+  let inEntry      = false;
+  let entryIndent  = -1;
+  let keyColumn    = 0;
+  let strippingGlyphs = false;
+  let glyphsKeyCol = -1;
+
+  for (const line of lines) {
+    // Comments don't change structural state.
+    if (/^\s*#/.test(line)) { out.push(line); continue; }
+
+    const fileMatch = line.match(FILE_LOCAL_FONT_RE);
+    if (fileMatch) {
+      const leading = fileMatch[1];
+      const dash    = fileMatch[2];
+      inEntry         = true;
+      entryIndent     = leading.length;
+      keyColumn       = leading.length + dash.length;
+      strippingGlyphs = false;
+      out.push(line);
+      out.push(" ".repeat(keyColumn) + "ignore_missing_glyphs: true");
+      continue;
     }
-  );
+
+    if (inEntry) {
+      const nonBlank = line.match(/^([ \t]*)\S/);
+      const curIndent = nonBlank ? nonBlank[1].length : -1;
+      // A non-blank line at or below entry indent ends the current entry.
+      if (curIndent !== -1 && curIndent <= entryIndent) {
+        inEntry         = false;
+        strippingGlyphs = false;
+      }
+    }
+
+    if (inEntry) {
+      const keyMatch = line.match(KEY_RE);
+      if (keyMatch && keyMatch[2] === "glyphs" && keyMatch[1].length === keyColumn) {
+        // Replace `glyphs:` (whether inline or block) with an empty list.
+        out.push(`${keyMatch[1]}glyphs: []`);
+        strippingGlyphs = true;
+        glyphsKeyCol    = keyMatch[1].length;
+        continue;
+      }
+      if (strippingGlyphs) {
+        const listMatch = line.match(LIST_ITEM_RE);
+        if (listMatch && listMatch[1].length > glyphsKeyCol) {
+          continue; // drop the original `- <glyph>` items
+        }
+        strippingGlyphs = false; // sibling key reached
+      }
+    }
+
+    out.push(line);
+  }
+
+  return out.join("\n");
 }
