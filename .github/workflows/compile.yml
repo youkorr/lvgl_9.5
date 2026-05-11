@@ -106,6 +106,33 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
+
+      - name: Cache PlatformIO + ESP-IDF toolchain
+        # This is the big win: ~/.platformio holds the ESP-IDF download
+        # (~1 GB) plus all toolchains. With a cache hit we skip 5-8 min
+        # of downloads on each build.
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key:          pio-${{ steps.in.outputs.branch }}-${{ steps.in.outputs.board }}-${{ hashFiles('build/device.yaml') }}
+          restore-keys: |
+            pio-${{ steps.in.outputs.branch }}-${{ steps.in.outputs.board }}-
+            pio-${{ steps.in.outputs.branch }}-
+
+      - name: Cache ESPHome build directory
+        # Per-board build cache — keeps already-compiled object files between
+        # runs so only changed sources are rebuilt. Combined with the
+        # PlatformIO cache, a warm build drops from ~10 min to ~2-3 min.
+        uses: actions/cache@v4
+        with:
+          path: build/.esphome
+          key:          esph-${{ steps.in.outputs.branch }}-${{ steps.in.outputs.board }}-${{ hashFiles('build/device.yaml') }}
+          restore-keys: |
+            esph-${{ steps.in.outputs.branch }}-${{ steps.in.outputs.board }}-
+            esph-${{ steps.in.outputs.branch }}-
 
       - name: Install ESPHome (${{ steps.in.outputs.branch }})
         run: |
