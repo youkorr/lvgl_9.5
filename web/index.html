@@ -227,13 +227,16 @@
 
 <!-- COMPILE ────────────────────────────────────────────────── -->
 <section id="compile" class="px-6 py-16 border-t border-white/5">
-  <div class="max-w-[1800px] mx-auto px-2">
+  <div class="max-w-7xl mx-auto">
     <p class="text-xs uppercase tracking-[0.2em] text-neon-pink mb-2">04 — Compile</p>
     <h2 class="text-3xl font-bold tracking-tight mb-6">Build the firmware</h2>
 
-    <div class="grid lg:grid-cols-12 gap-5">
+    <!-- Same 2/3 split as the 'Drop your YAML' section above for visual
+         consistency: options card mirrors the dropzone, build-progress
+         mirrors the editor. -->
+    <div class="grid lg:grid-cols-5 gap-4">
       <!-- Options -->
-      <div class="card p-5 space-y-5 lg:col-span-3">
+      <div class="card p-5 space-y-5 lg:col-span-2">
         <div>
           <label class="text-xs uppercase tracking-wider text-zinc-500">Selected board</label>
           <div id="sel-board" class="mt-1 font-medium text-zinc-300">— pick one above —</div>
@@ -266,7 +269,7 @@
       </div>
 
       <!-- Build progress -->
-      <div class="lg:col-span-9 card p-0 overflow-hidden">
+      <div class="lg:col-span-3 card p-0 overflow-hidden">
         <div class="flex items-center justify-between px-4 h-10 border-b border-white/5 bg-ink-900/60">
           <div class="flex items-center gap-2">
             <span id="status-dot" class="w-2 h-2 rounded-full bg-zinc-600"></span>
@@ -295,7 +298,7 @@
         <!-- Step-by-step timeline. When idle it shows a faint preview of the
              stages that will run; once a build starts, renderSteps() replaces
              the markup with live data from the GitHub API. -->
-        <div id="steps" class="p-4 h-[440px] overflow-auto text-sm space-y-1.5">
+        <div id="steps" class="p-4 h-[420px] overflow-auto text-sm space-y-1.5">
           <div id="steps-idle" class="space-y-1.5">
             <div class="text-[10px] uppercase tracking-wider text-zinc-600 mb-2">Build pipeline (idle)</div>
             <div class="flex items-center gap-3 py-1 opacity-40"><span class="w-2 h-2 rounded-full bg-zinc-600 block"></span><span class="text-zinc-400">Set up job</span></div>
@@ -398,7 +401,7 @@
   </div>
 </footer>
 
-<script src="./boards.js?v=18"></script>
-<script src="./app.js?v=18"></script>
+<script src="./boards.js?v=19"></script>
+<script src="./app.js?v=19"></script>
 </body>
 </html>
