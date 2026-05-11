@@ -278,9 +278,26 @@
             <a id="run-link" href="#" target="_blank" rel="noopener" class="hidden text-xs text-neon-cyan hover:underline">Open run ↗</a>
           </div>
         </div>
-        <!-- Step-by-step timeline -->
-        <div id="steps" class="p-4 h-[440px] overflow-auto text-sm">
-          <div class="text-zinc-500 text-xs">Waiting for a build…</div>
+        <!-- Step-by-step timeline. When idle it shows a faint preview of the
+             stages that will run; once a build starts, renderSteps() replaces
+             the markup with live data from the GitHub API. -->
+        <div id="steps" class="p-4 h-[440px] overflow-auto text-sm space-y-1.5">
+          <div id="steps-idle" class="space-y-1.5">
+            <div class="text-[10px] uppercase tracking-wider text-zinc-600 mb-2">Build pipeline (idle)</div>
+            <div class="flex items-center gap-3 py-1 opacity-40"><span class="w-2 h-2 rounded-full bg-zinc-600 block"></span><span class="text-zinc-400">Set up job</span></div>
+            <div class="flex items-center gap-3 py-1 opacity-40"><span class="w-2 h-2 rounded-full bg-zinc-600 block"></span><span class="text-zinc-400">Resolve inputs</span></div>
+            <div class="flex items-center gap-3 py-1 opacity-40"><span class="w-2 h-2 rounded-full bg-zinc-600 block"></span><span class="text-zinc-400">Decode YAML</span></div>
+            <div class="flex items-center gap-3 py-1 opacity-40"><span class="w-2 h-2 rounded-full bg-zinc-600 block"></span><span class="text-zinc-400">Write extra files</span></div>
+            <div class="flex items-center gap-3 py-1 opacity-40"><span class="w-2 h-2 rounded-full bg-zinc-600 block"></span><span class="text-zinc-400">Set up Python</span></div>
+            <div class="flex items-center gap-3 py-1 opacity-40"><span class="w-2 h-2 rounded-full bg-zinc-600 block"></span><span class="text-zinc-400">Cache PlatformIO + ESP-IDF toolchain</span></div>
+            <div class="flex items-center gap-3 py-1 opacity-40"><span class="w-2 h-2 rounded-full bg-zinc-600 block"></span><span class="text-zinc-400">Cache ESPHome build directory</span></div>
+            <div class="flex items-center gap-3 py-1 opacity-40"><span class="w-2 h-2 rounded-full bg-zinc-600 block"></span><span class="text-zinc-400">Install ESPHome</span></div>
+            <div class="flex items-center gap-3 py-1 opacity-40"><span class="w-2 h-2 rounded-full bg-zinc-600 block"></span><span class="text-zinc-400">Generate dummy secrets from YAML</span></div>
+            <div class="flex items-center gap-3 py-1 opacity-40"><span class="w-2 h-2 rounded-full bg-zinc-600 block"></span><span class="text-zinc-400">Compile</span></div>
+            <div class="flex items-center gap-3 py-1 opacity-40"><span class="w-2 h-2 rounded-full bg-zinc-600 block"></span><span class="text-zinc-400">Locate firmware</span></div>
+            <div class="flex items-center gap-3 py-1 opacity-40"><span class="w-2 h-2 rounded-full bg-zinc-600 block"></span><span class="text-zinc-400">Upload firmware artifact</span></div>
+            <div class="pt-3 text-[11px] text-zinc-600 italic">Hit <span class="text-neon-cyan">Compile firmware</span> to start.</div>
+          </div>
         </div>
         <!-- Compact textual feed (dispatch info, errors, artifact links) -->
         <pre id="log" class="font-mono text-[11px] leading-[1.5] px-4 pb-3 max-h-[140px] overflow-auto text-zinc-400 whitespace-pre-wrap border-t border-white/5 pt-3"></pre>
@@ -291,25 +308,50 @@
            container uses flex-1 so it fills the remaining vertical space. -->
       <div class="lg:col-span-3 card p-4 flex flex-col items-stretch gap-3">
         <label class="text-xs uppercase tracking-wider text-zinc-500">Device preview</label>
-        <div id="mockup" class="w-full flex-1 min-h-[260px] relative">
-          <!-- Bezel -->
-          <svg viewBox="0 0 400 300" class="w-full h-full" xmlns="http://www.w3.org/2000/svg">
+        <div id="mockup" class="w-full flex-1 min-h-[320px] relative">
+          <svg viewBox="0 0 400 360" preserveAspectRatio="xMidYMid meet"
+               class="w-full h-full" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <linearGradient id="bezel" x1="0" y1="0" x2="1" y2="1">
                 <stop offset="0%"  stop-color="#1c1c20"/>
-                <stop offset="100%" stop-color="#0a0a0d"/>
+                <stop offset="100%" stop-color="#08080b"/>
               </linearGradient>
               <linearGradient id="screen-off" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%"  stop-color="#0d1018"/>
-                <stop offset="100%" stop-color="#05060a"/>
+                <stop offset="0%"  stop-color="#0c0f17"/>
+                <stop offset="100%" stop-color="#04050a"/>
               </linearGradient>
+              <radialGradient id="screen-glow" cx="0.5" cy="0.5" r="0.7">
+                <stop offset="0%"  stop-color="rgba(0,245,212,0.08)"/>
+                <stop offset="100%" stop-color="rgba(0,245,212,0)"/>
+              </radialGradient>
             </defs>
-            <rect x="4" y="4" width="392" height="292" rx="22" fill="url(#bezel)" stroke="rgba(255,255,255,.06)"/>
-            <rect id="mockup-screen" x="28" y="28" width="344" height="244" rx="6" fill="url(#screen-off)"/>
-            <!-- Status overlay text/icon -->
-            <g id="mockup-content" font-family="ui-monospace, monospace" text-anchor="middle"></g>
+
+            <!-- Device bezel with subtle border -->
+            <rect x="4" y="4" width="392" height="332" rx="24"
+                  fill="url(#bezel)" stroke="rgba(255,255,255,.08)" stroke-width="1"/>
+
+            <!-- Screen area (16/10 landscape) — slightly bigger now -->
+            <rect id="mockup-screen" x="24" y="24" width="352" height="252"
+                  rx="4" fill="url(#screen-off)"/>
+            <rect x="24" y="24" width="352" height="252" rx="4"
+                  fill="url(#screen-glow)" pointer-events="none"/>
+
+            <!-- Status overlay text/icon (filled by setMockupState) -->
+            <g id="mockup-content" font-family="ui-monospace, monospace"
+               text-anchor="middle"></g>
+
+            <!-- Power LED -->
+            <circle id="mockup-led" cx="372" cy="296" r="3" fill="#27272a"/>
+            <text x="356" y="300" fill="#52525b" font-size="9"
+                  font-family="ui-monospace, monospace" text-anchor="end">PWR</text>
+
             <!-- USB-C silhouette at the bottom -->
-            <rect x="180" y="288" width="40" height="6" rx="2" fill="#27272a"/>
+            <rect x="180" y="340" width="40" height="6" rx="2" fill="#27272a"/>
+            <rect x="184" y="342" width="32" height="2" rx="1" fill="#18181b"/>
+
+            <!-- Brand label on the bezel -->
+            <text x="24" y="298" fill="#3f3f46" font-size="10"
+                  font-family="ui-monospace, monospace">ncaseonetwo</text>
           </svg>
         </div>
         <p id="mockup-caption" class="text-[11px] text-center text-zinc-500 leading-relaxed">
@@ -331,7 +373,7 @@
   </div>
 </footer>
 
-<script src="./boards.js?v=13"></script>
-<script src="./app.js?v=13"></script>
+<script src="./boards.js?v=14"></script>
+<script src="./app.js?v=14"></script>
 </body>
 </html>

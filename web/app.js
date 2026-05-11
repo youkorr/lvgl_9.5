@@ -609,6 +609,19 @@ function setMockupState(s, info = {}) {
   screen.setAttribute("fill", screenFill);
   c.innerHTML = svg;
   mockupCap().textContent = cap;
+
+  // Power LED reflects the lifecycle: amber while running, lime on success,
+  // rose on failure. Mirrors the status dot in the build-progress header so
+  // the device "feels" alive even when the screen is off-state.
+  const led = document.getElementById("mockup-led");
+  if (led) {
+    const c = s === "compiling" ? "#f59e0b"
+            : s === "success"   ? "#84cc16"
+            : s === "error" || s === "failure" ? "#f43f5e"
+            : s === "cancelled" ? "#71717a"
+            : "#27272a";
+    led.setAttribute("fill", c);
+  }
 }
 
 // Stop button → ask Worker to cancel the current run.
