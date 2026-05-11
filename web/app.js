@@ -415,20 +415,30 @@ function rollerRender(track, items, opts) {
   const MIN_SCALE   = 0.78;
   const MIN_OPACITY = 0.30;
 
+  // Read-once / write-many. paint() is the hot path; on long lists we cull
+  // every item more than ~5 rows away from the centre — those are off-screen
+  // behind the mask anyway, so updating their transforms is wasted work and
+  // can cost milliseconds per frame.
+  const CULL_RADIUS = ROW_H * 5;
+
   const paint = () => {
-    const cy = track.scrollTop + trackH / 2;
+    const scrollTop = track.scrollTop;
+    const cy = scrollTop + trackH / 2;
     let bestIdx = 0, bestDist = Infinity;
     for (let i = 0; i < itemEls.length; i++) {
       const itemCenter = padPx + i * ROW_H + ROW_H / 2;
       const dist = itemCenter - cy;
       const absDist = Math.abs(dist);
-      const t = Math.min(absDist / FADE_RADIUS, 1); // 0 at centre, 1 at edge
+      if (absDist < bestDist) { bestDist = absDist; bestIdx = i; }
+      if (absDist > CULL_RADIUS) {
+        // Far away — leave it alone (its CSS-mask hides it anyway).
+        continue;
+      }
+      const t = Math.min(absDist / FADE_RADIUS, 1);
       const scale   = 1 - t * (1 - MIN_SCALE);
       const opacity = 1 - t * (1 - MIN_OPACITY);
-      // translateZ(0) forces a GPU layer so transforms don't trash layout.
       itemEls[i].style.transform = `translateZ(0) scale(${scale.toFixed(3)})`;
       itemEls[i].style.opacity   = opacity.toFixed(3);
-      if (absDist < bestDist) { bestDist = absDist; bestIdx = i; }
     }
     for (let i = 0; i < itemEls.length; i++) {
       itemEls[i].classList.toggle("is-center", i === bestIdx);
@@ -436,21 +446,38 @@ function rollerRender(track, items, opts) {
     return bestIdx;
   };
 
-  // Throttle to one repaint per frame, fire onCenter() ~120 ms after the
-  // user stops scrolling (long enough that we don't churn through every
-  // intermediate item on a fast flick).
-  let rafQueued = false;
-  let stopTimer = null;
+  // Continuous RAF loop while the user is actively scrolling. `onscroll` is
+  // throttled by the browser (especially during fast flicks on touchpads),
+  // so a per-frame loop is what makes the wheel effect feel smooth. The
+  // loop self-terminates ~80 ms after the last scroll event.
+  let rafRunning = false;
+  let lastScrollAt = 0;
+  let settleTimer = null;
+  const startRafLoop = () => {
+    if (rafRunning) return;
+    rafRunning = true;
+    const tick = () => {
+      paint();
+      if (performance.now() - lastScrollAt < 80) {
+        requestAnimationFrame(tick);
+      } else {
+        rafRunning = false;
+      }
+    };
+    requestAnimationFrame(tick);
+  };
+
   track.onscroll = () => {
-    if (!rafQueued) {
-      rafQueued = true;
-      requestAnimationFrame(() => { rafQueued = false; paint(); });
-    }
-    if (stopTimer) clearTimeout(stopTimer);
-    stopTimer = setTimeout(() => {
+    lastScrollAt = performance.now();
+    startRafLoop();
+    if (settleTimer) clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => {
       const idx = paint();
+      // Nudge to the centre when the user has stopped (manual snap — gentler
+      // than CSS mandatory because we only run it after a real settle).
+      track.scrollTo({ top: idx * ROW_H, behavior: "smooth" });
       if (opts.onCenter) opts.onCenter(items[idx]);
-    }, 120);
+    }, 140);
   };
 
   // Initial frame: centre the selected item (no animation) and paint once.

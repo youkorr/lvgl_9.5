@@ -104,8 +104,11 @@
 .roller-track {
   height: 100%;
   overflow-y: auto;
-  scroll-snap-type: y mandatory;
-  scroll-behavior: smooth;
+  /* `proximity` lets the user free-scroll and only nudges to a snap point at
+     rest. `mandatory` was forcing a snap every wheel tick, which read as the
+     'blocking' the user reported. */
+  scroll-snap-type: y proximity;
+  -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   /* Reel fade: top + bottom edges dim out so it looks like an LVGL roller. */
   -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 22%, #000 78%, transparent 100%);
