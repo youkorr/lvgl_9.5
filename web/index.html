@@ -279,17 +279,19 @@
           </div>
         </div>
         <!-- Step-by-step timeline -->
-        <div id="steps" class="p-4 h-[300px] overflow-auto text-sm">
+        <div id="steps" class="p-4 h-[440px] overflow-auto text-sm">
           <div class="text-zinc-500 text-xs">Waiting for a build…</div>
         </div>
         <!-- Compact textual feed (dispatch info, errors, artifact links) -->
-        <pre id="log" class="font-mono text-[11px] leading-[1.5] px-4 pb-3 max-h-[120px] overflow-auto text-zinc-400 whitespace-pre-wrap border-t border-white/5 pt-3"></pre>
+        <pre id="log" class="font-mono text-[11px] leading-[1.5] px-4 pb-3 max-h-[140px] overflow-auto text-zinc-400 whitespace-pre-wrap border-t border-white/5 pt-3"></pre>
       </div>
 
-      <!-- Device mockup (SVG, state-driven) -->
-      <div class="lg:col-span-3 card p-4 flex flex-col items-center justify-start gap-3">
-        <label class="text-xs uppercase tracking-wider text-zinc-500 self-start">Device preview</label>
-        <div id="mockup" class="w-full aspect-[4/3] relative">
+      <!-- Device mockup (SVG, state-driven). The card stretches to match the
+           build-progress card height (CSS grid auto-stretch); the inner SVG
+           container uses flex-1 so it fills the remaining vertical space. -->
+      <div class="lg:col-span-3 card p-4 flex flex-col items-stretch gap-3">
+        <label class="text-xs uppercase tracking-wider text-zinc-500">Device preview</label>
+        <div id="mockup" class="w-full flex-1 min-h-[260px] relative">
           <!-- Bezel -->
           <svg viewBox="0 0 400 300" class="w-full h-full" xmlns="http://www.w3.org/2000/svg">
             <defs>
@@ -329,7 +331,7 @@
   </div>
 </footer>
 
-<script src="./boards.js?v=12"></script>
-<script src="./app.js?v=12"></script>
+<script src="./boards.js?v=13"></script>
+<script src="./app.js?v=13"></script>
 </body>
 </html>
