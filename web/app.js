@@ -329,33 +329,20 @@ chips.forEach(c => {
 function renderBoards() {
   const q = searchInp.value.toLowerCase().trim();
   const chip = chipSel.value;
-  grid.innerHTML = "";
-  BOARDS
+  const list = BOARDS
     .filter(b => !chip || b.chip === chip)
-    .filter(b => !q || (b.name+" "+b.brand+" "+b.id).toLowerCase().includes(q))
-    .forEach(b => {
-      const el = document.createElement("div");
-      el.className = "board-card w-[260px] shrink-0 snap-start";
-      if (state.board && state.board.id === b.id) el.classList.add("selected");
-      el.innerHTML = `
-        <div class="flex items-start justify-between gap-2">
-          <div>
-            <div class="text-[11px] uppercase tracking-wider text-zinc-500">${b.brand}</div>
-            <div class="font-semibold mt-0.5 leading-tight">${b.name}</div>
-          </div>
-          ${b.tag ? `<span class="tag-pill">${b.tag}</span>` : ""}
-        </div>
-        <div class="mt-3 flex flex-wrap gap-1.5">
-          <span class="chip-pill">${CHIP_LABEL[b.chip] || b.chip}</span>
-          <span class="chip-pill">${b.flash}</span>
-          ${b.psram && b.psram !== "—" ? `<span class="chip-pill">PSRAM ${b.psram}</span>` : ""}
-        </div>`;
-      el.onclick = () => selectBoard(b);
-      grid.appendChild(el);
-    });
+    .filter(b => !q || (b.name+" "+b.brand+" "+b.id).toLowerCase().includes(q));
+  rollerRender(grid, list, {
+    key:    b => b.id,
+    line1:  b => `${b.brand} · ${b.name}`,
+    line2:  b => `${CHIP_LABEL[b.chip] || b.chip} · ${b.flash}${b.psram && b.psram !== "—" ? " · PSRAM " + b.psram : ""}`,
+    isSelected: b => state.board && state.board.id === b.id,
+    onCenter:   b => selectBoard(b, /*silent*/ true),
+    onClick:    b => selectBoard(b),
+  });
 }
 
-function selectBoard(b) {
+function selectBoard(b, silent) {
   state.board = b;
   $("#sel-board").innerHTML = `<span class="text-zinc-100">${b.brand} · ${b.name}</span>
     <span class="block text-xs text-zinc-500 mt-0.5">${CHIP_LABEL[b.chip] || b.chip} · ${b.flash} flash · PSRAM ${b.psram}</span>`;
@@ -367,19 +354,86 @@ function selectBoard(b) {
     });
     validate();
   }
-  renderBoards();
+  // 'silent' = called from the roller scroll-stop callback; we don't want to
+  // re-render the roller (which would reset the scroll position and trigger
+  // another scroll/snap event in a feedback loop).
+  if (!silent) renderBoards();
 }
 
 chipSel.addEventListener("change", renderBoards);
 searchInp.addEventListener("input", debounce(renderBoards, 120));
 renderBoards();
 
-// Roller arrow buttons for the boards picker.
-const BOARD_TILE_STEP = 276; // 260px tile + 16px gap
-const boardLeft  = $("#board-scroll-left");
-const boardRight = $("#board-scroll-right");
-if (boardLeft)  boardLeft.onclick  = () => grid.scrollBy({ left: -BOARD_TILE_STEP, behavior: "smooth" });
-if (boardRight) boardRight.onclick = () => grid.scrollBy({ left:  BOARD_TILE_STEP, behavior: "smooth" });
+// ──────────────────────────────────────────────────────────────
+// LVGL-style vertical roller helper.
+//
+// Renders an array of items into a roller-track container with a center-snap
+// scroll behaviour. The item closest to the visual center gets .is-center,
+// and once the scroll settles, opts.onCenter(item) is called so the parent
+// can react (e.g. select the board / repo behind the scenes).
+function rollerRender(track, items, opts) {
+  const ROW_H = 64;                 // must match .roller-item height in CSS
+  const trackH = track.clientHeight || 320;
+  const padPx = Math.max(0, (trackH - ROW_H) / 2);
+
+  if (!items.length) {
+    track.innerHTML = `<div class="text-sm text-zinc-500 px-4 py-6 text-center">No match.</div>`;
+    return;
+  }
+
+  // Spacers ensure the first and last item can be scrolled to the centre.
+  const html = [];
+  html.push(`<div style="height:${padPx}px"></div>`);
+  for (const it of items) {
+    const sel = opts.isSelected && opts.isSelected(it);
+    html.push(`
+      <div class="roller-item${sel ? " selected" : ""}" data-key="${escapeHTML(String(opts.key(it)))}">
+        <div class="flex-1 min-w-0">
+          <div class="title truncate">${escapeHTML(opts.line1(it))}</div>
+          <div class="meta truncate">${escapeHTML(opts.line2(it))}</div>
+        </div>
+      </div>`);
+  }
+  html.push(`<div style="height:${padPx}px"></div>`);
+  track.innerHTML = html.join("");
+
+  // Wire click handlers (an alternative to scrolling).
+  const itemEls = [...track.querySelectorAll(".roller-item")];
+  itemEls.forEach((el, i) => {
+    el.onclick = () => {
+      track.scrollTo({ top: i * ROW_H, behavior: "smooth" });
+      if (opts.onClick) opts.onClick(items[i]);
+    };
+  });
+
+  // Find the item closest to the centre on each scroll, mark it .is-center.
+  let scrollTimer = null;
+  const updateCenter = () => {
+    const cy = track.scrollTop + trackH / 2;
+    let bestIdx = 0, bestDist = Infinity;
+    for (let i = 0; i < items.length; i++) {
+      const itemCenter = padPx + i * ROW_H + ROW_H / 2;
+      const d = Math.abs(itemCenter - cy);
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
+    }
+    itemEls.forEach((el, i) => el.classList.toggle("is-center", i === bestIdx));
+    return bestIdx;
+  };
+
+  track.onscroll = () => {
+    updateCenter();
+    if (scrollTimer) clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(() => {
+      const idx = updateCenter();
+      if (opts.onCenter) opts.onCenter(items[idx]);
+    }, 140);
+  };
+
+  // Initial center: scroll to the currently-selected item, or top.
+  const initialIdx = items.findIndex(it => opts.isSelected && opts.isSelected(it));
+  if (initialIdx > 0) track.scrollTop = initialIdx * ROW_H;
+  updateCenter();
+}
 
 // ──────────────────────────────────────────────────────────────
 // GitHub repo picker (public repos, no token required)
@@ -449,44 +503,18 @@ async function loadRepos() {
 
 function renderRepos() {
   const q = repoSearch.value.toLowerCase().trim();
-  repoGrid.innerHTML = "";
   const list = repoCache.filter(r => !q || (r.name + " " + (r.description||"")).toLowerCase().includes(q));
-  list.forEach(r => {
-    const el = document.createElement("div");
-    // board-card style + roller sizing: each tile is a fixed-width snap point
-    // so the user can flick through their repos like a carousel.
-    el.className = "board-card w-[280px] shrink-0 snap-start";
-    if (state.repo && state.repo.full_name === r.full_name) el.classList.add("selected");
-    const updated = new Date(r.updated_at);
-    const ago = timeAgo(updated);
-    el.innerHTML = `
-      <div class="flex items-start justify-between gap-2">
-        <div class="min-w-0">
-          <div class="text-[11px] uppercase tracking-wider text-zinc-500">${escapeHTML(r.owner.login)}</div>
-          <div class="font-semibold mt-0.5 leading-tight truncate">${escapeHTML(r.name)}</div>
-        </div>
-        ${r.private ? `<span class="tag-pill">private</span>` : ""}
-      </div>
-      <div class="text-xs text-zinc-400 mt-2 line-clamp-2 min-h-[2.4em]">${escapeHTML(r.description || "—")}</div>
-      <div class="mt-3 flex flex-wrap gap-1.5 items-center">
-        ${r.language ? `<span class="chip-pill">${escapeHTML(r.language)}</span>` : ""}
-        <span class="chip-pill">★ ${r.stargazers_count}</span>
-        <span class="chip-pill">⤴ ${ago}</span>
-      </div>`;
-    el.onclick = () => selectRepo(r);
-    repoGrid.appendChild(el);
+  rollerRender(repoGrid, list, {
+    key:    r => r.full_name,
+    line1:  r => `${r.owner.login} / ${r.name}`,
+    line2:  r => `${r.language || "—"} · ★ ${r.stargazers_count} · ${timeAgo(new Date(r.updated_at))} ago${r.private ? " · private" : ""}`,
+    isSelected: r => state.repo && state.repo.full_name === r.full_name,
+    onCenter:   r => selectRepo(r, /*silent*/ true),
+    onClick:    r => selectRepo(r),
   });
-  if (list.length === 0) repoGrid.innerHTML = `<div class="text-sm text-zinc-500 px-3 py-4">No repo matches "${escapeHTML(q)}".</div>`;
 }
 
-// Roller arrow buttons: scroll one tile-width per click.
-const REPO_TILE_STEP = 296; // 280px tile + 16px gap
-const repoLeft  = $("#repo-scroll-left");
-const repoRight = $("#repo-scroll-right");
-if (repoLeft)  repoLeft.onclick  = () => repoGrid.scrollBy({ left: -REPO_TILE_STEP, behavior: "smooth" });
-if (repoRight) repoRight.onclick = () => repoGrid.scrollBy({ left:  REPO_TILE_STEP, behavior: "smooth" });
-
-function selectRepo(r) {
+function selectRepo(r, silent) {
   state.repo = r;
   $("#sel-repo").textContent = `github://${r.full_name}`;
   // Regenerate template if editor is empty OR if it was an auto-generated template
@@ -499,7 +527,7 @@ function selectRepo(r) {
       validate();
     }
   }
-  renderRepos();
+  if (!silent) renderRepos();
 }
 
 function timeAgo(d) {

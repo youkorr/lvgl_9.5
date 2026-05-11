@@ -89,6 +89,66 @@
   font-size: 10px; letter-spacing: .04em; color: #e4f7ff;
 }
 
+/* ───────────────────────────────────────────────────────────
+   LVGL-style vertical roller
+   A scroll-snap column with a center selection band; outer items
+   fade out via a top/bottom mask so it looks like a wheel reel. */
+.roller-wrap {
+  position: relative;
+  height: 320px;
+  overflow: hidden;
+  border-radius: 1rem;
+  border: 1px solid rgba(255,255,255,0.07);
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.15));
+}
+.roller-track {
+  height: 100%;
+  overflow-y: auto;
+  scroll-snap-type: y mandatory;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  /* Reel fade: top + bottom edges dim out so it looks like an LVGL roller. */
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 22%, #000 78%, transparent 100%);
+          mask-image: linear-gradient(180deg, transparent 0, #000 22%, #000 78%, transparent 100%);
+}
+.roller-track::-webkit-scrollbar { display: none; }
+.roller-band {
+  position: absolute; left: 8px; right: 8px;
+  top: 50%; transform: translateY(-50%);
+  height: 64px;
+  border-top:    1px solid rgba(0, 229, 255, 0.35);
+  border-bottom: 1px solid rgba(0, 229, 255, 0.35);
+  background: linear-gradient(90deg,
+              rgba(0,229,255,0.05), rgba(139,92,246,0.05));
+  pointer-events: none;
+  border-radius: 6px;
+  z-index: 1;
+}
+.roller-item {
+  height: 64px;
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 18px;
+  scroll-snap-align: center;
+  scroll-snap-stop: always;
+  cursor: pointer;
+  color: #71717a;
+  transition: color .2s, transform .2s, opacity .2s;
+  font-size: 13px;
+  line-height: 1.25;
+  user-select: none;
+}
+.roller-item .meta { font-size: 10px; color: #52525b; text-transform: uppercase; letter-spacing: 0.06em; }
+.roller-item .title { color: #a1a1aa; font-weight: 500; }
+.roller-item.is-center {
+  color: #fafafa;
+}
+.roller-item.is-center .title { color: #fafafa; font-weight: 600; }
+.roller-item.is-center .meta  { color: #00f5d4; }
+.roller-item.selected {
+  color: #fafafa;
+}
+.roller-item.selected .title { color: #00f5d4; }
+
 /* Result panel states */
 .result-ok    { border-color: rgba(163,230,53,0.35) !important; background: linear-gradient(180deg, rgba(163,230,53,0.06), transparent); }
 .result-warn  { border-color: rgba(250,204,21,0.35) !important; background: linear-gradient(180deg, rgba(250,204,21,0.06), transparent); }
