@@ -51,10 +51,16 @@ export default {
       return new Response(null, { headers: cors(origin) });
 
     if (url.pathname === "/compile" && req.method === "POST") {
-      const { yaml, board, branch, files, runner } = await req.json();
-      if (!yaml || !board || !branch)
+      const { yaml: rawYaml, board, branch, files, runner } = await req.json();
+      if (!rawYaml || !board || !branch)
         return json({ error: "missing yaml/board/branch" }, 400, origin);
       const runnerChoice = (runner === "github") ? "github" : "self";
+
+      // Patch the YAML so font entries with local files don't blow up with
+      // "missing glyphs" when our generic stub TTF doesn't carry the user's
+      // exact codepoints. This must happen *before* size accounting so the
+      // blob/inline branch sees the final bytes.
+      const yaml = patchFontGlyphChecks(rawYaml);
 
       // GitHub's repository_dispatch client_payload is hard-capped at 65535
       // bytes. base64 inflates by ~33%, so any YAML over ~30 KB raw will
@@ -338,3 +344,26 @@ const STUB_PNG = new Uint8Array([
   0x05,0x00,0x01,0x0D,0x0A,0x2D,0xB4,0x00,0x00,0x00,0x00,0x49,0x45,0x4E,0x44,0xAE,
   0x42,0x60,0x82,
 ]);
+
+// Patch the YAML in place so every font entry whose `file:` points at a
+// local font path also gains `ignore_missing_glyphs: true`. We stub the
+// missing font binary with a generic Material Design Icons TTF, which
+// won't carry the user's exact PUA codepoints — ESPHome would otherwise
+// abort with "Font X is missing N glyphs". This makes the build test-only
+// (icons might render as boxes), but the compile completes.
+//
+// Match handles both '- file:' (inside list) and '  file:' (root-of-item)
+// indent styles, single or double quotes, and ttf/otf/woff variants.
+function patchFontGlyphChecks(yaml) {
+  return yaml.replace(
+    /^([ \t]*)(-[ \t]+)?(file:[ \t]*['"]?[^'"\s][^'"\n]*\.(?:ttf|otf|woff2?|eot|bdf|pcf|fnt)['"]?[ \t]*)(\r?\n)/gim,
+    (_full, leading, dash, fileLine, eol) => {
+      // The dict key column is where 'file:' itself starts. For '- file:',
+      // that's leading + the dash-and-spaces width. For plain 'file:', it's
+      // just leading. We re-emit the original line and append the sibling
+      // key at that same column.
+      const keyIndent = leading + (dash ? " ".repeat(dash.length) : "");
+      return `${leading}${dash || ""}${fileLine}${eol}${keyIndent}ignore_missing_glyphs: true${eol}`;
+    }
+  );
+}
