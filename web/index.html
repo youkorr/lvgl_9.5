@@ -131,6 +131,22 @@
 
     <!-- Validation results -->
     <div id="result" class="mt-4 hidden card p-5 animate-fade-in"></div>
+
+    <!-- Extra files (partition CSVs, fonts, images, includes…) -->
+    <div class="mt-4 card p-5">
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <div class="text-sm font-semibold">Extra files <span class="text-zinc-500 font-normal">(optional)</span></div>
+          <div class="text-xs text-zinc-500 mt-0.5">Drop any auxiliary file referenced by your YAML — partitions <code class="font-mono">.csv</code>, fonts, images, <code class="font-mono">.h</code>/<code class="font-mono">.cpp</code>, etc.</div>
+        </div>
+        <input id="extras-input" type="file" multiple class="hidden">
+        <button id="extras-add" class="btn-ghost !py-1.5 !px-3 text-sm">+ Add files</button>
+      </div>
+      <div id="extras-dropzone" class="rounded-lg border border-dashed border-white/10 hover:border-neon-cyan/40 transition p-4 text-center text-xs text-zinc-500 cursor-pointer">
+        Drag &amp; drop multiple files here (max 60 KB total, GitHub payload limit)
+      </div>
+      <div id="extras-list" class="mt-3 flex flex-wrap gap-2"></div>
+    </div>
   </div>
 </section>
 
@@ -235,7 +251,7 @@
   </div>
 </footer>
 
-<script src="./boards.js?v=5"></script>
-<script src="./app.js?v=5"></script>
+<script src="./boards.js?v=6"></script>
+<script src="./app.js?v=6"></script>
 </body>
 </html>

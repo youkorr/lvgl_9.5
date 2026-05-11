@@ -51,11 +51,23 @@ export default {
       return new Response(null, { headers: cors(origin) });
 
     if (url.pathname === "/compile" && req.method === "POST") {
-      const { yaml, board, branch } = await req.json();
+      const { yaml, board, branch, files } = await req.json();
       if (!yaml || !board || !branch)
         return json({ error: "missing yaml/board/branch" }, 400, origin);
 
       const yaml_b64 = btoa(unescape(encodeURIComponent(yaml)));
+
+      // Pack extra files into a single base64 JSON string so the workflow
+      // receives them as one client_payload field.
+      let files_b64 = "";
+      if (Array.isArray(files) && files.length) {
+        // Reject anything that looks like a path traversal up front.
+        for (const f of files) {
+          if (typeof f.name !== "string" || /(^\/|\.\.|\\)/.test(f.name))
+            return json({ error: `invalid file name: ${f && f.name}` }, 400, origin);
+        }
+        files_b64 = btoa(unescape(encodeURIComponent(JSON.stringify(files))));
+      }
 
       // Dispatch
       const dispatchRes = await fetch(
@@ -65,7 +77,7 @@ export default {
           headers: ghHeaders(env.GH_TOKEN),
           body: JSON.stringify({
             event_type: "compile",
-            client_payload: { board, branch, yaml_b64 },
+            client_payload: { board, branch, yaml_b64, files_b64 },
           }),
         }
       );

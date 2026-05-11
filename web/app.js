@@ -18,7 +18,9 @@ const state = {
   board: null,
   branch: "stable",
   repo:   null,     // { full_name, html_url, description, stargazers_count, updated_at, language }
+  extras: [],       // [{ name, content_b64, size }]
 };
+const EXTRAS_MAX_BYTES = 60 * 1024;
 
 // ──────────────────────────────────────────────────────────────
 // DOM helpers
@@ -89,6 +91,70 @@ function loadFile(file) {
 }
 
 editor.addEventListener("input", debounce(validate, 350));
+
+// ──────────────────────────────────────────────────────────────
+// Extra files (partition CSVs, fonts, images, includes…)
+const extrasInput    = $("#extras-input");
+const extrasAddBtn   = $("#extras-add");
+const extrasDropzone = $("#extras-dropzone");
+const extrasList     = $("#extras-list");
+
+extrasAddBtn.onclick = () => extrasInput.click();
+extrasInput.addEventListener("change", e => addExtras([...e.target.files]));
+["dragenter","dragover"].forEach(ev => extrasDropzone.addEventListener(ev, e => { e.preventDefault(); extrasDropzone.classList.add("border-neon-cyan/60"); }));
+["dragleave","drop" ].forEach(ev => extrasDropzone.addEventListener(ev, e => { e.preventDefault(); extrasDropzone.classList.remove("border-neon-cyan/60"); }));
+extrasDropzone.addEventListener("drop", e => addExtras([...e.dataTransfer.files]));
+extrasDropzone.addEventListener("click", () => extrasInput.click());
+
+async function addExtras(files) {
+  for (const f of files) {
+    if (state.extras.some(x => x.name === f.name)) continue; // dedup
+    const buf = await f.arrayBuffer();
+    const b64 = arrayBufferToBase64(buf);
+    state.extras.push({ name: f.name, size: f.size, content_b64: b64 });
+  }
+  renderExtras();
+}
+
+function removeExtra(name) {
+  state.extras = state.extras.filter(x => x.name !== name);
+  renderExtras();
+}
+
+function extrasTotalSize() {
+  // Size we will actually push through repository_dispatch: the JSON-encoded
+  // base64 payload, not the raw file size.
+  return state.extras.reduce((s, x) => s + (x.content_b64.length + x.name.length + 32), 0);
+}
+
+function renderExtras() {
+  extrasList.innerHTML = "";
+  state.extras.forEach(x => {
+    const el = document.createElement("span");
+    el.className = "inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-ink-800 border border-white/10 text-xs";
+    el.innerHTML = `
+      <span class="text-zinc-300 font-mono">${escapeHTML(x.name)}</span>
+      <span class="text-zinc-500">${(x.size/1024).toFixed(1)} KB</span>
+      <button class="text-zinc-500 hover:text-rose-400 ml-1" title="Remove">✕</button>`;
+    el.querySelector("button").onclick = () => removeExtra(x.name);
+    extrasList.appendChild(el);
+  });
+  const total = extrasTotalSize();
+  if (total > 0) {
+    const meta = document.createElement("span");
+    const over = total > EXTRAS_MAX_BYTES;
+    meta.className = "ml-auto text-xs " + (over ? "text-rose-400" : "text-zinc-500");
+    meta.textContent = `${state.extras.length} file${state.extras.length>1?"s":""} · ~${(total/1024).toFixed(1)} KB payload${over ? " — over GitHub limit!" : ""}`;
+    extrasList.appendChild(meta);
+  }
+}
+
+function arrayBufferToBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
 
 $("#btn-clear").onclick  = () => { editor.value=""; dzMeta.textContent=""; $("#result").classList.add("hidden"); };
 $("#btn-copy").onclick   = () => navigator.clipboard.writeText(editor.value);
@@ -434,6 +500,12 @@ $("#btn-compile").onclick = async () => {
   }
 
   try {
+    if (extrasTotalSize() > EXTRAS_MAX_BYTES) {
+      appendLog("✖ Extra files payload too large for GitHub repository_dispatch (60 KB limit).");
+      setStatus("err", "payload too large"); return;
+    }
+    if (state.extras.length) appendLog(`▶ extras   : ${state.extras.map(x => x.name).join(", ")}`);
+
     const r = await fetch(CONFIG.apiBase + "/compile", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -441,6 +513,7 @@ $("#btn-compile").onclick = async () => {
         yaml: editor.value,
         board: state.board.id,
         branch: state.branch,
+        files: state.extras.map(x => ({ name: x.name, content_b64: x.content_b64 })),
       }),
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
