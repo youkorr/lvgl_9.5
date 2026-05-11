@@ -62,12 +62,28 @@ jobs:
           fi
           esphome version
 
-      - name: Create dummy secrets
+      - name: Generate dummy secrets from YAML
         run: |
-          cat > build/secrets.yaml <<'EOF'
-          wifi_ssid: "compile-dummy"
-          wifi_password: "compile-dummy"
-          EOF
+          python3 - <<'PY'
+          import re, pathlib
+          src  = pathlib.Path("build/device.yaml").read_text(encoding="utf-8", errors="replace")
+          # Match `!secret <name>` — name = word chars, dashes, dots
+          names = sorted(set(re.findall(r'!secret\s+([A-Za-z0-9_.\-]+)', src)))
+          # Always include wifi_ssid / wifi_password as a safety net
+          for n in ("wifi_ssid", "wifi_password"):
+              if n not in names:
+                  names.append(n)
+          out = pathlib.Path("build/secrets.yaml")
+          with out.open("w", encoding="utf-8") as f:
+              for n in names:
+                  # Use a 32-char hex placeholder so values like API encryption
+                  # keys (which expect base64 of 32 bytes) don't trip ESPHome
+                  # validators. It's still a dummy — the firmware can't actually
+                  # connect anywhere with these.
+                  f.write(f'{n}: "0123456789abcdef0123456789abcdef"\n')
+          print(f"Generated {len(names)} dummy secret(s):")
+          for n in names: print(" -", n)
+          PY
 
       - name: Compile
         working-directory: build
