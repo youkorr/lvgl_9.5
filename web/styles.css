@@ -94,9 +94,9 @@
 .result-warn  { border-color: rgba(250,204,21,0.35) !important; background: linear-gradient(180deg, rgba(250,204,21,0.06), transparent); }
 .result-error { border-color: rgba(244,63,94,0.4)  !important; background: linear-gradient(180deg, rgba(244,63,94,0.06), transparent); }
 
-/* Branch toggle */
-.branch-btn { transition: all .15s ease; }
-.branch-btn.active { background: linear-gradient(120deg, #00e5ff, #8b5cf6); color: #05060a; }
+/* Branch / Runner toggle */
+.branch-btn, .runner-btn { transition: all .15s ease; }
+.branch-btn.active, .runner-btn.active { background: linear-gradient(120deg, #00e5ff, #8b5cf6); color: #05060a; }
 
 /* Log */
 #log::-webkit-scrollbar { width: 10px; }

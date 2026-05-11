@@ -51,9 +51,10 @@ export default {
       return new Response(null, { headers: cors(origin) });
 
     if (url.pathname === "/compile" && req.method === "POST") {
-      const { yaml, board, branch, files } = await req.json();
+      const { yaml, board, branch, files, runner } = await req.json();
       if (!yaml || !board || !branch)
         return json({ error: "missing yaml/board/branch" }, 400, origin);
+      const runnerChoice = (runner === "github") ? "github" : "self";
 
       const yaml_b64 = btoa(unescape(encodeURIComponent(yaml)));
 
@@ -80,7 +81,7 @@ export default {
           headers: ghHeaders(env.GH_TOKEN),
           body: JSON.stringify({
             event_type: "compile",
-            client_payload: { board, branch, yaml_b64, files_b64 },
+            client_payload: { board, branch, yaml_b64, files_b64, runner: runnerChoice },
           }),
         }
       );

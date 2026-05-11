@@ -238,6 +238,13 @@
           </div>
         </div>
         <div>
+          <label class="text-xs uppercase tracking-wider text-zinc-500">Runner</label>
+          <div class="mt-2 inline-flex rounded-xl border border-white/10 p-1 bg-ink-800">
+            <button data-runner="self"   class="runner-btn px-4 py-1.5 rounded-lg text-sm font-medium bg-white/10" title="Your self-hosted runner (Unraid) — fast">My runner</button>
+            <button data-runner="github" class="runner-btn px-4 py-1.5 rounded-lg text-sm font-medium text-zinc-400" title="Fallback to GitHub's free runners — always available, slower">GitHub</button>
+          </div>
+        </div>
+        <div>
           <label class="text-xs uppercase tracking-wider text-zinc-500">External component</label>
           <div id="sel-repo" class="mt-1 text-sm text-zinc-400 font-mono">— pick a repo above —</div>
         </div>
@@ -276,7 +283,7 @@
   </div>
 </footer>
 
-<script src="./boards.js?v=8"></script>
-<script src="./app.js?v=8"></script>
+<script src="./boards.js?v=9"></script>
+<script src="./app.js?v=9"></script>
 </body>
 </html>

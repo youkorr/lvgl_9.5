@@ -20,13 +20,23 @@ on:
       yaml_b64:
         description: 'YAML config (base64)'
         required: true
+      runner:
+        description: 'Runner to use'
+        required: true
+        default: 'self'
+        type: choice
+        options: [self, github]
   repository_dispatch:
     types: [compile]
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Runner selection — defaults to the self-hosted "esphome" runner. If the
+    # dispatch payload (or manual input) sets runner=github we fall back to
+    # GitHub's free ubuntu-latest VMs. This is the "Unraid offline" escape
+    # hatch.
+    runs-on: ${{ ((github.event.client_payload.runner || inputs.runner) == 'github') && 'ubuntu-latest' || fromJSON('["self-hosted","esphome"]') }}
+    timeout-minutes: 60
     steps:
       - name: Resolve inputs
         id: in

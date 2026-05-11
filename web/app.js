@@ -17,6 +17,7 @@ const CONFIG = {
 const state = {
   board: null,
   branch: "stable",
+  runner: "self",   // "self" = self-hosted Unraid · "github" = GitHub-hosted fallback
   repo:   null,     // { full_name, html_url, description, stargazers_count, updated_at, language }
   extras: [],       // [{ name, content_b64, size }]
 };
@@ -510,6 +511,15 @@ $$(".branch-btn").forEach(b => b.addEventListener("click", () => {
 }));
 $('.branch-btn[data-branch="stable"]').classList.add("active");
 
+// Runner toggle
+$$(".runner-btn").forEach(b => b.addEventListener("click", () => {
+  state.runner = b.dataset.runner;
+  $$(".runner-btn").forEach(x => { x.classList.remove("active","bg-white/10"); x.classList.add("text-zinc-400"); });
+  b.classList.add("active");
+  b.classList.remove("text-zinc-400");
+}));
+$('.runner-btn[data-runner="self"]').classList.add("active");
+
 // ──────────────────────────────────────────────────────────────
 // Compile
 const log = $("#log");
@@ -545,6 +555,7 @@ $("#btn-compile").onclick = async () => {
   appendLog(`▶ board    : ${state.board.brand} ${state.board.name} (${state.board.id})`);
   appendLog(`▶ chip     : ${CHIP_LABEL[state.board.chip] || state.board.chip}`);
   appendLog(`▶ esphome  : ${state.branch}`);
+  appendLog(`▶ runner   : ${state.runner === "self" ? "self-hosted (Unraid)" : "GitHub-hosted (ubuntu-latest)"}`);
   appendLog(`▶ repo     : ${CONFIG.compileRepo}`);
 
   if (!CONFIG.apiBase) {
@@ -574,6 +585,7 @@ $("#btn-compile").onclick = async () => {
         yaml: editor.value,
         board: state.board.id,
         branch: state.branch,
+        runner: state.runner,
         files: state.extras.map(x => x.kind === "url"
           ? ({ name: x.name, url: x.url })
           : ({ name: x.name, content_b64: x.content_b64 })),
