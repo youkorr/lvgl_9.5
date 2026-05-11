@@ -157,8 +157,25 @@ $("#url-confirm").onclick = () => {
 extrasDropzone.addEventListener("drop", e => addExtras([...e.dataTransfer.files]));
 extrasDropzone.addEventListener("click", () => extrasInput.click());
 
+// Files we silently drop from the extras zone:
+//   - fonts: ESPHome regenerates them from glyphs in lvgl: blocks, or they're
+//     fetched at build time from external_components / URLs. Bundling raw
+//     .ttf/.woff files inline would blow past the 60 KB repository_dispatch
+//     ceiling for almost no reason.
+//   - images: same story — ESPHome's image: component pulls them from the
+//     filesystem placed by external_components or from a `file:` URL. Sending
+//     them base64-encoded through the dispatch payload is wasteful.
+// If users genuinely need to ship one, they can still 'Add URL' (URLs are
+// fetched server-side and don't count toward the dispatch limit).
+const SKIP_EXT_RE =
+  /\.(ttf|otf|woff2?|eot|bdf|pcf|fnt|png|jpe?g|gif|bmp|svg|webp|ico|tiff?|psd|heic|avif)$/i;
+
+let lastSkipped = [];   // names skipped on the most recent add — surfaced in renderExtras()
+
 async function addExtras(files) {
+  lastSkipped = [];
   for (const f of files) {
+    if (SKIP_EXT_RE.test(f.name)) { lastSkipped.push(f.name); continue; }
     if (state.extras.some(x => x.name === f.name)) continue; // dedup
     const buf = await f.arrayBuffer();
     const b64 = arrayBufferToBase64(buf);
@@ -199,6 +216,17 @@ function renderExtras() {
     el.querySelector("button").onclick = () => removeExtra(x.name);
     extrasList.appendChild(el);
   });
+  // Surface any fonts/images we just filtered out so the user knows the drop
+  // wasn't lost in the void. Single line, dismissable next render.
+  if (lastSkipped.length) {
+    const skip = document.createElement("div");
+    skip.className = "w-full mt-2 text-[11px] text-amber-300/80 leading-snug";
+    const preview = lastSkipped.slice(0, 3).map(escapeHTML).join(", ");
+    const more    = lastSkipped.length > 3 ? ` +${lastSkipped.length - 3} more` : "";
+    skip.innerHTML = `⚠ Skipped ${lastSkipped.length} font${lastSkipped.length>1?"s":""}/image${lastSkipped.length>1?"s":""}: <span class="font-mono text-amber-200/90">${preview}</span>${more}.
+      <span class="text-zinc-500">ESPHome bundles these via <code class="text-zinc-400">external_components</code>; use “Add URL” if you really need to ship one inline.</span>`;
+    extrasList.appendChild(skip);
+  }
   if (state.extras.length === 0) return;
   const total = extrasTotalSize();
   const meta = document.createElement("span");
