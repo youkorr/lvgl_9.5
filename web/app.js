@@ -335,7 +335,7 @@ function renderBoards() {
     .filter(b => !q || (b.name+" "+b.brand+" "+b.id).toLowerCase().includes(q))
     .forEach(b => {
       const el = document.createElement("div");
-      el.className = "board-card";
+      el.className = "board-card w-[260px] shrink-0 snap-start";
       if (state.board && state.board.id === b.id) el.classList.add("selected");
       el.innerHTML = `
         <div class="flex items-start justify-between gap-2">
@@ -373,6 +373,13 @@ function selectBoard(b) {
 chipSel.addEventListener("change", renderBoards);
 searchInp.addEventListener("input", debounce(renderBoards, 120));
 renderBoards();
+
+// Roller arrow buttons for the boards picker.
+const BOARD_TILE_STEP = 276; // 260px tile + 16px gap
+const boardLeft  = $("#board-scroll-left");
+const boardRight = $("#board-scroll-right");
+if (boardLeft)  boardLeft.onclick  = () => grid.scrollBy({ left: -BOARD_TILE_STEP, behavior: "smooth" });
+if (boardRight) boardRight.onclick = () => grid.scrollBy({ left:  BOARD_TILE_STEP, behavior: "smooth" });
 
 // ──────────────────────────────────────────────────────────────
 // GitHub repo picker (public repos, no token required)

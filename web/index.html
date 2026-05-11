@@ -231,7 +231,25 @@
         </select>
       </div>
     </div>
-    <div id="board-grid" class="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3"></div>
+    <!-- Horizontal roller — same pattern as the repo picker. -->
+    <div class="relative">
+      <button id="board-scroll-left" type="button" aria-label="Scroll left"
+              class="hidden sm:grid place-items-center absolute left-0 top-1/2 -translate-y-1/2 z-10
+                     w-9 h-9 rounded-full bg-ink-800/90 border border-white/10
+                     text-zinc-300 hover:bg-ink-700 transition shadow-lg backdrop-blur">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <button id="board-scroll-right" type="button" aria-label="Scroll right"
+              class="hidden sm:grid place-items-center absolute right-0 top-1/2 -translate-y-1/2 z-10
+                     w-9 h-9 rounded-full bg-ink-800/90 border border-white/10
+                     text-zinc-300 hover:bg-ink-700 transition shadow-lg backdrop-blur">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+      </button>
+      <div id="board-grid"
+           class="flex gap-3 overflow-x-auto pb-3 snap-x snap-mandatory
+                  scroll-smooth px-1 sm:px-12"
+           style="scrollbar-width: thin;"></div>
+    </div>
   </div>
 </section>
 
@@ -408,7 +426,7 @@
   </div>
 </footer>
 
-<script src="./boards.js?v=16"></script>
-<script src="./app.js?v=16"></script>
+<script src="./boards.js?v=17"></script>
+<script src="./app.js?v=17"></script>
 </body>
 </html>
