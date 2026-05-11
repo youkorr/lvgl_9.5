@@ -56,13 +56,54 @@ export default {
         return json({ error: "missing yaml/board/branch" }, 400, origin);
       const runnerChoice = (runner === "github") ? "github" : "self";
 
-      const yaml_b64 = btoa(unescape(encodeURIComponent(yaml)));
+      // GitHub's repository_dispatch client_payload is hard-capped at 65535
+      // bytes. base64 inflates by ~33%, so any YAML over ~30 KB raw will
+      // overflow once we add the other fields. For those, stash the YAML in
+      // a transient secret gist and inject it as a URL-backed entry in the
+      // `files` array; the workflow's existing "Write extra files" step
+      // fetches it (running *after* "Decode YAML", so it overwrites the
+      // placeholder we ship inline).
+      const YAML_RAW_INLINE_LIMIT = 30 * 1024;
+      const yamlBytes = new TextEncoder().encode(yaml).length;
+      let filesList = Array.isArray(files) ? [...files] : [];
+      let yaml_b64;
+      let gist_id = null;
+
+      if (yamlBytes > YAML_RAW_INLINE_LIMIT) {
+        // Create a "secret" (= unlisted) gist holding the YAML. The raw URL
+        // we get back is unauthenticated but unguessable — same threat model
+        // as a presigned S3 URL, fine for a one-shot build.
+        const gr = await fetch("https://api.github.com/gists", {
+          method: "POST",
+          headers: ghHeaders(env.GH_TOKEN),
+          body: JSON.stringify({
+            description: "ncaseonetwo.xyz transient compile YAML",
+            public: false,
+            files: { "device.yaml": { content: yaml } },
+          }),
+        });
+        if (!gr.ok)
+          return json({ error: "gist upload failed", detail: await gr.text() }, 502, origin);
+        const gist = await gr.json();
+        const raw  = gist?.files?.["device.yaml"]?.raw_url;
+        if (!raw)
+          return json({ error: "gist missing raw_url" }, 502, origin);
+        gist_id = gist.id;
+        // Drop any existing same-named entry to avoid double-fetch ambiguity.
+        filesList = filesList.filter(f => f && f.name !== "device.yaml");
+        filesList.push({ name: "device.yaml", url: raw });
+        // Inline payload becomes a tiny placeholder so "Decode YAML" still
+        // writes a valid (overwritten) file.
+        yaml_b64 = btoa("# (fetched from gist " + gist_id + ")\n");
+      } else {
+        yaml_b64 = btoa(unescape(encodeURIComponent(yaml)));
+      }
 
       // Pack extra files into a single base64 JSON string so the workflow
       // receives them as one client_payload field.
       let files_b64 = "";
-      if (Array.isArray(files) && files.length) {
-        for (const f of files) {
+      if (filesList.length) {
+        for (const f of filesList) {
           if (typeof f.name !== "string" || /(^\/|\.\.|\\)/.test(f.name))
             return json({ error: `invalid file name: ${f && f.name}` }, 400, origin);
           if (f.url && !/^https:\/\//i.test(f.url))
@@ -70,7 +111,7 @@ export default {
           if (!f.url && !f.content_b64)
             return json({ error: `file ${f.name} has neither content_b64 nor url` }, 400, origin);
         }
-        files_b64 = btoa(unescape(encodeURIComponent(JSON.stringify(files))));
+        files_b64 = btoa(unescape(encodeURIComponent(JSON.stringify(filesList))));
       }
 
       // Dispatch
@@ -106,7 +147,7 @@ export default {
       if (!run)
         return json({ error: "could not locate triggered run" }, 504, origin);
 
-      return json({ run_id: run.id, html_url: run.html_url }, 200, origin);
+      return json({ run_id: run.id, html_url: run.html_url, gist_id }, 200, origin);
     }
 
     if (url.pathname === "/status" && req.method === "GET") {
