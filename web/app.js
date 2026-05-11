@@ -526,6 +526,10 @@ const log = $("#log");
 const statusDot = $("#status-dot");
 const statusLabel = $("#status-label");
 const runLink = $("#run-link");
+const btnStop = $("#btn-stop");
+
+// run_id currently being polled — null when idle / completed.
+let currentRunId = null;
 
 function setStatus(s, label) {
   statusDot.className = "w-2 h-2 rounded-full bg-zinc-600";
@@ -533,6 +537,96 @@ function setStatus(s, label) {
   if (s === "ok")      statusDot.classList.add("status-ok");
   if (s === "err")     statusDot.classList.add("status-err");
   statusLabel.textContent = label;
+  // Stop button only makes sense while a run is in flight.
+  if (btnStop) {
+    if (s === "running") btnStop.classList.remove("hidden");
+    else                 btnStop.classList.add("hidden");
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+// SVG device mockup — paints the on-screen content based on a state.
+//
+//   state ∈ { "idle", "compiling", "success", "error", "cancelled" }
+//   info  — optional context: { board, chip, message, progress }
+const mockupContent = () => document.getElementById("mockup-content");
+const mockupScreen  = () => document.getElementById("mockup-screen");
+const mockupCap     = () => document.getElementById("mockup-caption");
+
+function setMockupState(s, info = {}) {
+  const c = mockupContent();
+  const screen = mockupScreen();
+  if (!c || !screen) return;
+  const board = info.board || (state.board && state.board.name) || "ncaseonetwo";
+
+  let svg = "";
+  let cap = "";
+  let screenFill = "url(#screen-off)";
+
+  if (s === "compiling") {
+    screenFill = "#0a1620";
+    const pct = Math.max(0, Math.min(100, info.progress || 0));
+    svg = `
+      <text x="200" y="120" fill="#00f5d4" font-size="20" font-weight="600">building…</text>
+      <text x="200" y="148" fill="#71717a" font-size="13">${escapeHTML(board)}</text>
+      <rect x="80" y="180" width="240" height="6" rx="3" fill="#1f2937"/>
+      <rect x="80" y="180" width="${(240 * pct / 100).toFixed(1)}" height="6" rx="3" fill="#00f5d4">
+        <animate attributeName="opacity" values="0.6;1;0.6" dur="1.4s" repeatCount="indefinite"/>
+      </rect>
+      <text x="200" y="210" fill="#52525b" font-size="11">${pct}%</text>`;
+    cap = `Compiling on ${info.runner || "—"}…`;
+  } else if (s === "success") {
+    screenFill = "#062017";
+    svg = `
+      <circle cx="200" cy="120" r="32" fill="none" stroke="#84cc16" stroke-width="3"/>
+      <path d="M184 122 l12 12 l22 -26" fill="none" stroke="#84cc16" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="200" y="190" fill="#a3e635" font-size="18" font-weight="600">ready to flash</text>
+      <text x="200" y="214" fill="#71717a" font-size="12">${escapeHTML(board)}</text>`;
+    cap = "Firmware built — download or flash it.";
+  } else if (s === "error" || s === "failure") {
+    screenFill = "#1c0710";
+    svg = `
+      <circle cx="200" cy="120" r="32" fill="none" stroke="#f43f5e" stroke-width="3"/>
+      <path d="M186 106 l28 28 M214 106 l-28 28" stroke="#f43f5e" stroke-width="4" stroke-linecap="round"/>
+      <text x="200" y="190" fill="#fb7185" font-size="18" font-weight="600">build failed</text>
+      <text x="200" y="214" fill="#71717a" font-size="11">${escapeHTML(info.message || "see log above")}</text>`;
+    cap = "Something went wrong — open the run for details.";
+  } else if (s === "cancelled") {
+    screenFill = "#13141a";
+    svg = `
+      <circle cx="200" cy="120" r="32" fill="none" stroke="#a1a1aa" stroke-width="3"/>
+      <path d="M180 100 l40 40" stroke="#a1a1aa" stroke-width="3" stroke-linecap="round"/>
+      <text x="200" y="190" fill="#d4d4d8" font-size="18" font-weight="600">cancelled</text>`;
+    cap = "Build cancelled.";
+  } else {
+    // idle
+    svg = `
+      <text x="200" y="140" fill="#3f3f46" font-size="14">screen off</text>
+      <circle cx="200" cy="170" r="3" fill="#27272a"/>`;
+    cap = "Idle — pick a board and hit Compile.";
+  }
+
+  screen.setAttribute("fill", screenFill);
+  c.innerHTML = svg;
+  mockupCap().textContent = cap;
+}
+
+// Stop button → ask Worker to cancel the current run.
+if (btnStop) {
+  btnStop.onclick = async () => {
+    if (!currentRunId) return;
+    btnStop.disabled = true;
+    appendLog(`■ cancelling run ${currentRunId}…`);
+    try {
+      const r = await fetch(`${CONFIG.apiBase}/cancel?run_id=${currentRunId}`, { method: "POST" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+      // The poll loop will see the run transition to "cancelled" and update
+      // status / mockup itself. We don't tear anything down here.
+    } catch (e) {
+      appendLog("✖ cancel failed: " + e.message);
+      btnStop.disabled = false;
+    }
+  };
 }
 function appendLog(line) {
   if (log.textContent === "Waiting for a build…") log.textContent = "";
@@ -552,6 +646,7 @@ $("#btn-compile").onclick = async () => {
 
   log.textContent = "";
   setStatus("running", "queued…");
+  setMockupState("compiling", { progress: 5, runner: state.runner === "self" ? "Unraid" : "GitHub" });
   appendLog(`▶ board    : ${state.board.brand} ${state.board.name} (${state.board.id})`);
   appendLog(`▶ chip     : ${CHIP_LABEL[state.board.chip] || state.board.chip}`);
   appendLog(`▶ esphome  : ${state.branch}`);
@@ -593,12 +688,14 @@ $("#btn-compile").onclick = async () => {
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
     const { run_id, html_url } = await r.json();
+    currentRunId = run_id;
     appendLog(`✓ dispatched · run_id=${run_id}`);
     runLink.href = html_url; runLink.classList.remove("hidden");
     pollStatus(run_id);
   } catch (e) {
     appendLog("✖ " + e.message);
     setStatus("err", "failed");
+    setMockupState("error", { message: e.message });
   }
 };
 
@@ -623,20 +720,44 @@ async function pollStatus(runId) {
     }
 
     setStatus("running", `${s.status}${".".repeat(++dots % 4)}`);
+
+    // Rough progress estimate from the proportion of completed steps so the
+    // mockup's progress bar moves visibly while the build runs.
+    if (s.status !== "completed") {
+      const all = (s.jobs || []).flatMap(j => j.steps || []);
+      const done = all.filter(st => st.status === "completed").length;
+      const pct  = all.length ? Math.round((done / all.length) * 100) : 0;
+      setMockupState("compiling", {
+        progress: Math.max(5, pct),
+        runner: job && job.runner_name ? job.runner_name : (state.runner === "self" ? "Unraid" : "GitHub"),
+      });
+    }
+
     if (s.status === "completed") {
+      currentRunId = null;
       if (s.conclusion === "success") {
         setStatus("ok", "success");
+        setMockupState("success");
         appendLog("");
         appendLog("✓ build successful");
         (s.artifacts || []).forEach(a => appendLog(`  ↓ ${a.name}: ${a.url}`));
+      } else if (s.conclusion === "cancelled") {
+        setStatus("err", "cancelled");
+        setMockupState("cancelled");
+        appendLog("■ build cancelled");
       } else {
         setStatus("err", s.conclusion || "failed");
+        setMockupState("error", { message: `build ${s.conclusion || "failed"}` });
         appendLog("✖ build " + s.conclusion);
       }
       return;
     }
   }
 }
+
+// Paint the initial idle state. The script tag lives at the end of <body>
+// so the SVG nodes are already parsed by the time we get here.
+setMockupState("idle");
 
 // ──────────────────────────────────────────────────────────────
 // Step timeline rendering

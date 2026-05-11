@@ -172,6 +172,23 @@ export default {
       }, 200, origin);
     }
 
+    // POST /cancel?run_id=… — cancels an in-progress / queued GitHub Actions
+    // run. Useful if the user dispatched the wrong YAML or wrong board.
+    if (url.pathname === "/cancel" && req.method === "POST") {
+      const runId = url.searchParams.get("run_id");
+      if (!runId) return json({ error: "missing run_id" }, 400, origin);
+
+      const r = await fetch(
+        `https://api.github.com/repos/${env.COMPILE_REPO}/actions/runs/${runId}/cancel`,
+        { method: "POST", headers: ghHeaders(env.GH_TOKEN) }
+      );
+      // GitHub returns 202 Accepted (no body) on success.
+      if (!r.ok && r.status !== 202) {
+        return json({ error: "cancel failed", status: r.status, detail: await r.text() }, 502, origin);
+      }
+      return json({ ok: true }, 200, origin);
+    }
+
     return json({ error: "not found" }, 404, origin);
   },
 };
