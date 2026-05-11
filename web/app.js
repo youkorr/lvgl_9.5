@@ -7,7 +7,7 @@
 const CONFIG = {
   // Cloudflare Worker that holds the GitHub PAT and dispatches the compile
   // workflow. Set up in worker/worker.js — never put a token in this file.
-  apiBase:     "https://ncaseonetwo-api.sapphire-younes.workers.dev",
+  apiBase:     "https://api.ncaseonetwo.xyz",
   // Repo that hosts the compile workflow.
   compileRepo: "youkorr/ncaseonetwo-builds",
 };
