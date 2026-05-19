@@ -1,0 +1,1528 @@
+# ============================================================================
+# Dashboard ESP32-P4 Waveshare 7" Touch LCD (1024x600)
+# - 3 colonnes: Chambre / Animation centrale / Salon
+# - Animation MP4 au centre, agrandissable en plein écran sur touch
+# - Entités Home Assistant pour ajouter facilement des devices
+# ----------------------------------------------------------------------------
+# Composants requis (cf. external_components):
+#   - lvgl 9.5 (youkorr/lvgl_9.5)
+#   - mp4_player (youkorr/test2_esp_video_esphome) avec fullscreen_on_touch
+#   - sd_mmc_card, storage, webdavbox3
+#
+# Carte SD attendue:
+#   - /sdcard/videos/animation.mp4   (vidéo centrale MJPEG, ~340x270 ou plus,
+#                                     recommandée: 640x480 MJPEG @ 20fps)
+# ============================================================================
+
+substitutions:
+  device_name: "p4-dashboard"
+  friendly_name: "P4 Dashboard"
+  # Vidéo centrale animée (vous pouvez aussi la pointer sur /usb/...)
+  central_video: "/sdcard/videos/animation.mp4"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  on_boot:
+    priority: 850
+    then:
+      - logger.log: "Démarrage - Attente du montage SD..."
+      - delay: 4s
+      - logger.log: "Allumage rétroéclairage"
+      - light.turn_on: backlight
+
+esp32:
+  board: esp32-p4-evboard
+  cpu_frequency: 360MHz
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    version: 5.5.2
+    platform_version: 55.03.35
+    advanced:
+      enable_idf_experimental_features: yes
+      disable_vfs_support_dir: false
+    sdkconfig_options:
+      CONFIG_ESP_H264_DUAL_TASK: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+      CONFIG_ESP32_SPIRAM_SUPPORT: "y"
+      CONFIG_SPIRAM_USE_MALLOC: "y"
+      CONFIG_FATFS_LFN_STACK: "y"
+      CONFIG_LWIP_MAX_SOCKETS: "16"
+      CONFIG_VFS_SUPPORT_IO: "y"
+      CONFIG_VFS_MAX_COUNT: "16"
+      CONFIG_ESP_MAIN_TASK_STACK_SIZE: "16384"
+      CONFIG_ESP_TIMER_TASK_STACK_SIZE: "4096"
+      CONFIG_ESP_TASK_WDT_TIMEOUT_S: "60"
+      CONFIG_ESP_TASK_LOOP_STACK_SIZE: "16384"
+      CONFIG_FATFS_LFN_HEAP: "y"
+      CONFIG_SPIRAM_SPEED_200M: "y"
+      CONFIG_SPIRAM_SPEED: "200"
+
+psram:
+  speed: 200MHz
+
+logger:
+  hardware_uart: USB_SERIAL_JTAG
+  level: INFO
+  logs:
+    lvgl: WARN
+    display: WARN
+    mp4_player: INFO
+
+api:
+  encryption:
+    key: !secret api_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${friendly_name} Fallback"
+    password: !secret ap_password
+
+captive_portal:
+
+network:
+  enable_ipv6: true
+
+time:
+  - platform: homeassistant
+    id: ha_time
+    on_time_sync:
+      - script.execute: update_clock
+    on_time:
+      - seconds: "0"
+        minutes: "*"
+        then:
+          - script.execute: update_clock
+  - platform: sntp
+    id: sntp_time
+
+i2c:
+  - id: bsp_bus
+    sda: GPIO7
+    scl: GPIO8
+    frequency: 400kHz
+    scan: true
+
+# Alimentation MIPI-DSI sur ESP32-P4 Waveshare
+esp_ldo:
+  - voltage: 2.5V
+    channel: 3
+  - voltage: 2.5V
+    channel: 4
+
+# ============================================================================
+# Composants externes
+# ============================================================================
+external_components:
+  - source:
+      type: git
+      url: https://github.com/youkorr/lvgl_9.5
+      ref: claude/esp32-dashboard-video-7L9Gc
+    components: [lvgl, image, font]
+    refresh: always
+  - source:
+      type: git
+      url: https://github.com/youkorr/test2_esp_video_esphome
+      ref: claude/esp32-dashboard-video-7L9Gc
+    components: [sd_mmc_card, storage, webdavbox3, mp4_player]
+    refresh: always
+
+# ============================================================================
+# Stockage SD
+# ============================================================================
+sd_mmc_card:
+  id: sd_card
+  clk_pin: GPIO43
+  cmd_pin: GPIO44
+  data0_pin: GPIO39
+  data1_pin: GPIO40
+  data2_pin: GPIO41
+  data3_pin: GPIO42
+  mode_1bit: false
+  slot: 0
+
+webdavbox3:
+  id: sd_webdav
+  root_path: "/sdcard"
+  url_prefix: "/"
+  port: 81
+  username: !secret webdav_user
+  password: !secret webdav_password
+
+storage:
+  platform: sd_direct
+  id: my_storage
+  sd_component: sd_card
+  root_path: "/sdcard"
+
+# ============================================================================
+# Lecteur MP4 (animation centrale)
+# ============================================================================
+mp4_player:
+  - id: central_video_player
+    file_path: ${central_video}
+    parent_id: anim_card        # carré LVGL au centre du dashboard
+    auto_play: true
+    loop: true
+    show_controls: false        # contrôles affichés seulement en plein écran
+    fullscreen_on_touch: true   # ← un touch agrandit l'animation
+    fullscreen_anim_ms: 400
+    on_play:
+      then:
+        - logger.log: "Animation lancée"
+    on_stop:
+      then:
+        - logger.log: "Animation stoppée"
+
+# ============================================================================
+# Affichage MIPI-DSI
+# ============================================================================
+display:
+  - platform: mipi_dsi
+    id: main_display
+    model: WAVESHARE-ESP32-P4-WIFI6-TOUCH-LCD-7B
+    reset_pin:
+      number: 33
+    rotation: 0
+    update_interval: never
+    auto_clear_enabled: false
+    dimensions:
+      width: 1024
+      height: 600
+
+touchscreen:
+  - platform: gt911
+    id: touch
+    i2c_id: bsp_bus
+    reset_pin: GPIO23
+    update_interval: 50ms
+    on_touch:
+      - light.turn_on: backlight
+    transform:
+      swap_xy: false
+      mirror_x: false
+      mirror_y: false
+
+output:
+  - platform: ledc
+    pin: GPIO32
+    id: backlight_pwm
+    frequency: 1000Hz
+    inverted: true
+
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    name: "Display Backlight"
+    id: backlight
+    restore_mode: RESTORE_DEFAULT_ON
+    default_transition_length: 250ms
+
+# ============================================================================
+# Couleurs
+# ============================================================================
+color:
+  - id: c_bg
+    hex: "0c0c0e"
+  - id: c_card
+    hex: "1a1a1d"
+  - id: c_card_alt
+    hex: "242428"
+  - id: c_card_accent
+    hex: "2f2738"      # violet sombre (pour cartes "Open ...")
+  - id: c_text
+    hex: "f0f0f3"
+  - id: c_muted
+    hex: "8d8d96"
+  - id: c_accent
+    hex: "b58aff"
+  - id: c_orange
+    hex: "f0a36b"
+  - id: c_blue
+    hex: "7ac3ff"
+
+# ============================================================================
+# Entités Home Assistant (devices)
+# Tous les sensors HA ci-dessous sont des points d'entrée: pour ajouter un
+# nouveau device, ajoutez simplement une ligne ici, puis référencez son id
+# depuis un widget LVGL.
+# ============================================================================
+sensor:
+  - platform: homeassistant
+    id: ha_power_realtime
+    entity_id: sensor.power_consumption
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_power_value
+            text: !lambda |-
+              char buf[24];
+              snprintf(buf, sizeof(buf), "%.0f VA", x);
+              return std::string(buf);
+  - platform: homeassistant
+    id: ha_temp_chambre
+    entity_id: sensor.chambre_temperature
+    on_value:
+      then:
+        - script.execute: refresh_chambre_header
+  - platform: homeassistant
+    id: ha_humid_chambre
+    entity_id: sensor.chambre_humidity
+    on_value:
+      then:
+        - script.execute: refresh_chambre_header
+  - platform: homeassistant
+    id: ha_setpoint_chambre
+    entity_id: climate.chambre
+    attribute: temperature
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_setpoint_chambre
+            text: !lambda |-
+              char buf[8];
+              snprintf(buf, sizeof(buf), "%.0f", x);
+              return std::string(buf);
+  - platform: homeassistant
+    id: ha_temp_salon
+    entity_id: sensor.salon_temperature
+    on_value:
+      then:
+        - script.execute: refresh_salon_header
+  - platform: homeassistant
+    id: ha_humid_salon
+    entity_id: sensor.salon_humidity
+    on_value:
+      then:
+        - script.execute: refresh_salon_header
+  - platform: homeassistant
+    id: ha_setpoint_salon
+    entity_id: climate.salon
+    attribute: temperature
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_setpoint_salon
+            text: !lambda |-
+              char buf[8];
+              snprintf(buf, sizeof(buf), "%.1f", x);
+              return std::string(buf);
+  - platform: homeassistant
+    id: ha_outdoor_temp
+    entity_id: weather.home
+    attribute: temperature
+  # Templates exposés à HA (utilisé pour les % de fenêtre / volet)
+  - platform: template
+    id: chambre_window_pct
+    name: "Chambre Window Open %"
+    lambda: "return 56;"
+    update_interval: 60s
+  - platform: template
+    id: salon_window_pct
+    name: "Salon Window Open %"
+    lambda: "return 100;"
+    update_interval: 60s
+
+text_sensor:
+  - platform: homeassistant
+    id: ha_weather_state
+    entity_id: weather.home
+  - platform: homeassistant
+    id: ha_chambre_window_lastseen
+    entity_id: binary_sensor.chambre_window
+    attribute: last_changed
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_chambre_lastseen
+            text: !lambda 'return x;'
+  - platform: homeassistant
+    id: ha_bain_window_lastseen
+    entity_id: binary_sensor.salle_de_bain_window
+    attribute: last_changed
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_bain_lastseen
+            text: !lambda 'return x;'
+  - platform: homeassistant
+    id: ha_raspberry_state
+    entity_id: switch.raspberry_tv
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_raspberry_state
+            text: !lambda 'return x == "on" ? std::string("Allumé") : std::string("Éteint");'
+  - platform: homeassistant
+    id: ha_imprimante3d_state
+    entity_id: switch.imprimante_3d
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_imprimante_state
+            text: !lambda 'return x == "on" ? std::string("Allumé") : std::string("Éteint");'
+
+binary_sensor:
+  - platform: homeassistant
+    id: ha_chambre_main_light
+    entity_id: light.chambre
+  - platform: homeassistant
+    id: ha_chambre_fan
+    entity_id: fan.chambre
+  - platform: homeassistant
+    id: ha_chambre_humidifier
+    entity_id: switch.chambre_humidifier
+  - platform: homeassistant
+    id: ha_chambre_dressing
+    entity_id: light.dressing
+  - platform: homeassistant
+    id: ha_chambre_cover
+    entity_id: cover.chambre
+  - platform: homeassistant
+    id: ha_salon_main_light
+    entity_id: light.salon
+  - platform: homeassistant
+    id: ha_salon_fan
+    entity_id: fan.salon
+  - platform: homeassistant
+    id: ha_salon_tv
+    entity_id: media_player.tv_salon
+  - platform: homeassistant
+    id: ha_salon_pc
+    entity_id: switch.pc_salon
+  - platform: homeassistant
+    id: ha_salon_cover
+    entity_id: cover.salon
+
+# ============================================================================
+# Polices
+# ============================================================================
+font:
+  - file:
+      type: gfonts
+      family: Inter
+      weight: 400
+    id: font_xs
+    size: 12
+    bpp: 4
+  - file:
+      type: gfonts
+      family: Inter
+      weight: 500
+    id: font_sm
+    size: 14
+    bpp: 4
+  - file:
+      type: gfonts
+      family: Inter
+      weight: 600
+    id: font_md
+    size: 18
+    bpp: 4
+  - file:
+      type: gfonts
+      family: Inter
+      weight: 700
+    id: font_lg
+    size: 24
+    bpp: 4
+  - file:
+      type: gfonts
+      family: Inter
+      weight: 700
+    id: font_clock
+    size: 56
+    bpp: 4
+  # Icônes MDI
+  - file:
+      type: web+font
+      url: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
+    id: font_mdi
+    size: 22
+    bpp: 4
+    glyphs: |-
+      \U000F0335
+      \U000F0339
+      \U000F03D6
+      \U000F0E14
+      \U000F11FB
+      \U000F050F
+      \U000F046E
+      \U000F1376
+      \U000F0428
+      \U000F0210
+      \U000F0297
+      \U000F02E3
+      \U000F0156
+      \U000F0306
+      \U000F0490
+      \U000F0846
+      \U000F02FC
+      \U000F048D
+      \U000F0CE5
+      \U000F0567
+      \U000F03B6
+  - file:
+      type: web+font
+      url: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
+    id: font_mdi_lg
+    size: 32
+    bpp: 4
+    glyphs: |-
+      \U000F0335
+      \U000F0339
+      \U000F03D6
+      \U000F0E14
+      \U000F11FB
+      \U000F050F
+      \U000F046E
+      \U000F1376
+      \U000F0428
+
+# ============================================================================
+# Scripts
+# ============================================================================
+script:
+  - id: update_clock
+    then:
+      - lvgl.label.update:
+          id: lbl_clock
+          text: !lambda |-
+            char buf[16];
+            auto t = id(ha_time).now();
+            if (!t.is_valid()) return std::string("--:--");
+            int h = t.hour % 12;
+            if (h == 0) h = 12;
+            snprintf(buf, sizeof(buf), "%d:%02d", h, t.minute);
+            return std::string(buf);
+      - lvgl.label.update:
+          id: lbl_clock_period
+          text: !lambda |-
+            auto t = id(ha_time).now();
+            if (!t.is_valid()) return std::string("");
+            return std::string(t.hour < 12 ? "AM" : "PM");
+
+  - id: refresh_chambre_header
+    then:
+      - lvgl.label.update:
+          id: lbl_temp_chambre
+          text: !lambda |-
+            char buf[32];
+            float t = id(ha_temp_chambre).has_state() ? id(ha_temp_chambre).state : 0.0f;
+            float h = id(ha_humid_chambre).has_state() ? id(ha_humid_chambre).state : 0.0f;
+            snprintf(buf, sizeof(buf), "%.1f °C (%.0f %%)", t, h);
+            return std::string(buf);
+
+  - id: refresh_salon_header
+    then:
+      - lvgl.label.update:
+          id: lbl_temp_salon
+          text: !lambda |-
+            char buf[32];
+            float t = id(ha_temp_salon).has_state() ? id(ha_temp_salon).state : 0.0f;
+            float h = id(ha_humid_salon).has_state() ? id(ha_humid_salon).state : 0.0f;
+            snprintf(buf, sizeof(buf), "%.1f °C (%.0f %%)", t, h);
+            return std::string(buf);
+
+# ============================================================================
+# LVGL UI
+# ============================================================================
+lvgl:
+  use_ppa: true
+  byte_order: little_endian
+  displays:
+    - main_display
+  touchscreens:
+    - touch
+
+  style_definitions:
+    - id: card_style
+      bg_color: c_card
+      bg_opa: COVER
+      border_width: 0
+      radius: 16
+      pad_all: 12
+    - id: card_alt_style
+      bg_color: c_card_alt
+      bg_opa: COVER
+      border_width: 0
+      radius: 14
+      pad_all: 10
+    - id: card_accent_style
+      bg_color: c_card_accent
+      bg_opa: COVER
+      border_width: 0
+      radius: 14
+      pad_all: 10
+    - id: btn_style
+      bg_color: c_card_alt
+      bg_opa: COVER
+      border_width: 0
+      radius: 12
+      text_color: c_text
+
+  pages:
+    - id: home_page
+      bg_color: c_bg
+      widgets:
+
+        # ====================================================================
+        # COLONNE GAUCHE — CHAMBRE
+        # ====================================================================
+        # Carte Consommation
+        - obj:
+            x: 10
+            y: 10
+            width: 310
+            height: 130
+            styles: card_style
+            widgets:
+              - label:
+                  x: 0
+                  y: 0
+                  text: "\U000F0E14"   # icône éclair
+                  text_font: font_mdi
+                  text_color: c_blue
+              - label:
+                  x: 30
+                  y: 2
+                  text: "Consommation en temps réel"
+                  text_color: c_muted
+                  text_font: font_xs
+              - label:
+                  id: lbl_power_value
+                  align: TOP_RIGHT
+                  x: 0
+                  y: 0
+                  text: "470 VA"
+                  text_color: c_text
+                  text_font: font_sm
+              # Mini sparkline
+              - line:
+                  id: power_sparkline
+                  x: 0
+                  y: 30
+                  width: 290
+                  height: 90
+                  line_color: c_accent
+                  line_width: 2
+                  line_rounded: true
+                  points: [[0,70],[15,60],[30,50],[45,55],[60,40],[75,30],[90,45],[105,55],[120,35],[135,50],[150,45],[165,30],[180,20],[195,30],[210,45],[225,55],[240,40],[255,60],[270,70],[285,55]]
+
+        # En-tête Chambre + température
+        - obj:
+            x: 10
+            y: 150
+            width: 310
+            height: 28
+            bg_opa: TRANSP
+            border_width: 0
+            pad_all: 0
+            widgets:
+              - label:
+                  x: 0
+                  y: 4
+                  text: "\U000F02E3  Chambre"
+                  text_color: c_text
+                  text_font: font_md
+              - label:
+                  id: lbl_temp_chambre
+                  align: TOP_RIGHT
+                  x: 0
+                  y: 6
+                  text: "19.2 °C (41 %)"
+                  text_color: c_muted
+                  text_font: font_xs
+
+        # Carte de contrôle Chambre (toute la chambre)
+        - button:
+            x: 10
+            y: 184
+            width: 150
+            height: 70
+            styles: card_style
+            id: card_chambre_all
+            on_click:
+              - homeassistant.service:
+                  service: light.toggle
+                  data:
+                    entity_id: light.chambre
+            widgets:
+              - label:
+                  x: 0
+                  y: 5
+                  text: "\U000F02E3"
+                  text_font: font_mdi
+                  text_color: c_muted
+              - label:
+                  x: 0
+                  y: 30
+                  text: "Toute la\nchambre"
+                  text_font: font_sm
+                  text_color: c_text
+              - label:
+                  align: BOTTOM_LEFT
+                  x: 0
+                  y: -2
+                  text: "Off"
+                  text_font: font_xs
+                  text_color: c_muted
+
+        - obj:
+            x: 170
+            y: 184
+            width: 150
+            height: 70
+            styles: card_style
+            widgets:
+              - label:
+                  x: 0
+                  y: 8
+                  text: "\U000F0210"     # ventilo (water drop placeholder)
+                  text_font: font_mdi
+                  text_color: c_muted
+              - label:
+                  align: BOTTOM_LEFT
+                  x: 0
+                  y: -2
+                  text: "Off"
+                  text_font: font_xs
+                  text_color: c_muted
+
+        - obj:
+            x: 10
+            y: 264
+            width: 65
+            height: 70
+            styles: card_style
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "\U000F0297"   # robinet / dressing
+                  text_font: font_mdi
+                  text_color: c_muted
+              - label:
+                  align: BOTTOM_MID
+                  y: -2
+                  text: "Off"
+                  text_font: font_xs
+                  text_color: c_muted
+
+        - obj:
+            x: 85
+            y: 264
+            width: 75
+            height: 70
+            styles: card_style
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "\U000F02FC"   # chaise/dressing
+                  text_font: font_mdi
+                  text_color: c_muted
+              - label:
+                  align: BOTTOM_MID
+                  y: -2
+                  text: "Off"
+                  text_font: font_xs
+                  text_color: c_muted
+
+        # Thermostat Chambre
+        - obj:
+            x: 170
+            y: 264
+            width: 150
+            height: 130
+            styles: card_style
+            widgets:
+              - label:
+                  x: 0
+                  y: 0
+                  text: "\U000F0335  Chambre"
+                  text_font: font_sm
+                  text_color: c_text
+              - button:
+                  x: 0
+                  y: 38
+                  width: 36
+                  height: 36
+                  bg_color: c_card_alt
+                  radius: 18
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "-"
+                        text_font: font_md
+                        text_color: c_text
+              - label:
+                  id: lbl_setpoint_chambre
+                  x: 40
+                  y: 36
+                  width: 60
+                  text_align: CENTER
+                  text: "19"
+                  text_color: c_text
+                  text_font: font_lg
+              - button:
+                  x: 100
+                  y: 38
+                  width: 36
+                  height: 36
+                  bg_color: c_card_alt
+                  radius: 18
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "+"
+                        text_font: font_md
+                        text_color: c_text
+              - label:
+                  align: BOTTOM_LEFT
+                  y: -2
+                  text: "Indoor • 22 °C"
+                  text_font: font_xs
+                  text_color: c_muted
+
+        # Carte fenêtre / état (accent violet)
+        - obj:
+            x: 10
+            y: 344
+            width: 150
+            height: 50
+            styles: card_accent_style
+            widgets:
+              - label:
+                  x: 0
+                  y: 5
+                  text: "\U000F0306  Chambre"
+                  text_color: c_text
+                  text_font: font_sm
+              - label:
+                  id: lbl_chambre_window
+                  x: 0
+                  y: 26
+                  text: "Open • 56%"
+                  text_color: c_muted
+                  text_font: font_xs
+
+        # Météo Partly cloudy (4h)
+        - obj:
+            x: 10
+            y: 404
+            width: 310
+            height: 100
+            styles: card_style
+            widgets:
+              - obj:
+                  x: 0
+                  y: 0
+                  width: 286
+                  height: 22
+                  radius: 11
+                  bg_color: c_blue
+                  bg_opa: 60%
+                  border_width: 0
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "Partly cloudy"
+                        text_color: c_text
+                        text_font: font_xs
+              - label:
+                  x: 0
+                  y: 30
+                  text: "Mar 21"
+                  text_color: c_muted
+                  text_font: font_xs
+              - label:
+                  x: 60
+                  y: 30
+                  text: "5 PM      7 PM     9 PM    11 PM"
+                  text_color: c_muted
+                  text_font: font_xs
+              - label:
+                  x: 200
+                  y: 30
+                  text: "Mar 22"
+                  text_color: c_muted
+                  text_font: font_xs
+              - label:
+                  x: 260
+                  y: 30
+                  text: "1 AM   3 AM"
+                  text_color: c_muted
+                  text_font: font_xs
+              - label:
+                  x: 0
+                  y: 56
+                  text: "13.7°  10.3°   8.6°   6.6°   5.8°    4.4°"
+                  text_color: c_text
+                  text_font: font_sm
+
+        # Météo 5 jours
+        - obj:
+            x: 10
+            y: 510
+            width: 310
+            height: 80
+            styles: card_style
+            widgets:
+              - label:
+                  x: 5
+                  y: 0
+                  text: "Sat"
+                  text_color: c_muted
+                  text_font: font_xs
+              - label:
+                  x: 5
+                  y: 35
+                  text: "14.4°"
+                  text_color: c_text
+                  text_font: font_sm
+              - label:
+                  x: 5
+                  y: 55
+                  text: "6.6°"
+                  text_color: c_muted
+                  text_font: font_xs
+              - label:
+                  x: 65
+                  y: 0
+                  text: "Sun"
+                  text_color: c_muted
+                  text_font: font_xs
+              - label:
+                  x: 65
+                  y: 35
+                  text: "14.3°"
+                  text_color: c_text
+                  text_font: font_sm
+              - label:
+                  x: 65
+                  y: 55
+                  text: "3.9°"
+                  text_color: c_muted
+                  text_font: font_xs
+              - label:
+                  x: 125
+                  y: 0
+                  text: "Mon"
+                  text_color: c_muted
+                  text_font: font_xs
+              - label:
+                  x: 125
+                  y: 35
+                  text: "15.6°"
+                  text_color: c_text
+                  text_font: font_sm
+              - label:
+                  x: 125
+                  y: 55
+                  text: "4.3°"
+                  text_color: c_muted
+                  text_font: font_xs
+              - label:
+                  x: 185
+                  y: 0
+                  text: "Tue"
+                  text_color: c_muted
+                  text_font: font_xs
+              - label:
+                  x: 185
+                  y: 35
+                  text: "16.7°"
+                  text_color: c_text
+                  text_font: font_sm
+              - label:
+                  x: 185
+                  y: 55
+                  text: "4°"
+                  text_color: c_muted
+                  text_font: font_xs
+              - label:
+                  x: 245
+                  y: 0
+                  text: "Wed"
+                  text_color: c_muted
+                  text_font: font_xs
+              - label:
+                  x: 245
+                  y: 35
+                  text: "9.7°"
+                  text_color: c_text
+                  text_font: font_sm
+              - label:
+                  x: 245
+                  y: 55
+                  text: "5.7°"
+                  text_color: c_muted
+                  text_font: font_xs
+
+        # ====================================================================
+        # COLONNE CENTRALE — HORLOGE + ANIMATION
+        # ====================================================================
+        # Horloge
+        - obj:
+            x: 330
+            y: 10
+            width: 360
+            height: 130
+            styles: card_style
+            widgets:
+              - label:
+                  id: lbl_clock
+                  align: LEFT_MID
+                  x: 50
+                  y: 0
+                  text: "4:34"
+                  text_color: c_text
+                  text_font: font_clock
+              - label:
+                  id: lbl_clock_period
+                  align: LEFT_MID
+                  x: 250
+                  y: 14
+                  text: "PM"
+                  text_color: c_muted
+                  text_font: font_md
+
+        # ANIMATION CENTRALE — c'est le PARENT du mp4_player
+        # On tape dessus → plein écran animé
+        - obj:
+            id: anim_card
+            x: 330
+            y: 150
+            width: 360
+            height: 270
+            bg_color: c_card
+            bg_opa: COVER
+            border_width: 0
+            radius: 18
+            pad_all: 0
+            clip_corner: true
+            widgets:
+              # Placeholder pendant que la vidéo se charge
+              - label:
+                  id: lbl_anim_placeholder
+                  align: CENTER
+                  text: "\U000F0490   Animation"
+                  text_color: c_muted
+                  text_font: font_md
+
+        # Barre de télécommande
+        - obj:
+            x: 330
+            y: 430
+            width: 360
+            height: 50
+            styles: card_style
+            widgets:
+              - button:
+                  x: 0
+                  y: 0
+                  width: 40
+                  height: 30
+                  bg_color: c_card_alt
+                  radius: 15
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "\U000F0339"
+                        text_font: font_mdi
+                        text_color: c_text
+              - label:
+                  x: 50
+                  y: 6
+                  text: "ior"
+                  text_color: c_muted
+                  text_font: font_sm
+              - button:
+                  x: 90
+                  y: 0
+                  width: 40
+                  height: 30
+                  bg_color: c_card_alt
+                  radius: 15
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "\U000F0425"
+                        text_font: font_mdi
+                        text_color: c_text
+              - button:
+                  x: 140
+                  y: 0
+                  width: 40
+                  height: 30
+                  bg_color: c_card_alt
+                  radius: 15
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "\U000F075F"
+                        text_font: font_mdi
+                        text_color: c_text
+              - button:
+                  x: 190
+                  y: 0
+                  width: 40
+                  height: 30
+                  bg_color: c_card_alt
+                  radius: 15
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "-"
+                        text_font: font_md
+                        text_color: c_text
+              - button:
+                  x: 240
+                  y: 0
+                  width: 40
+                  height: 30
+                  bg_color: c_card_alt
+                  radius: 15
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "+"
+                        text_font: font_md
+                        text_color: c_text
+              - button:
+                  x: 290
+                  y: 0
+                  width: 60
+                  height: 30
+                  bg_color: 0xE40914
+                  radius: 15
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "N"
+                        text_font: font_md
+                        text_color: 0xFFFFFF
+
+        # Raspberry TV + Imprimante 3D
+        - button:
+            x: 330
+            y: 490
+            width: 175
+            height: 70
+            styles: card_style
+            id: card_raspberry
+            on_click:
+              - homeassistant.service:
+                  service: switch.toggle
+                  data:
+                    entity_id: switch.raspberry_tv
+            widgets:
+              - label:
+                  x: 0
+                  y: 5
+                  text: "\U000F0428"
+                  text_font: font_mdi
+                  text_color: c_muted
+              - label:
+                  x: 35
+                  y: 5
+                  text: "Raspberry TV"
+                  text_color: c_text
+                  text_font: font_sm
+              - label:
+                  id: lbl_raspberry_state
+                  x: 35
+                  y: 30
+                  text: "Éteint"
+                  text_color: c_muted
+                  text_font: font_xs
+
+        - button:
+            x: 515
+            y: 490
+            width: 175
+            height: 70
+            styles: card_accent_style
+            id: card_imprimante
+            on_click:
+              - homeassistant.service:
+                  service: switch.toggle
+                  data:
+                    entity_id: switch.imprimante_3d
+            widgets:
+              - label:
+                  x: 0
+                  y: 5
+                  text: "\U000F0156"
+                  text_font: font_mdi
+                  text_color: c_text
+              - label:
+                  x: 35
+                  y: 5
+                  text: "Imprimante 3D"
+                  text_color: c_text
+                  text_font: font_sm
+              - label:
+                  id: lbl_imprimante_state
+                  x: 35
+                  y: 30
+                  text: "Allumé"
+                  text_color: c_muted
+                  text_font: font_xs
+
+        # ====================================================================
+        # COLONNE DROITE — STATUTS FENÊTRES + SALON
+        # ====================================================================
+        # Pilules d'état fenêtres
+        - obj:
+            x: 700
+            y: 10
+            width: 150
+            height: 50
+            styles: card_alt_style
+            widgets:
+              - label:
+                  x: 0
+                  y: 5
+                  text: "\U000F0306"
+                  text_font: font_mdi
+                  text_color: c_muted
+              - label:
+                  x: 30
+                  y: 4
+                  text: "Chambre"
+                  text_color: c_text
+                  text_font: font_sm
+              - label:
+                  id: lbl_chambre_lastseen
+                  x: 30
+                  y: 22
+                  text: "19 minutes ago"
+                  text_color: c_muted
+                  text_font: font_xs
+
+        - obj:
+            x: 858
+            y: 10
+            width: 156
+            height: 50
+            styles: card_alt_style
+            widgets:
+              - label:
+                  x: 0
+                  y: 5
+                  text: "\U000F0306"
+                  text_font: font_mdi
+                  text_color: c_muted
+              - label:
+                  x: 30
+                  y: 4
+                  text: "Salle de bain"
+                  text_color: c_text
+                  text_font: font_sm
+              - label:
+                  id: lbl_bain_lastseen
+                  x: 30
+                  y: 22
+                  text: "18 hours ago"
+                  text_color: c_muted
+                  text_font: font_xs
+
+        # En-tête Salon + température
+        - obj:
+            x: 700
+            y: 150
+            width: 314
+            height: 28
+            bg_opa: TRANSP
+            border_width: 0
+            pad_all: 0
+            widgets:
+              - label:
+                  x: 0
+                  y: 4
+                  text: "\U000F02E3  Salon"
+                  text_color: c_text
+                  text_font: font_md
+              - label:
+                  id: lbl_temp_salon
+                  align: TOP_RIGHT
+                  x: 0
+                  y: 6
+                  text: "21.0 °C (35 %)"
+                  text_color: c_muted
+                  text_font: font_xs
+
+        # Carte Salon - 2 boutons en haut
+        - button:
+            x: 700
+            y: 184
+            width: 154
+            height: 70
+            styles: card_style
+            on_click:
+              - homeassistant.service:
+                  service: light.toggle
+                  data:
+                    entity_id: light.salon
+            widgets:
+              - label:
+                  x: 0
+                  y: 5
+                  text: "\U000F02E3"
+                  text_font: font_mdi
+                  text_color: c_muted
+              - label:
+                  x: 0
+                  y: 30
+                  text: "Tout le salon"
+                  text_font: font_sm
+                  text_color: c_text
+              - label:
+                  align: BOTTOM_LEFT
+                  x: 0
+                  y: -2
+                  text: "Off"
+                  text_font: font_xs
+                  text_color: c_muted
+
+        - obj:
+            x: 864
+            y: 184
+            width: 150
+            height: 70
+            styles: card_style
+            widgets:
+              - label:
+                  x: 0
+                  y: 8
+                  text: "\U000F0210"
+                  text_font: font_mdi
+                  text_color: c_muted
+              - label:
+                  align: BOTTOM_LEFT
+                  x: 0
+                  y: -2
+                  text: "Off"
+                  text_font: font_xs
+                  text_color: c_muted
+
+        # Boutons TV / PC
+        - obj:
+            x: 700
+            y: 264
+            width: 75
+            height: 70
+            styles: card_style
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "\U000F0490"
+                  text_font: font_mdi
+                  text_color: c_muted
+              - label:
+                  align: BOTTOM_MID
+                  y: -2
+                  text: "Off"
+                  text_font: font_xs
+                  text_color: c_muted
+
+        - obj:
+            x: 785
+            y: 264
+            width: 69
+            height: 70
+            styles: card_style
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "\U000F0846"
+                  text_font: font_mdi
+                  text_color: c_muted
+              - label:
+                  align: BOTTOM_MID
+                  y: -2
+                  text: "Off"
+                  text_font: font_xs
+                  text_color: c_muted
+
+        # Thermostat Salon
+        - obj:
+            x: 864
+            y: 264
+            width: 150
+            height: 130
+            styles: card_style
+            widgets:
+              - label:
+                  x: 0
+                  y: 0
+                  text: "\U000F0335  Salon"
+                  text_font: font_sm
+                  text_color: c_text
+              - button:
+                  x: 0
+                  y: 38
+                  width: 36
+                  height: 36
+                  bg_color: c_card_alt
+                  radius: 18
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "-"
+                        text_font: font_md
+                        text_color: c_text
+              - label:
+                  id: lbl_setpoint_salon
+                  x: 40
+                  y: 36
+                  width: 60
+                  text_align: CENTER
+                  text: "18.5"
+                  text_color: c_text
+                  text_font: font_lg
+              - button:
+                  x: 100
+                  y: 38
+                  width: 36
+                  height: 36
+                  bg_color: c_card_alt
+                  radius: 18
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "+"
+                        text_font: font_md
+                        text_color: c_text
+              - label:
+                  align: BOTTOM_LEFT
+                  y: -2
+                  text: "Indoor • 24 °C"
+                  text_font: font_xs
+                  text_color: c_muted
+
+        # Carte fenêtre Salon (accent violet)
+        - obj:
+            x: 700
+            y: 344
+            width: 154
+            height: 50
+            styles: card_accent_style
+            widgets:
+              - label:
+                  x: 0
+                  y: 5
+                  text: "\U000F0306  Salon"
+                  text_color: c_text
+                  text_font: font_sm
+              - label:
+                  id: lbl_salon_window
+                  x: 0
+                  y: 26
+                  text: "Open • 100%"
+                  text_color: c_muted
+                  text_font: font_xs
+
+        # Calendrier
+        - obj:
+            x: 700
+            y: 404
+            width: 314
+            height: 186
+            styles: card_style
+            widgets:
+              - label:
+                  x: 0
+                  y: 0
+                  text: "Sam"
+                  text_color: c_muted
+                  text_font: font_xs
+              - label:
+                  x: 0
+                  y: 16
+                  text: "21"
+                  text_color: c_text
+                  text_font: font_lg
+              - label:
+                  x: 0
+                  y: 50
+                  text: "MAR"
+                  text_color: c_muted
+                  text_font: font_xs
+              - line:
+                  x: 60
+                  y: 4
+                  points: [[0,0],[0,70]]
+                  line_color: c_blue
+                  line_width: 2
+              - label:
+                  x: 70
+                  y: 4
+                  text: "✓ Aucun événement à"
+                  text_color: c_text
+                  text_font: font_sm
+              - label:
+                  x: 70
+                  y: 26
+                  text: "venir"
+                  text_color: c_text
+                  text_font: font_sm
+              - label:
+                  align: TOP_RIGHT
+                  x: 0
+                  y: 16
+                  text: "\U000F0567 14°"
+                  text_color: c_muted
+                  text_font: font_sm
+
+              - label:
+                  x: 0
+                  y: 100
+                  text: "Dim"
+                  text_color: c_muted
+                  text_font: font_xs
+              - label:
+                  x: 0
+                  y: 116
+                  text: "22"
+                  text_color: c_text
+                  text_font: font_lg
+              - label:
+                  x: 0
+                  y: 150
+                  text: "MAR"
+                  text_color: c_muted
+                  text_font: font_xs
+              - line:
+                  x: 60
+                  y: 104
+                  points: [[0,0],[0,70]]
+                  line_color: c_blue
+                  line_width: 2
+              - label:
+                  x: 70
+                  y: 104
+                  text: "✓ Aucun événement à"
+                  text_color: c_text
+                  text_font: font_sm
+              - label:
+                  x: 70
+                  y: 126
+                  text: "venir"
+                  text_color: c_text
+                  text_font: font_sm
+              - label:
+                  align: BOTTOM_RIGHT
+                  x: 0
+                  y: -36
+                  text: "\U000F0567 14°"
+                  text_color: c_muted
+                  text_font: font_sm
