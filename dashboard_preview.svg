@@ -181,8 +181,7 @@
     <circle cx="480" cy="455" r="15" fill="#242428"/><text x="480" y="460" fill="#f0f0f3" font-size="13" text-anchor="middle">🔇</text>
     <circle cx="530" cy="455" r="15" fill="#242428"/><text x="530" y="460" fill="#f0f0f3" font-size="13" text-anchor="middle">−</text>
     <circle cx="580" cy="455" r="15" fill="#242428"/><text x="580" y="460" fill="#f0f0f3" font-size="13" text-anchor="middle">+</text>
-    <rect x="615" y="442" width="30" height="26" rx="13" fill="#E40914"/><text x="630" y="460" fill="#fff" font-size="14" text-anchor="middle" font-weight="700">N</text>
-    <rect x="650" y="442" width="30" height="26" rx="13" fill="#FF0000"/><text x="665" y="460" fill="#fff" font-size="11" text-anchor="middle">▶</text>
+    <rect x="615" y="442" width="60" height="26" rx="13" fill="#6b3fa5"/><text x="645" y="460" fill="#fff" font-size="11" text-anchor="middle" font-weight="700">Médias</text>
   </g>
 
   <!-- Raspberry TV + Imprimante 3D (hidden during fullscreen) -->

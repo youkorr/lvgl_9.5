@@ -12,6 +12,10 @@
 # Carte SD attendue:
 #   - /sdcard/videos/animation.mp4   (vidéo centrale MJPEG, ~340x270 ou plus,
 #                                     recommandée: 640x480 MJPEG @ 20fps)
+#   - /sdcard/meteo/*.png            (icônes météo HA, voir
+#                                     https://github.com/youkorr/lvgl_9.5/tree/main/meteo)
+#   - /sdcard/videos/...             (parcourus via le bouton "Médias")
+#   - /usb/... (optionnel, USB-A)    (parcourus via le bouton "Médias")
 # ============================================================================
 
 substitutions:
@@ -19,6 +23,7 @@ substitutions:
   friendly_name: "P4 Dashboard"
   # Vidéo centrale animée (vous pouvez aussi la pointer sur /usb/...)
   central_video: "/sdcard/videos/animation.mp4"
+  meteo_dir: "S:/sdcard/meteo"
 
 esphome:
   name: ${device_name}
@@ -132,7 +137,7 @@ external_components:
       type: git
       url: https://github.com/youkorr/test2_esp_video_esphome
       ref: claude/esp32-dashboard-video-7L9Gc
-    components: [sd_mmc_card, storage, webdavbox3, mp4_player]
+    components: [sd_mmc_card, storage, webdavbox3, mp4_player, usb_media_storage]
     refresh: always
 
 # ============================================================================
@@ -162,9 +167,89 @@ storage:
   id: my_storage
   sd_component: sd_card
   root_path: "/sdcard"
+  # Icônes météo HA — déposez les PNG depuis
+  # https://github.com/youkorr/lvgl_9.5/tree/main/meteo
+  # dans /sdcard/meteo/ sur la carte SD.
+  sd_images:
+    - id: w_default
+      file_path: /meteo/0-default.png
+      format: rgb565
+      byte_order: little_endian
+    - id: w_clear_night
+      file_path: /meteo/1-clear-night.png
+      format: rgb565
+      byte_order: little_endian
+    - id: w_cloudy
+      file_path: /meteo/2-cloudy.png
+      format: rgb565
+      byte_order: little_endian
+    - id: w_fog
+      file_path: /meteo/3-fog.png
+      format: rgb565
+      byte_order: little_endian
+    - id: w_hail
+      file_path: /meteo/4-hail.png
+      format: rgb565
+      byte_order: little_endian
+    - id: w_lightning
+      file_path: /meteo/5-lightning.png
+      format: rgb565
+      byte_order: little_endian
+    - id: w_lightning_rainy
+      file_path: /meteo/6-lightning-rainy.png
+      format: rgb565
+      byte_order: little_endian
+    - id: w_partlycloudy
+      file_path: /meteo/7-partlycloudy.png
+      format: rgb565
+      byte_order: little_endian
+    - id: w_pouring
+      file_path: /meteo/8-pouring.png
+      format: rgb565
+      byte_order: little_endian
+    - id: w_rainy
+      file_path: /meteo/9-rainy.png
+      format: rgb565
+      byte_order: little_endian
+    - id: w_snowy
+      file_path: /meteo/10-snowy.png
+      format: rgb565
+      byte_order: little_endian
+    - id: w_snowy_rainy
+      file_path: /meteo/11-snowy-rainy.png
+      format: rgb565
+      byte_order: little_endian
+    - id: w_sunny
+      file_path: /meteo/12-sunny.png
+      format: rgb565
+      byte_order: little_endian
+    - id: w_windy
+      file_path: /meteo/13-windy.png
+      format: rgb565
+      byte_order: little_endian
+    - id: w_windy_variant
+      file_path: /meteo/14-windy-variant.png
+      format: rgb565
+      byte_order: little_endian
+    - id: w_exceptional
+      file_path: /meteo/15-exceptional.png
+      format: rgb565
+      byte_order: little_endian
+
+# Stockage USB-A (clé USB optionnelle, montée sur /usb)
+usb_media_storage:
+  id: usb_storage
+  mount_point: "/usb"
 
 # ============================================================================
-# Lecteur MP4 (animation centrale)
+# Lecteurs MP4
+# ----------------------------------------------------------------------------
+# 1) central_video_player : joue UNIQUEMENT l'animation centrale, plein écran
+#    animé sur touch. Pas de browser (file_path est défini).
+# 2) media_browser_player : utilisé pour parcourir SD + USB via le bouton
+#    "Médias". Démarre caché (pas de file_path); show_browser l'affiche en
+#    plein écran sur le dashboard, et close()/release_resources rendent
+#    toute la mémoire (~1.8 MB de PSRAM) à la fermeture.
 # ============================================================================
 mp4_player:
   - id: central_video_player
@@ -175,12 +260,31 @@ mp4_player:
     show_controls: false        # contrôles affichés seulement en plein écran
     fullscreen_on_touch: true   # ← un touch agrandit l'animation
     fullscreen_anim_ms: 400
+    # Pas de media_directories : l'animation n'est jamais remplacée
+    media_directories: []
     on_play:
       then:
         - logger.log: "Animation lancée"
     on_stop:
       then:
         - logger.log: "Animation stoppée"
+
+  - id: media_browser_player
+    parent_id: media_browser_overlay
+    auto_play: false
+    loop: false
+    show_controls: true
+    fullscreen_on_touch: false
+    media_directories:
+      - "/sdcard"
+      - "/usb"
+    usb_media_storage_id: usb_storage
+    volume: 70
+    on_close:
+      then:
+        - logger.log: "Browser fermé, libération de la mémoire..."
+        - mp4_player.release_resources: media_browser_player
+        - lvgl.widget.hide: media_browser_overlay
 
 # ============================================================================
 # Affichage MIPI-DSI
@@ -335,6 +439,12 @@ text_sensor:
   - platform: homeassistant
     id: ha_weather_state
     entity_id: weather.home
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_weather_state
+            text: !lambda 'return x;'
+        - script.execute: update_weather_icon
   - platform: homeassistant
     id: ha_chambre_window_lastseen
     entity_id: binary_sensor.chambre_window
@@ -531,6 +641,38 @@ script:
             float h = id(ha_humid_salon).has_state() ? id(ha_humid_salon).state : 0.0f;
             snprintf(buf, sizeof(buf), "%.1f °C (%.0f %%)", t, h);
             return std::string(buf);
+
+  # Met à jour l'icône météo en fonction de l'état HA actuel.
+  # Utilise la surcharge lv_image_set_src(obj, image::Image*) fournie par
+  # lvgl_esphome.h ; SdImageComponent hérite de image::Image et expose
+  # le buffer chargé depuis la SD.
+  - id: update_weather_icon
+    then:
+      - if:
+          condition:
+            lambda: 'return id(ha_weather_state).has_state();'
+          then:
+            - lambda: |-
+                std::string s = id(ha_weather_state).state;
+                lv_obj_t *img = id(img_weather_now);
+                esphome::image::Image *pick = id(w_default);
+                if      (s == "clear-night")     pick = id(w_clear_night);
+                else if (s == "cloudy")          pick = id(w_cloudy);
+                else if (s == "fog")             pick = id(w_fog);
+                else if (s == "hail")            pick = id(w_hail);
+                else if (s == "lightning")       pick = id(w_lightning);
+                else if (s == "lightning-rainy") pick = id(w_lightning_rainy);
+                else if (s == "partlycloudy")    pick = id(w_partlycloudy);
+                else if (s == "pouring")         pick = id(w_pouring);
+                else if (s == "rainy")           pick = id(w_rainy);
+                else if (s == "snowy")           pick = id(w_snowy);
+                else if (s == "snowy-rainy")     pick = id(w_snowy_rainy);
+                else if (s == "sunny")           pick = id(w_sunny);
+                else if (s == "windy")           pick = id(w_windy);
+                else if (s == "windy-variant")   pick = id(w_windy_variant);
+                else if (s == "exceptional")     pick = id(w_exceptional);
+                lv_image_set_src(img, pick);
+                ESP_LOGI("weather", "Icône météo: %s", s.c_str());
 
 # ============================================================================
 # LVGL UI
@@ -813,7 +955,7 @@ lvgl:
                   text_color: c_muted
                   text_font: font_xs
 
-        # Météo Partly cloudy (4h)
+        # Météo Partly cloudy (4h) + icône PNG depuis la SD
         - obj:
             x: 10
             y: 404
@@ -821,10 +963,17 @@ lvgl:
             height: 100
             styles: card_style
             widgets:
-              - obj:
+              - image:
+                  id: img_weather_now
                   x: 0
                   y: 0
-                  width: 286
+                  width: 48
+                  height: 48
+                  src: w_default
+              - obj:
+                  x: 56
+                  y: 0
+                  width: 230
                   height: 22
                   radius: 11
                   bg_color: c_blue
@@ -832,42 +981,32 @@ lvgl:
                   border_width: 0
                   widgets:
                     - label:
+                        id: lbl_weather_state
                         align: CENTER
                         text: "Partly cloudy"
                         text_color: c_text
                         text_font: font_xs
               - label:
-                  x: 0
+                  x: 56
                   y: 30
                   text: "Mar 21"
                   text_color: c_muted
                   text_font: font_xs
               - label:
-                  x: 60
+                  x: 100
                   y: 30
-                  text: "5 PM      7 PM     9 PM    11 PM"
+                  text: "5 PM   7 PM   9 PM  11 PM   1 AM   3 AM"
                   text_color: c_muted
                   text_font: font_xs
               - label:
-                  x: 200
-                  y: 30
-                  text: "Mar 22"
-                  text_color: c_muted
-                  text_font: font_xs
-              - label:
-                  x: 260
-                  y: 30
-                  text: "1 AM   3 AM"
-                  text_color: c_muted
-                  text_font: font_xs
-              - label:
-                  x: 0
+                  id: lbl_hourly_temps
+                  x: 56
                   y: 56
                   text: "13.7°  10.3°   8.6°   6.6°   5.8°    4.4°"
                   text_color: c_text
                   text_font: font_sm
 
-        # Météo 5 jours
+        # Météo 5 jours avec icônes PNG depuis la SD
         - obj:
             x: 10
             y: 510
@@ -875,93 +1014,148 @@ lvgl:
             height: 80
             styles: card_style
             widgets:
+              # Jour 0
               - label:
+                  id: lbl_day_0
                   x: 5
                   y: 0
                   text: "Sat"
                   text_color: c_muted
                   text_font: font_xs
+              - image:
+                  id: img_day_0
+                  x: 0
+                  y: 14
+                  width: 36
+                  height: 36
+                  src: w_default
               - label:
+                  id: lbl_day_0_hi
                   x: 5
-                  y: 35
+                  y: 50
                   text: "14.4°"
                   text_color: c_text
                   text_font: font_sm
               - label:
+                  id: lbl_day_0_lo
                   x: 5
-                  y: 55
+                  y: 65
                   text: "6.6°"
                   text_color: c_muted
                   text_font: font_xs
+              # Jour 1
               - label:
+                  id: lbl_day_1
                   x: 65
                   y: 0
                   text: "Sun"
                   text_color: c_muted
                   text_font: font_xs
+              - image:
+                  id: img_day_1
+                  x: 60
+                  y: 14
+                  width: 36
+                  height: 36
+                  src: w_default
               - label:
+                  id: lbl_day_1_hi
                   x: 65
-                  y: 35
+                  y: 50
                   text: "14.3°"
                   text_color: c_text
                   text_font: font_sm
               - label:
+                  id: lbl_day_1_lo
                   x: 65
-                  y: 55
+                  y: 65
                   text: "3.9°"
                   text_color: c_muted
                   text_font: font_xs
+              # Jour 2
               - label:
+                  id: lbl_day_2
                   x: 125
                   y: 0
                   text: "Mon"
                   text_color: c_muted
                   text_font: font_xs
+              - image:
+                  id: img_day_2
+                  x: 120
+                  y: 14
+                  width: 36
+                  height: 36
+                  src: w_default
               - label:
+                  id: lbl_day_2_hi
                   x: 125
-                  y: 35
+                  y: 50
                   text: "15.6°"
                   text_color: c_text
                   text_font: font_sm
               - label:
+                  id: lbl_day_2_lo
                   x: 125
-                  y: 55
+                  y: 65
                   text: "4.3°"
                   text_color: c_muted
                   text_font: font_xs
+              # Jour 3
               - label:
+                  id: lbl_day_3
                   x: 185
                   y: 0
                   text: "Tue"
                   text_color: c_muted
                   text_font: font_xs
+              - image:
+                  id: img_day_3
+                  x: 180
+                  y: 14
+                  width: 36
+                  height: 36
+                  src: w_default
               - label:
+                  id: lbl_day_3_hi
                   x: 185
-                  y: 35
+                  y: 50
                   text: "16.7°"
                   text_color: c_text
                   text_font: font_sm
               - label:
+                  id: lbl_day_3_lo
                   x: 185
-                  y: 55
+                  y: 65
                   text: "4°"
                   text_color: c_muted
                   text_font: font_xs
+              # Jour 4
               - label:
+                  id: lbl_day_4
                   x: 245
                   y: 0
                   text: "Wed"
                   text_color: c_muted
                   text_font: font_xs
+              - image:
+                  id: img_day_4
+                  x: 240
+                  y: 14
+                  width: 36
+                  height: 36
+                  src: w_default
               - label:
+                  id: lbl_day_4_hi
                   x: 245
-                  y: 35
+                  y: 50
                   text: "9.7°"
                   text_color: c_text
                   text_font: font_sm
               - label:
+                  id: lbl_day_4_lo
                   x: 245
-                  y: 55
+                  y: 65
                   text: "5.7°"
                   text_color: c_muted
                   text_font: font_xs
@@ -1097,17 +1291,21 @@ lvgl:
                         text_font: font_md
                         text_color: c_text
               - button:
+                  id: btn_open_media
                   x: 290
                   y: 0
                   width: 60
                   height: 30
-                  bg_color: 0xE40914
+                  bg_color: 0x6b3fa5
                   radius: 15
+                  on_click:
+                    - lvgl.widget.show: media_browser_overlay
+                    - mp4_player.show_browser: media_browser_player
                   widgets:
                     - label:
                         align: CENTER
-                        text: "N"
-                        text_font: font_md
+                        text: "Médias"
+                        text_font: font_xs
                         text_color: 0xFFFFFF
 
         # Raspberry TV + Imprimante 3D
@@ -1526,3 +1724,20 @@ lvgl:
                   text: "\U000F0567 14°"
                   text_color: c_muted
                   text_font: font_sm
+
+        # ====================================================================
+        # OVERLAY plein écran pour le file browser (caché par défaut)
+        # Le mp4_player.media_browser_player y créera son UI sur demande.
+        # ====================================================================
+        - obj:
+            id: media_browser_overlay
+            x: 0
+            y: 0
+            width: 1024
+            height: 600
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_width: 0
+            radius: 0
+            pad_all: 0
+            hidden: true
