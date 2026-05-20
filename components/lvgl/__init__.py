@@ -307,6 +307,8 @@ async def to_code(configs):
         cg.RawExpression(f"ESPHOME_LOG_LEVEL_{config_0[CONF_LOG_LEVEL]}"),
     )
     df.add_define("LV_COLOR_DEPTH", config_0[CONF_COLOR_DEPTH])
+    # Always include montserrat_16 (used by mp4_player and other components)
+    helpers.lv_fonts_used.add("montserrat_16")
     for font in helpers.lv_fonts_used:
         df.add_define(f"LV_FONT_{font.upper()}")
 
