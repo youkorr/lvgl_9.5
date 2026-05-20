@@ -1,29 +1,102 @@
-# ============================================================================
-# Dashboard ESP32-P4 Waveshare 7" Touch LCD (1024x600)
-# - 3 colonnes: Chambre / Animation centrale / Salon
-# - Animation MP4 au centre, agrandissable en plein écran sur touch
-# - Entités Home Assistant pour ajouter facilement des devices
-# ----------------------------------------------------------------------------
-# Composants requis (cf. external_components):
-#   - lvgl 9.5 (youkorr/lvgl_9.5)
-#   - mp4_player (youkorr/test2_esp_video_esphome) avec fullscreen_on_touch
-#   - sd_mmc_card, storage, webdavbox3
-#
-# Carte SD attendue:
-#   - /sdcard/videos/animation.mp4   (vidéo centrale MJPEG, ~340x270 ou plus,
-#                                     recommandée: 640x480 MJPEG @ 20fps)
-#   - /sdcard/meteo/*.png            (icônes météo HA, voir
-#                                     https://github.com/youkorr/lvgl_9.5/tree/main/meteo)
-#   - /sdcard/videos/...             (parcourus via le bouton "Médias")
-#   - /usb/... (optionnel, USB-A)    (parcourus via le bouton "Médias")
-# ============================================================================
-
 substitutions:
   device_name: "p4-dashboard"
   friendly_name: "P4 Dashboard"
   # Vidéo centrale animée (vous pouvez aussi la pointer sur /usb/...)
   central_video: "/sdcard/videos/animation.mp4"
   meteo_dir: "S:/sdcard/meteo"
+
+  micro_wake_word_model: okay_nabu
+
+
+  allowed_characters: " !#%'()+,-./0123456789:;<>?@ABCDEFGHIJKLMNOPQRSTUVWYZ[]_abcdefghijklmnopqrstuvwxyz{|}°²³µ¿ÁÂÄÅÉÖÚßàáâãäåæçèéêëìíîðñòóôõöøùúûüýþāăąćčďĐđēėęěğĮįıļľŁłńňőřśšťũūůűųźŻżŽžơưșțΆΈΌΐΑΒΓΔΕΖΗΘΚΜΝΠΡΣΤΥΦάέήίαβγδεζηθικλμνξοπρςστυφχψωϊόύώАБВГДЕЖЗИКЛМНОПРСТУХЦЧШЪЭЮЯабвгдежзийклмнопрстуфхцчшщъыьэюяёђєіїјљњћאבגדהוזחטיכלםמןנסעפץצקרשת،ءآأإئابةتجحخدذرزسشصضطظعغفقكلمنهوىيٹپچڈکگںھہیےংকচতধনফবযরলশষস়ািু্చయలిెొ్ംഅആഇഈഉഎഓകഗങചജഞടഡണതദധനപഫബഭമയരറലളവശസഹാിീുൂെേൈ്ൺൻർൽൾაბგდევზთილმნოპრსტუფქყშჩცძჭხạảấầẩậắặẹẽếềểệỉịọỏốồổỗộớờởợụủứừửữựỳ—、一上不个中为主乾了些亮人任低佔何作供依侧係個側偵充光入全关冇冷几切到制前動區卧厅厨及口另右吊后吗启吸呀咗哪唔問啟嗎嘅嘛器圍在场執場外多大始安定客室家密寵对將小少左已帘常幫幾库度庫廊廚廳开式後恆感態成我戲戶户房所扇手打执把拔换掉控插摄整斯新明是景暗更最會有未本模機檯櫃欄次正氏水沒没洗活派温測源溫漏潮激濕灯為無煙照熱燈燥物狀玄现現瓦用發的盞目着睡私空窗立笛管節簾籬紅線红罐置聚聲脚腦腳臥色节著行衣解設調請謝警设调走路車车运連遊運過道邊部都量鎖锁門閂閉開關门闭除隱離電震霧面音頂題顏颜風风食餅餵가간감갔강개거게겨결경고공과관그금급기길깥꺼껐꼽나난내네놀누는능니다닫담대더데도동됐되된됨둡드든등디때떤뜨라래러렇렌려로료른를리림링마많명몇모무문물뭐바밝방배변보부불블빨뽑사산상색서설성세센션소쇼수스습시신실싱아안않알았애야어얼업없었에여연열옆오온완외왼요운움워원위으은을음의이인일임입있작잠장재전절정제져조족종주줄중줘지직진짐쪽차창천최추출충치침커컴켜켰쿠크키탁탄태탬터텔통트튼티파팬퍼폰표퓨플핑한함해했행혀현화활후휴힘，？"
+  
+  font_glyphsets: "GF_Latin_Core"
+  # for Greek use "Noto Sans" for other languages use a compatible font family
+  font_family: Figtree  
+
+  frigate: "http://192.168.1.38:8123/local/snapshots/last_snapshot.jpg"
+  #frigate1: rtsp://Tapoone:Tapoone132@192.168.1.56:554/stream1
+ 
+  media_player_entity: "media_player.waveshare_esp32_p4_media_player"
+  weather_entity: weather.forecast_maison #weather
+  
+  power_icon:        "\U0000e909"
+  play_icon:         "\U0000e90a"
+  pause_icon:        "\U0000e90b"
+  back_step_icon:    "\U0000e90c"
+  forward_step_icon: "\U0000e90d"
+  volume_off_icon:   "\U0000e90e"
+  volume_on_icon:    "\U0000e90f"
+  volume_minus_icon: "\U0000e910"
+  volume_plus_icon:  "\U0000e911"
+  repeat_all_icon:   "\U0000e912"
+  repeat_off_icon:   "\U0000e913"
+  repeat_one_icon:   "\U0000e914"
+  ha:                "\U0000e90b" # home assistant
+  ha_icon:           "\U000F07D0" # home assistant
+  humidity:          "\U0000e912" # humidity
+  humidity_icon:     "\U0000e938" 
+  temperature:       "\U0000e915" # temperature
+  temperature_icon:  "\U0000e939" 
+  tvoc:              "\U0000e914" # air quality
+  co2:               "\U0000e913" # co2
+  door:              "\U000F081A"
+  garage:            "\U000F06D9"
+  shutter:           "\U000F1A8B"
+  setting:           "\U000F08D6"
+  alarm:             "\U000F0BC4"
+  exit_icon:         "\U0000e902"
+  recognition:       "\U000F0C7B"
+  vlc:               "\U000F057C"
+  youtube:           "\U000F05C3"
+  application:       "\U000F0675"
+
+
+  settings_icon:                 "\U0000e903"
+  info_icon:                     "\U0000e904"
+  devices_icon:                  "\U0000e905"
+  home_icon:                     "\U0000e906"
+  ceiling_icon:                  "\U0000e907"
+  lightbulb_icon:                "\U0000e908"
+  spotlight_group_icon:          "\U0000e915"
+  desk_lamp_icon:                "\U0000e916"
+  pendant_lamp_icon:             "\U0000e917" 
+  ceiling_lamp_icon:             "\U0000e918"
+  ceiling_lamp_variant_icon:     "\U0000e921"
+  night_lamp_icon:               "\U0000e919"
+  swipe_icon:                    "\U0000e91a"
+  brightness_icon:               "\U0000e900"
+ 
+
+  voice_assist_idle_phase_id: "1"
+  voice_assist_listening_phase_id: "2"
+  voice_assist_thinking_phase_id: "3"
+  voice_assist_replying_phase_id: "4"
+  voice_assist_not_ready_phase_id: "10"
+  voice_assist_error_phase_id: "11"
+  voice_assist_muted_phase_id: "12"
+  voice_assist_timer_finished_phase_id: "20"
+
+  loading_illustration_background_color: "000000"
+  idle_illustration_background_color: "000000"
+  listening_illustration_background_color: "FFFFFF"
+  thinking_illustration_background_color: "FFFFFF"
+  replying_illustration_background_color: "FFFFFF"
+  error_illustration_background_color: "000000"
+  timer_illustration_background_color: "FFFFFF"
+  
+  alarm_panel_entity:   "alarm_control_panel.alarmo" #"alarm_control_panel.security"
+  pin_code:             "1169"
+
+  unlock_pin_code: "1169" 
+
+  shield_home_icon:      "\U000F068A" # home
+  shield_away_icon:      "\U000F099D" # away
+  shield_night_icon:     "\U000F1828" # night
+  shield_vacation_icon:  "\U000F06BB" # vacation
+  shield_disarm_icon:    "\U000F099E" # disarmed
+  shield_arming_icon:    "\U000F0498" # arming
+  micro_sd:              "\U000F07DC"
 
 esphome:
   name: ${device_name}
@@ -37,44 +110,72 @@ esphome:
       - light.turn_on: backlight
 
 esp32:
+  variant: esp32p4
+  flash_size: 32MB
   board: esp32-p4-evboard
   cpu_frequency: 360MHz
-  flash_size: 32MB
+  #engineering_sample: true
   framework:
     type: esp-idf
-    version: 5.5.2
-    platform_version: 55.03.35
+    #version: 5.5.2
+    #platform_version: 55.03.35
     advanced:
-      enable_idf_experimental_features: yes
+      enable_idf_experimental_features: true
       disable_vfs_support_dir: false
-      include_builtin_idf_components: [fatfs, wear_levelling]
+      #disable_fatfs: False
+      include_builtin_idf_components:
+        - fatfs
+        - wear_levelling
+
     sdkconfig_options:
-      CONFIG_ESP_H264_DUAL_TASK: "y"
-      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
-      CONFIG_SPIRAM_RODATA: "y"
-      CONFIG_ESP32_SPIRAM_SUPPORT: "y"
-      CONFIG_SPIRAM_USE_MALLOC: "y"
-      CONFIG_FATFS_LFN_STACK: "y"
-      CONFIG_FATFS_LFN_HEAP: "y"
-      CONFIG_LWIP_MAX_SOCKETS: "16"
-      CONFIG_VFS_SUPPORT_IO: "y"
-      CONFIG_VFS_MAX_COUNT: "16"
+    # ===== STACKS & TIMEOUTS =====
+      CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT: "32768"
       CONFIG_ESP_MAIN_TASK_STACK_SIZE: "16384"
       CONFIG_ESP_TIMER_TASK_STACK_SIZE: "4096"
       CONFIG_ESP_TASK_WDT_TIMEOUT_S: "60"
       CONFIG_ESP_TASK_LOOP_STACK_SIZE: "16384"
+  
+      # ===== PSRAM (ESP32-P4 200 MHz, code execute depuis PSRAM) =====
+      CONFIG_ESP32_SPIRAM_SUPPORT: "y"
+      CONFIG_SPIRAM_USE_MALLOC: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+      CONFIG_SPIRAM_XIP_FROM_PSRAM: "y"
       CONFIG_SPIRAM_SPEED_200M: "y"
       CONFIG_SPIRAM_SPEED: "200"
-      # Performance — accélérateurs LVGL et cache L2
-      CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT: "2"
+      CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL: "0"
+      CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP: "y"
+  
+      # ===== CACHE L2 (ESP32-P4) =====
       CONFIG_CACHE_L2_CACHE_256KB: "y"
       CONFIG_CACHE_L2_CACHE_LINE_128B: "y"
-      # Audio AAC pour les pipelines media_player
-      DCONFIG_USE_AUDIO_AAC_SUPPORT: "y"
+  
+      # ===== LVGL : 2 threads de rendu (bi-coeur) =====
+      CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT: "2"
+  
+      # ===== FATFS =====
+      CONFIG_FATFS_LFN_HEAP: "y"
+      CONFIG_FATFS_LFN_STACK: "y"
+  
+      # ===== VFS =====
+      CONFIG_VFS_SUPPORT_IO: "y"
+      CONFIG_VFS_MAX_COUNT: "16"
+  
+      # ===== LWIP / Sockets =====
+      CONFIG_LWIP_SOCKET: "y"
+      CONFIG_LWIP_MAX_SOCKETS: "16"
+  
+      # ===== H264 / Audio =====
+      CONFIG_ESP_H264_DUAL_TASK: "y"
+      CONFIG_USE_AUDIO_AAC_SUPPORT: "y"
+
+http_request:    
 
 psram:
   mode: hex
   speed: 200MHz
+
+captive_portal: 
 
 logger:
   hardware_uart: USB_SERIAL_JTAG
@@ -86,24 +187,30 @@ logger:
 
 api:
   encryption:
-    key: !secret api_key
+    key: "BiYfK2OL9hHZ0rWe+cOPkg4uKiLFMx/8+OFjMqmPEYM="
 
 ota:
   - platform: esphome
-    password: !secret ota_password
-
-wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
-  ap:
-    ssid: "${friendly_name} Fallback"
-    password: !secret ap_password
-
-captive_portal:
 
 network:
   enable_ipv6: true
+  
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Waveshare Fallback Hotspot"
+    password: "ONf0EKacM29P"
 
+online_image:
+  - url: "${frigate}"
+    format: JPG
+    id: cctv_img
+    byte_order: little_endian    
+    type: RGB565
+    resize: 1000x600 
+    
 time:
   - platform: homeassistant
     id: ha_time
@@ -354,7 +461,7 @@ external_components:
   - source:
       type: git
       url: https://github.com/youkorr/lvgl_9.5
-      ref: claude/esp32-dashboard-video-7L9Gc
+      ref: claude/review-lvgl-display-adapter-xyWYk
     components: [lvgl, image, font]
     refresh: always
   - source:
@@ -397,12 +504,12 @@ sd_mmc_card:
   slot: 0
 
 webdavbox3:
-  id: sd_webdav
+  id: sd_cards
   root_path: "/sdcard"
   url_prefix: "/"
   port: 81
-  username: !secret webdav_user
-  password: !secret webdav_password
+  username: "youkorr"
+  password: "youkorr"
 
 storage:
   platform: sd_direct
@@ -478,9 +585,10 @@ storage:
       format: rgb565
       byte_order: little_endian
 
-# Stockage USB-A (clé USB optionnelle, point de montage géré par le composant)
+# Stockage USB-A (clé USB optionnelle, montée sur /usb)
 usb_media_storage:
   id: usb_storage
+ 
 
 # ============================================================================
 # Lecteurs MP4
@@ -573,11 +681,47 @@ globals:
     type: std::string
     restore_value: false
     initial_value: '""'
+
+ 
+    
+  - id: api_connection
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+  - id: ota_active
+    type: bool
+    initial_value: 'false'   
+    
   - id: camera_streaming_active
     type: bool
     restore_value: false
     initial_value: 'false'
+  - id: cam1_state
+    type: bool
+    initial_value: 'false'   
+  - id: rotation_angle
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: fps_count
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: last_fps
+    type: int
+    restore_value: no
+    initial_value: "0"
+    
+  - id: alarm_panel_pending_action
+    type: std::string
+    restore_value: no
+    initial_value: ""
 
+  - id: wifi_connection
+    type: bool
+    restore_value: no
+    initial_value: "false"   
 # ============================================================================
 # Switches (amplificateur audio, caméra, LVGL display enable)
 # ============================================================================
@@ -673,7 +817,7 @@ interval:
     then:
       - lambda: |-
           // 1) En mode veille : éteindre le rétroéclairage après le délai
-          if (lv_scr_act() == id(page_sleep)) {
+          if (lv_scr_act() == id(page_sleep)->obj) {
             int dur = (int)id(sleep_display_duration).state;
             uint32_t elapsed = (millis() - id(sleep_display_start)) / 1000;
             if (dur > 0 && (int)elapsed >= dur) {
@@ -690,14 +834,15 @@ interval:
             }
           }
           // 2) Sur la page face_unlock : poll de la reconnaissance + timeout
-          if (lv_scr_act() == id(face_unlock_page)) {
+          if (lv_scr_act() == id(face_unlock_page)->obj) {
             uint32_t elapsed_ms = millis() - id(unlock_timeout_start);
             uint32_t timeout_ms = (uint32_t)id(face_unlock_timeout_sec) * 1000;
             int progress = 100 - (int)((elapsed_ms * 100) / timeout_ms);
             if (progress < 0) progress = 0;
             lv_bar_set_value(id(unlock_timeout_bar), progress, LV_ANIM_OFF);
 
-            float sim = id(face_detect).get_last_recognition();
+            auto result = id(face_detect).get_last_recognition();
+            float sim = result.similarity;
             int count = id(face_detect).get_detected_face_count();
             if (count > 0) {
               char buf[64];
@@ -713,16 +858,15 @@ interval:
               snprintf(welcome, sizeof(welcome), "Bienvenue %s !",
                        id(face_detect).get_last_recognized_name().c_str());
               ESP_LOGI("lock", "%s", welcome);
-              auto call_stop = id(tab5_cam).stop_streaming();
-              auto call_sw = id(lvgl_display_enable_switch).turn_off();
-              call_sw.perform();
-              lv_scr_load(id(home_page));
+              id(tab5_cam).stop_streaming();
+              id(lvgl_display_enable_switch).turn_off();
+              lv_scr_load(id(home_page)->obj);
             }
             // Timeout : retour à la page veille
             if (elapsed_ms >= timeout_ms) {
               ESP_LOGI("lock", "Timeout déverrouillage facial");
-              auto call_stop = id(tab5_cam).stop_streaming();
-              lv_scr_load(id(page_sleep));
+              id(tab5_cam).stop_streaming();
+              lv_scr_load(id(page_sleep)->obj);
               auto call_bl = id(backlight).turn_off();
               call_bl.perform();
             }
@@ -736,7 +880,7 @@ interval:
           ESP_LOGI("mem", "Heap libre: SRAM=%uKB PSRAM=%uKB",
                    internal_free / 1024, psram_free / 1024);
           // Met aussi à jour les labels système si la page settings est active
-          if (lv_scr_act() == id(settings_page)) {
+          if (lv_scr_act() == id(settings_page)->obj) {
             char buf[64];
             snprintf(buf, sizeof(buf), "SRAM libre : %u KB", (unsigned)(internal_free / 1024));
             lv_label_set_text(id(sram_label), buf);
@@ -831,7 +975,18 @@ light:
     id: backlight
     restore_mode: RESTORE_DEFAULT_ON
     default_transition_length: 250ms
+# ============================================================================
+# image
+# ============================================================================
 
+image:
+
+  defaults:
+    byte_order: little_endian
+    transparency: alpha_channel
+    type: rgb565
+  images:
+    
 # ============================================================================
 # Couleurs
 # ============================================================================
@@ -883,7 +1038,7 @@ sensor:
       then:
         - if:
             condition:
-              lambda: 'return lv_scr_act() == id(settings_page);'
+              lambda: 'return lv_scr_act() == id(settings_page)->obj;'
             then:
               - lvgl.label.update:
                   id: chip_temp_label
@@ -891,13 +1046,13 @@ sensor:
                     char b[32]; snprintf(b, sizeof(b), "Temp CPU : %.1f °C", x); return std::string(b);
   - platform: wifi_signal
     name: "WiFi Signal"
-    id: wifi_signal
+    id: wifi_signal_sensor
     update_interval: 30s
     on_value:
       then:
         - if:
             condition:
-              lambda: 'return lv_scr_act() == id(settings_page);'
+              lambda: 'return lv_scr_act() == id(settings_page)->obj;'
             then:
               - lvgl.label.update:
                   id: wifi_label
@@ -917,7 +1072,7 @@ sensor:
               char b[64]; snprintf(b, sizeof(b), "Visages enregistrés : %.0f", x); return std::string(b);
         - if:
             condition:
-              lambda: 'return lv_scr_act() == id(settings_page);'
+              lambda: 'return lv_scr_act() == id(settings_page)->obj;'
             then:
               - lvgl.label.update:
                   id: faces_label
@@ -1118,49 +1273,49 @@ font:
     bpp: 4
   # Icônes MDI
   - file:
-      type: web+font
+      type: web
       url: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
     id: font_mdi
     size: 22
     bpp: 4
-    glyphs: |-
-      \U000F0335
-      \U000F0339
-      \U000F03D6
-      \U000F0E14
-      \U000F11FB
-      \U000F050F
-      \U000F046E
-      \U000F1376
-      \U000F0428
-      \U000F0210
-      \U000F0297
-      \U000F02E3
-      \U000F0156
-      \U000F0306
-      \U000F0490
-      \U000F0846
-      \U000F02FC
-      \U000F048D
-      \U000F0CE5
-      \U000F0567
-      \U000F03B6
+    glyphs:
+      - "\U000F0335"
+      - "\U000F0339"
+      - "\U000F03D6"
+      - "\U000F0E14"
+      - "\U000F11FB"
+      - "\U000F050F"
+      - "\U000F046E"
+      - "\U000F1376"
+      - "\U000F0428"
+      - "\U000F0210"
+      - "\U000F0297"
+      - "\U000F02E3"
+      - "\U000F0156"
+      - "\U000F0306"
+      - "\U000F0490"
+      - "\U000F0846"
+      - "\U000F02FC"
+      - "\U000F048D"
+      - "\U000F0CE5"
+      - "\U000F0567"
+      - "\U000F03B6"
   - file:
-      type: web+font
+      type: web
       url: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
     id: font_mdi_lg
     size: 32
     bpp: 4
-    glyphs: |-
-      \U000F0335
-      \U000F0339
-      \U000F03D6
-      \U000F0E14
-      \U000F11FB
-      \U000F050F
-      \U000F046E
-      \U000F1376
-      \U000F0428
+    glyphs:
+      - "\U000F0335"
+      - "\U000F0339"
+      - "\U000F03D6"
+      - "\U000F0E14"
+      - "\U000F11FB"
+      - "\U000F050F"
+      - "\U000F046E"
+      - "\U000F1376"
+      - "\U000F0428"
 
   # Polices Roboto pour l'écran de veille / face unlock
   - file:
@@ -1381,7 +1536,7 @@ lvgl:
                   line_color: c_accent
                   line_width: 2
                   line_rounded: true
-                  points: [[0,70],[15,60],[30,50],[45,55],[60,40],[75,30],[90,45],[105,55],[120,35],[135,50],[150,45],[165,30],[180,20],[195,30],[210,45],[225,55],[240,40],[255,60],[270,70],[285,55]]
+                  points: ["0,70","15,60","30,50","45,55","60,40","75,30","90,45","105,55","120,35","135,50","150,45","165,30","180,20","195,30","210,45","225,55","240,40","255,60","270,70","285,55"]
 
         # En-tête Chambre + température
         - obj:
@@ -2280,7 +2435,7 @@ lvgl:
               - line:
                   x: 60
                   y: 4
-                  points: [[0,0],[0,70]]
+                  points: ["0,0","0,70"]
                   line_color: c_blue
                   line_width: 2
               - label:
@@ -2324,7 +2479,7 @@ lvgl:
               - line:
                   x: 60
                   y: 104
-                  points: [[0,0],[0,70]]
+                  points: ["0,0","0,70"]
                   line_color: c_blue
                   line_width: 2
               - label:
