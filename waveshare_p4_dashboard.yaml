@@ -39,7 +39,7 @@ esphome:
 esp32:
   board: esp32-p4-evboard
   cpu_frequency: 360MHz
-  flash_size: 16MB
+  flash_size: 32MB
   framework:
     type: esp-idf
     version: 5.5.2
@@ -47,6 +47,7 @@ esp32:
     advanced:
       enable_idf_experimental_features: yes
       disable_vfs_support_dir: false
+      include_builtin_idf_components: [fatfs, wear_levelling]
     sdkconfig_options:
       CONFIG_ESP_H264_DUAL_TASK: "y"
       CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
@@ -54,6 +55,7 @@ esp32:
       CONFIG_ESP32_SPIRAM_SUPPORT: "y"
       CONFIG_SPIRAM_USE_MALLOC: "y"
       CONFIG_FATFS_LFN_STACK: "y"
+      CONFIG_FATFS_LFN_HEAP: "y"
       CONFIG_LWIP_MAX_SOCKETS: "16"
       CONFIG_VFS_SUPPORT_IO: "y"
       CONFIG_VFS_MAX_COUNT: "16"
@@ -61,11 +63,17 @@ esp32:
       CONFIG_ESP_TIMER_TASK_STACK_SIZE: "4096"
       CONFIG_ESP_TASK_WDT_TIMEOUT_S: "60"
       CONFIG_ESP_TASK_LOOP_STACK_SIZE: "16384"
-      CONFIG_FATFS_LFN_HEAP: "y"
       CONFIG_SPIRAM_SPEED_200M: "y"
       CONFIG_SPIRAM_SPEED: "200"
+      # Performance — accélérateurs LVGL et cache L2
+      CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT: "2"
+      CONFIG_CACHE_L2_CACHE_256KB: "y"
+      CONFIG_CACHE_L2_CACHE_LINE_128B: "y"
+      # Audio AAC pour les pipelines media_player
+      DCONFIG_USE_AUDIO_AAC_SUPPORT: "y"
 
 psram:
+  mode: hex
   speed: 200MHz
 
 logger:
@@ -124,6 +132,222 @@ esp_ldo:
     channel: 4
 
 # ============================================================================
+# ESP32-C6 co-processeur (WiFi/BT par SDIO)
+# ============================================================================
+esp32_hosted:
+  variant: ESP32C6
+  reset_pin: GPIO54
+  cmd_pin: GPIO19
+  clk_pin: GPIO18
+  d0_pin: GPIO14
+  d1_pin: GPIO15
+  d2_pin: GPIO16
+  d3_pin: GPIO17
+  active_high: true
+  slot: 1
+
+# ============================================================================
+# Audio (I2S + DAC ES8311 + ADC ES7210 + micro + speaker + mixer)
+# ============================================================================
+i2s_audio:
+  - id: audio_bus
+    i2s_mclk_pin: GPIO13
+    i2s_lrclk_pin: GPIO10
+    i2s_bclk_pin: GPIO12
+
+audio_dac:
+  - platform: es8311
+    id: es8311_dac
+    i2c_id: bsp_bus
+    address: 0x18
+
+audio_adc:
+  - platform: es7210
+    id: es7210_adc
+    i2c_id: bsp_bus
+    address: 0x40
+
+microphone:
+  - platform: i2s_audio
+    id: esp32_microphone
+    i2s_audio_id: audio_bus
+    i2s_din_pin: GPIO11
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    adc_type: external
+
+speaker:
+  - platform: i2s_audio
+    id: esp32_speaker
+    i2s_audio_id: audio_bus
+    i2s_dout_pin: GPIO9
+    audio_dac: es8311_dac
+    dac_type: external
+    channel: mono
+    buffer_duration: 500ms
+    bits_per_sample: 16bit
+    sample_rate: 48000
+
+  - platform: mixer
+    id: mixing_speaker
+    output_speaker: esp32_speaker
+    source_speakers:
+      - id: announcement_mixing_input
+        timeout: never
+      - id: media_mixing_input
+        timeout: never
+
+  - platform: resampler
+    id: announcement_resampling_speaker
+    output_speaker: announcement_mixing_input
+    sample_rate: 48000
+    bits_per_sample: 16
+
+  - platform: resampler
+    id: media_resampling_speaker
+    output_speaker: media_mixing_input
+    sample_rate: 48000
+    bits_per_sample: 16
+
+media_player:
+  - platform: speaker
+    name: "ESP32 P4 Media Player"
+    id: speaker_media_player
+    codec_support_enabled: true
+    volume_min: 0.5
+    volume_max: 0.75
+    volume_increment: 0.05
+    announcement_pipeline:
+      speaker: announcement_resampling_speaker
+      format: FLAC
+      sample_rate: 48000
+      num_channels: 1
+    media_pipeline:
+      speaker: media_resampling_speaker
+      format: FLAC
+      num_channels: 1
+      sample_rate: 48000
+    on_announcement:
+      - if:
+          condition: { microphone.is_capturing: }
+          then:
+            - micro_wake_word.stop
+            - voice_assistant.stop
+      - mixer_speaker.apply_ducking:
+          id: media_mixing_input
+          decibel_reduction: 20
+          duration: 0.0s
+      - switch.turn_on: audio_amplifier
+      - delay: 100ms
+    on_play:
+      - switch.turn_on: audio_amplifier
+      - delay: 100ms
+      - micro_wake_word.stop
+      - voice_assistant.stop
+    on_idle:
+      - delay: 100ms
+      - switch.turn_off: audio_amplifier
+      - if:
+          condition:
+            not:
+              voice_assistant.is_running:
+          then:
+            - micro_wake_word.start
+
+# ============================================================================
+# Wake word + assistant vocal
+# ============================================================================
+micro_wake_word:
+  id: my_wake_word
+  models:
+    - model: okay_nabu
+  on_wake_word_detected:
+    - lvgl.page.show: orb_page
+    - component.update: main_display
+    - voice_assistant.start:
+        wake_word: !lambda return wake_word;
+
+voice_assistant:
+  microphone: esp32_microphone
+  media_player: speaker_media_player
+  micro_wake_word: my_wake_word
+  noise_suppression_level: 2
+  auto_gain: 31dBFS
+  volume_multiplier: 2.0
+  conversation_timeout: 300s
+  on_start:     [lvgl.page.show: orb_page]
+  on_listening: [lvgl.page.show: orb_page]
+  on_stt_end:   [lvgl.page.show: orb_page]
+  on_tts_start: [lvgl.page.show: orb_page]
+  on_tts_end:   [lvgl.page.show: orb_page]
+  on_end:
+    - wait_until:
+        condition: media_player.is_announcing
+        timeout: 0.5s
+    - wait_until:
+        - and:
+          - not: media_player.is_announcing
+          - not: media_player.is_playing
+    - lvgl.page.show: orb_page
+    - micro_wake_word.start
+  on_error: [lvgl.page.show: orb_page]
+  on_client_connected:    [micro_wake_word.start]
+  on_client_disconnected: [micro_wake_word.stop]
+
+# ============================================================================
+# ESP-Video + caméra OV5647 (face detection + reconnaissance)
+# ============================================================================
+esp_video:
+  i2c_id: bsp_bus
+  xclk_pin: GPIO36
+  xclk_freq: 24000000
+  enable_jpeg: true
+  enable_isp: true
+  use_heap_allocator: false
+
+esp_cam_sensor:
+  id: tab5_cam
+  i2c_id: bsp_bus
+  sensor_type: ov5647
+  resolution: "800x640"
+  pixel_format: "RGB565"
+  framerate: 30
+  jpeg_quality: 15
+  mirror_x: false
+  mirror_y: false
+  rotation: 0
+  crop_offset_x: 0
+
+lvgl_camera_display:
+  id: camera_display
+  camera_id: tab5_cam
+  canvas_id: camera_canvas
+  update_interval: 33ms
+  face_detection_id: face_detect
+
+face_detection:
+  id: face_detect
+  camera_id: tab5_cam
+  canvas_id: camera_canvas
+  model_type: face_recognition
+  score_threshold: 0.3
+  nms_threshold: 0.5
+  detection_interval: 5
+  draw_enabled: true
+  recognition_enabled: true
+  face_db_path: "/sdcard/reconnaisance_faciale/faces.db"
+  recognition_threshold: 0.85
+
+network_camera:
+  - id: security_cam_1
+    url: "http://192.168.1.38:1984/api/stream.mjpeg?src=frigate1_esp32"
+    protocol: mjpeg
+    width: 640
+    height: 480
+    canvas_id: security_canvas
+    update_interval: 30ms
+
+# ============================================================================
 # Composants externes
 # ============================================================================
 external_components:
@@ -137,8 +361,26 @@ external_components:
       type: git
       url: https://github.com/youkorr/test2_esp_video_esphome
       ref: claude/esp32-dashboard-video-7L9Gc
-    components: [sd_mmc_card, storage, webdavbox3, mp4_player, usb_media_storage]
+    components:
+      - sd_mmc_card
+      - storage
+      - webdavbox3
+      - mp4_player
+      - usb_media_storage
+      - esp_video
+      - esp_cam_sensor
+      - lvgl_camera_display
+      - network_camera
     refresh: always
+  - source:
+      type: git
+      url: https://github.com/youkorr/face_detection
+      ref: main
+    components: [face_detection]
+    refresh: always
+  - source: github://pr#15703
+    components: [micro_wake_word]
+    refresh: 1h
 
 # ============================================================================
 # Stockage SD
@@ -279,12 +521,273 @@ mp4_player:
       - "/sdcard"
       - "/usb"
     usb_media_storage_id: usb_storage
+    speaker: media_resampling_speaker
     volume: 70
+    on_play:
+      - micro_wake_word.stop
+      - voice_assistant.stop
+      - switch.turn_on: audio_amplifier
+      - delay: 100ms
+    on_stop:
+      - delay: 100ms
+      - switch.turn_off: audio_amplifier
+      - micro_wake_word.start
     on_close:
       then:
         - logger.log: "Browser fermé, libération de la mémoire..."
         - mp4_player.release_resources: media_browser_player
         - lvgl.widget.hide: media_browser_overlay
+
+# ============================================================================
+# Globals (verrou écran, timers de veille, états divers)
+# ============================================================================
+globals:
+  - id: display_lock
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: sleep_display_start
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: unlock_timeout_start
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: face_unlock_timeout_sec
+    type: int
+    restore_value: true
+    initial_value: '145'
+  - id: touch_active
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: idle_delay_seconds
+    type: int
+    restore_value: false
+    initial_value: '300'
+  - id: mic_muted
+    type: bool
+    restore_value: true
+    initial_value: 'false'
+  - id: current_pin
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: camera_streaming_active
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+
+# ============================================================================
+# Switches (amplificateur audio, caméra, LVGL display enable)
+# ============================================================================
+switch:
+  - platform: gpio
+    pin: GPIO53
+    name: "Audio Amplifier"
+    id: audio_amplifier
+    restore_mode: ALWAYS_OFF
+
+  - platform: network_camera
+    name: "Camera Frigate"
+    camera_id: security_cam_1
+    id: camera_1_switch
+
+  - platform: template
+    name: "LVGL Camera Display"
+    id: lvgl_display_enable_switch
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+    turn_on_action:
+      - lambda: |-
+          auto *lvgl_disp = id(camera_display);
+          if (lvgl_disp != nullptr) lvgl_disp->set_enabled(true);
+    turn_off_action:
+      - lambda: |-
+          auto *lvgl_disp = id(camera_display);
+          if (lvgl_disp != nullptr) lvgl_disp->set_enabled(false);
+
+# ============================================================================
+# Number entities (luminosité, temps avant veille, temps avant écran off)
+# ============================================================================
+number:
+  - platform: template
+    id: brightness_slider
+    name: "Luminosité Écran"
+    icon: "mdi:brightness-6"
+    min_value: 0
+    max_value: 100
+    step: 1
+    unit_of_measurement: "%"
+    mode: slider
+    optimistic: true
+    restore_value: true
+    initial_value: 50
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return x > 0;'
+            then:
+              - light.turn_on:
+                  id: backlight
+                  brightness: !lambda 'return x / 100.0;'
+            else:
+              - light.turn_off:
+                  id: backlight
+
+  - platform: template
+    name: "Screen Off"
+    id: auto_off
+    optimistic: true
+    restore_value: true
+    min_value: -1
+    max_value: 300
+    step: 10
+    unit_of_measurement: s
+    icon: 'mdi:television-off'
+    initial_value: -1
+
+  - platform: template
+    name: "Sleep Display Duration"
+    id: sleep_display_duration
+    icon: 'mdi:clock-outline'
+    unit_of_measurement: s
+    initial_value: 10
+    min_value: -1
+    max_value: 300
+    step: 10
+    optimistic: true
+    restore_value: true
+    on_value:
+      then:
+        - lambda: |-
+            id(face_unlock_timeout_sec) = (int)x;
+            ESP_LOGI("lock", "Auto-Lock timeout: %d sec", (int)x);
+
+# ============================================================================
+# Intervalle 500 ms : machine d'état veille + face_unlock
+# ============================================================================
+interval:
+  - interval: 500ms
+    then:
+      - lambda: |-
+          // 1) En mode veille : éteindre le rétroéclairage après le délai
+          if (lv_scr_act() == id(page_sleep)) {
+            int dur = (int)id(sleep_display_duration).state;
+            uint32_t elapsed = (millis() - id(sleep_display_start)) / 1000;
+            if (dur > 0 && (int)elapsed >= dur) {
+              auto call = id(backlight).turn_off();
+              call.perform();
+              return;
+            }
+            // Mise à jour de l'heure sur l'écran de veille
+            auto t = id(ha_time).now();
+            if (t.is_valid()) {
+              char buf[8];
+              snprintf(buf, sizeof(buf), "%02d:%02d", t.hour, t.minute);
+              lv_label_set_text(id(sleep_time_label), buf);
+            }
+          }
+          // 2) Sur la page face_unlock : poll de la reconnaissance + timeout
+          if (lv_scr_act() == id(face_unlock_page)) {
+            uint32_t elapsed_ms = millis() - id(unlock_timeout_start);
+            uint32_t timeout_ms = (uint32_t)id(face_unlock_timeout_sec) * 1000;
+            int progress = 100 - (int)((elapsed_ms * 100) / timeout_ms);
+            if (progress < 0) progress = 0;
+            lv_bar_set_value(id(unlock_timeout_bar), progress, LV_ANIM_OFF);
+
+            float sim = id(face_detect).get_last_recognition();
+            int count = id(face_detect).get_detected_face_count();
+            if (count > 0) {
+              char buf[64];
+              snprintf(buf, sizeof(buf), "Visage détecté (similarité: %.2f)", sim);
+              lv_label_set_text(id(face_status_label), buf);
+            } else {
+              lv_label_set_text(id(face_status_label), "Aucun visage détecté");
+            }
+            // Déverrouillage par reconnaissance faciale
+            if (sim >= 0.70f && count > 0) {
+              id(display_lock) = false;
+              char welcome[96];
+              snprintf(welcome, sizeof(welcome), "Bienvenue %s !",
+                       id(face_detect).get_last_recognized_name().c_str());
+              ESP_LOGI("lock", "%s", welcome);
+              auto call_stop = id(tab5_cam).stop_streaming();
+              auto call_sw = id(lvgl_display_enable_switch).turn_off();
+              call_sw.perform();
+              lv_scr_load(id(home_page));
+            }
+            // Timeout : retour à la page veille
+            if (elapsed_ms >= timeout_ms) {
+              ESP_LOGI("lock", "Timeout déverrouillage facial");
+              auto call_stop = id(tab5_cam).stop_streaming();
+              lv_scr_load(id(page_sleep));
+              auto call_bl = id(backlight).turn_off();
+              call_bl.perform();
+            }
+          }
+
+  - interval: 30s
+    then:
+      - lambda: |-
+          size_t internal_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+          size_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+          ESP_LOGI("mem", "Heap libre: SRAM=%uKB PSRAM=%uKB",
+                   internal_free / 1024, psram_free / 1024);
+          // Met aussi à jour les labels système si la page settings est active
+          if (lv_scr_act() == id(settings_page)) {
+            char buf[64];
+            snprintf(buf, sizeof(buf), "SRAM libre : %u KB", (unsigned)(internal_free / 1024));
+            lv_label_set_text(id(sram_label), buf);
+            snprintf(buf, sizeof(buf), "PSRAM libre : %u MB", (unsigned)(psram_free / (1024*1024)));
+            lv_label_set_text(id(psram_label), buf);
+          }
+
+# ============================================================================
+# Key collector : PIN sur face_unlock_page
+# ============================================================================
+key_collector:
+  - id: unlock_pin_collector
+    source_id: unlock_keypad
+    min_length: 4
+    max_length: 4
+    end_keys: "#"
+    end_key_required: false
+    back_keys: "*"
+    on_progress:
+      - lambda: |-
+          // Masque l'entrée : affiche * pour chaque chiffre, _ pour les positions vides
+          std::string masked;
+          for (size_t i = 0; i < 4; i++) {
+            if (i < x.length()) masked += "*";
+            else                 masked += "_";
+            if (i < 3) masked += " ";
+          }
+          lv_label_set_text(id(unlock_code_display), masked.c_str());
+    on_result:
+      - if:
+          condition:
+            lambda: 'return x == "1169";'   # PIN par défaut, à changer
+          then:
+            - lambda: |-
+                id(display_lock) = false;
+                ESP_LOGI("lock", "PIN correct — déverrouillage");
+                id(tab5_cam).stop_streaming();
+            - switch.turn_off: lvgl_display_enable_switch
+            - lvgl.page.show: home_page
+            - lvgl.label.update:
+                id: unlock_code_display
+                text: "_ _ _ _"
+          else:
+            - lvgl.label.update:
+                id: unlock_code_display
+                text: "ERREUR"
+            - delay: 1s
+            - lvgl.label.update:
+                id: unlock_code_display
+                text: "_ _ _ _"
 
 # ============================================================================
 # Affichage MIPI-DSI
@@ -360,6 +863,69 @@ color:
 # depuis un widget LVGL.
 # ============================================================================
 sensor:
+  # Télémétrie système
+  - platform: template
+    name: "SRAM Free"
+    id: sram_free
+    lambda: return heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024.0;
+    unit_of_measurement: KB
+    update_interval: 30s
+  - platform: template
+    name: "PSRAM Free"
+    id: psram_free
+    lambda: return heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / (1024.0 * 1024.0);
+    unit_of_measurement: MB
+    update_interval: 30s
+  - platform: internal_temperature
+    name: "ESP32-P4 Internal Temperature"
+    id: chip_temperature
+    update_interval: 30s
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return lv_scr_act() == id(settings_page);'
+            then:
+              - lvgl.label.update:
+                  id: chip_temp_label
+                  text: !lambda |-
+                    char b[32]; snprintf(b, sizeof(b), "Temp CPU : %.1f °C", x); return std::string(b);
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    id: wifi_signal
+    update_interval: 30s
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return lv_scr_act() == id(settings_page);'
+            then:
+              - lvgl.label.update:
+                  id: wifi_label
+                  text: !lambda |-
+                    char b[32]; snprintf(b, sizeof(b), "WiFi : %.0f dBm", x); return std::string(b);
+  - platform: template
+    name: "Enrolled Faces"
+    id: enrolled_count
+    icon: "mdi:face-man"
+    lambda: return id(face_detect).get_enrolled_count();
+    update_interval: 60s
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_enrolled_count
+            text: !lambda |-
+              char b[64]; snprintf(b, sizeof(b), "Visages enregistrés : %.0f", x); return std::string(b);
+        - if:
+            condition:
+              lambda: 'return lv_scr_act() == id(settings_page);'
+            then:
+              - lvgl.label.update:
+                  id: faces_label
+                  text: !lambda |-
+                    char b[64]; snprintf(b, sizeof(b), "Visages enregistrés : %.0f", x); return std::string(b);
+
+  # ----- Capteurs Home Assistant -----
   - platform: homeassistant
     id: ha_power_realtime
     entity_id: sensor.power_consumption
@@ -597,6 +1163,29 @@ font:
       \U000F1376
       \U000F0428
 
+  # Polices Roboto pour l'écran de veille / face unlock
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: 400
+    id: roboto_18
+    size: 18
+    bpp: 4
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: 400
+    id: roboto_24
+    size: 24
+    bpp: 4
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: 300
+    id: roboto_48
+    size: 48
+    bpp: 4
+
 # ============================================================================
 # Scripts
 # ============================================================================
@@ -678,12 +1267,48 @@ script:
 # LVGL UI
 # ============================================================================
 lvgl:
-  use_ppa: true
+  use_ppa: true            # PPA = hardware accelerator (rotation, blending)
+  fps_benchmark: true      # affiche FPS et temps de rendu
+  perf_monitor: true       # overlay perf (CPU LVGL)
+  color_depth: 16
   byte_order: little_endian
   displays:
     - main_display
   touchscreens:
     - touch
+
+  # =================================================================
+  # Auto-verrouillage : après auto_off secondes d'inactivité, passer
+  # à page_sleep et baisser le rétroéclairage. Sortie possible par
+  # tap (-> face_unlock_page) ou PIN (key_collector unlock_keypad).
+  # =================================================================
+  on_idle:
+    - timeout: !lambda |-
+        int t = (int)id(auto_off).state;
+        return (t == -1) ? 86400000 : (t * 1000);
+      then:
+        - lambda: |-
+            // Initialise le canvas caméra la première fois
+            static bool canvas_configured = false;
+            if (!canvas_configured) {
+              auto canvas = id(camera_canvas);
+              if (canvas != nullptr) {
+                id(camera_display).configure_canvas(canvas);
+                canvas_configured = true;
+              }
+            }
+        - if:
+            condition:
+              and:
+                - lambda: 'return id(face_unlock_timeout_sec) > 0;'
+                - lambda: 'return !id(display_lock);'
+            then:
+              - lambda: |-
+                  id(display_lock) = true;
+                  ESP_LOGI("lock", "Auto-Lock après inactivité");
+              - lvgl.page.show: page_sleep
+              - light.turn_on: backlight
+              - switch.turn_off: lvgl_display_enable_switch
 
   style_definitions:
     - id: card_style
@@ -1211,7 +1836,7 @@ lvgl:
                   text_color: c_muted
                   text_font: font_md
 
-        # Barre de télécommande
+        # Barre de télécommande + navigation
         - obj:
             x: 330
             y: 430
@@ -1219,6 +1844,7 @@ lvgl:
             height: 50
             styles: card_style
             widgets:
+              # Power
               - button:
                   x: 0
                   y: 0
@@ -1227,17 +1853,20 @@ lvgl:
                   bg_color: c_card_alt
                   radius: 15
                   widgets:
-                    - label:
-                        align: CENTER
-                        text: "\U000F0339"
-                        text_font: font_mdi
-                        text_color: c_text
-              - label:
-                  x: 50
-                  y: 6
-                  text: "ior"
-                  text_color: c_muted
-                  text_font: font_sm
+                    - label: { align: CENTER, text: "\U000F0425", text_font: font_mdi, text_color: c_text }
+              # Mute
+              - button:
+                  x: 45
+                  y: 0
+                  width: 40
+                  height: 30
+                  bg_color: c_card_alt
+                  radius: 15
+                  on_click:
+                    - lambda: 'id(mic_muted) = !id(mic_muted);'
+                  widgets:
+                    - label: { align: CENTER, text: "\U000F075F", text_font: font_mdi, text_color: c_text }
+              # Vol -
               - button:
                   x: 90
                   y: 0
@@ -1245,56 +1874,42 @@ lvgl:
                   height: 30
                   bg_color: c_card_alt
                   radius: 15
+                  on_click:
+                    - media_player.volume_down: speaker_media_player
                   widgets:
-                    - label:
-                        align: CENTER
-                        text: "\U000F0425"
-                        text_font: font_mdi
-                        text_color: c_text
+                    - label: { align: CENTER, text: "-", text_font: font_md, text_color: c_text }
+              # Vol +
               - button:
-                  x: 140
+                  x: 135
                   y: 0
                   width: 40
                   height: 30
                   bg_color: c_card_alt
                   radius: 15
+                  on_click:
+                    - media_player.volume_up: speaker_media_player
                   widgets:
-                    - label:
-                        align: CENTER
-                        text: "\U000F075F"
-                        text_font: font_mdi
-                        text_color: c_text
+                    - label: { align: CENTER, text: "+", text_font: font_md, text_color: c_text }
+              # Caméra de sécurité (Frigate live)
               - button:
-                  x: 190
+                  id: btn_open_camera
+                  x: 180
                   y: 0
-                  width: 40
+                  width: 55
                   height: 30
-                  bg_color: c_card_alt
+                  bg_color: 0x224d8a
                   radius: 15
+                  on_click:
+                    - lvgl.page.show: camera_page
+                    - switch.turn_on: camera_1_switch
                   widgets:
-                    - label:
-                        align: CENTER
-                        text: "-"
-                        text_font: font_md
-                        text_color: c_text
-              - button:
-                  x: 240
-                  y: 0
-                  width: 40
-                  height: 30
-                  bg_color: c_card_alt
-                  radius: 15
-                  widgets:
-                    - label:
-                        align: CENTER
-                        text: "+"
-                        text_font: font_md
-                        text_color: c_text
+                    - label: { align: CENTER, text: "Caméra", text_font: font_xs, text_color: 0xFFFFFF }
+              # Médias (browser SD/USB)
               - button:
                   id: btn_open_media
-                  x: 290
+                  x: 240
                   y: 0
-                  width: 60
+                  width: 55
                   height: 30
                   bg_color: 0x6b3fa5
                   radius: 15
@@ -1302,11 +1917,19 @@ lvgl:
                     - lvgl.widget.show: media_browser_overlay
                     - mp4_player.show_browser: media_browser_player
                   widgets:
-                    - label:
-                        align: CENTER
-                        text: "Médias"
-                        text_font: font_xs
-                        text_color: 0xFFFFFF
+                    - label: { align: CENTER, text: "Médias", text_font: font_xs, text_color: 0xFFFFFF }
+              # Paramètres
+              - button:
+                  x: 300
+                  y: 0
+                  width: 50
+                  height: 30
+                  bg_color: c_card_alt
+                  radius: 15
+                  on_click:
+                    - lvgl.page.show: settings_page
+                  widgets:
+                    - label: { align: CENTER, text: "\U000F0335", text_font: font_mdi, text_color: c_text }
 
         # Raspberry TV + Imprimante 3D
         - button:
@@ -1741,3 +2364,484 @@ lvgl:
             radius: 0
             pad_all: 0
             hidden: true
+
+    # ======================================================================
+    # PAGE VEILLE — affichée après auto_off secondes d'inactivité
+    # ======================================================================
+    - id: page_sleep
+      bg_color: 0x000000
+      on_load:
+        - lambda: |-
+            ESP_LOGI("lock", "Page veille chargée");
+            id(display_lock) = true;
+            id(sleep_display_start) = millis();
+            auto canvas = id(face_unlock_canvas);
+            if (canvas != nullptr) {
+              id(camera_display).configure_canvas(canvas);
+            }
+        - switch.turn_off: camera_1_switch
+        - light.turn_on: backlight
+      widgets:
+        - obj:
+            id: sleep_touch_zone
+            x: 0
+            y: 0
+            width: 1024
+            height: 600
+            bg_color: 0x000000
+            bg_opa: COVER
+            border_opa: TRANSP
+            on_click:
+              - lambda: |-
+                  ESP_LOGI("lock", "Touch détecté -> face_unlock");
+              - light.turn_on: backlight
+              - lvgl.page.show: face_unlock_page
+              - switch.turn_on: lvgl_display_enable_switch
+            widgets:
+              - label:
+                  id: sleep_time_label
+                  align: CENTER
+                  y: -40
+                  text: "--:--"
+                  text_color: 0x333333
+                  text_font: roboto_48
+              - label:
+                  align: CENTER
+                  y: 40
+                  text: "Touchez l'écran pour déverrouiller"
+                  text_color: 0x222222
+                  text_font: roboto_24
+
+    # ======================================================================
+    # PAGE FACE_UNLOCK — reconnaissance faciale + PIN
+    # ======================================================================
+    - id: face_unlock_page
+      bg_color: 0x0d1117
+      on_load:
+        - lambda: |-
+            ESP_LOGI("lock", "Page face_unlock chargée");
+            id(display_lock) = true;
+            id(face_detect).reset_last_recognition();
+            id(tab5_cam).start_streaming();
+            auto canvas = id(face_unlock_canvas);
+            if (canvas != nullptr) {
+              id(camera_display).configure_canvas(canvas);
+            }
+            id(unlock_timeout_start) = millis();
+            id(camera_streaming_active) = true;
+      widgets:
+        # Canvas caméra (côté gauche)
+        - canvas:
+            id: face_unlock_canvas
+            x: 10
+            y: 15
+            width: 640
+            height: 555
+            bg_color: 0x000000
+            radius: 8
+        # Statut
+        - label:
+            id: face_status_label
+            x: 10
+            y: 575
+            width: 640
+            text_align: CENTER
+            text: "Aucun visage détecté"
+            text_color: 0x58a6ff
+            text_font: roboto_18
+        # Champ code PIN
+        - obj:
+            x: 660
+            y: 15
+            width: 354
+            height: 60
+            bg_color: 0x161b22
+            radius: 10
+            border_width: 0
+            widgets:
+              - label:
+                  id: unlock_code_display
+                  align: CENTER
+                  text: "_ _ _ _"
+                  text_color: 0x8b949e
+                  text_font: roboto_24
+        # Pavé numérique
+        - buttonmatrix:
+            id: unlock_keypad
+            x: 660
+            y: 85
+            width: 354
+            height: 480
+            one_checked: false
+            rows:
+              - buttons:
+                  - text: "1"
+                    control: { no_repeat: true }
+                  - text: "2"
+                    control: { no_repeat: true }
+                  - text: "3"
+                    control: { no_repeat: true }
+              - buttons:
+                  - text: "4"
+                    control: { no_repeat: true }
+                  - text: "5"
+                    control: { no_repeat: true }
+                  - text: "6"
+                    control: { no_repeat: true }
+              - buttons:
+                  - text: "7"
+                    control: { no_repeat: true }
+                  - text: "8"
+                    control: { no_repeat: true }
+                  - text: "9"
+                    control: { no_repeat: true }
+              - buttons:
+                  - text: ""
+                    control: { no_repeat: true }
+                  - text: "0"
+                    control: { no_repeat: true }
+                  - text: ""
+                    control: { no_repeat: true }
+        # Barre de progression timeout
+        - bar:
+            id: unlock_timeout_bar
+            x: 10
+            y: 580
+            width: 1004
+            height: 12
+            min_value: 0
+            max_value: 100
+            value: 100
+            bg_color: 0x21262d
+            radius: 6
+            indicator:
+              bg_color: 0x3fb950
+              radius: 6
+
+    # ======================================================================
+    # PAGE CAMÉRA — vue Frigate + outils face recognition
+    # ======================================================================
+    - id: camera_page
+      bg_color: 0x000000
+      on_load:
+        - switch.turn_on: camera_1_switch
+      widgets:
+        # Canvas Frigate (security_cam_1)
+        - canvas:
+            id: security_canvas
+            x: 10
+            y: 10
+            width: 640
+            height: 480
+            bg_color: 0x000000
+            radius: 8
+        # Canvas caméra locale (pour face enroll)
+        - canvas:
+            id: camera_canvas
+            x: 10
+            y: 500
+            width: 320
+            height: 90
+            bg_color: 0x111111
+            radius: 6
+        # Labels statut
+        - label:
+            id: cam_status_label
+            x: 340
+            y: 510
+            width: 310
+            text: "Frigate live"
+            text_color: c_text
+            text_font: font_md
+        # Boutons
+        - button:
+            x: 670
+            y: 10
+            width: 160
+            height: 60
+            bg_color: c_card_alt
+            radius: 12
+            on_click:
+              - lambda: 'id(tab5_cam).start_streaming();'
+              - switch.turn_on: lvgl_display_enable_switch
+            widgets:
+              - label: { align: CENTER, text: "Démarrer cam", text_font: font_md, text_color: c_text }
+        - button:
+            x: 845
+            y: 10
+            width: 165
+            height: 60
+            bg_color: c_card_alt
+            radius: 12
+            on_click:
+              - lambda: 'id(tab5_cam).stop_streaming();'
+              - switch.turn_off: lvgl_display_enable_switch
+            widgets:
+              - label: { align: CENTER, text: "Arrêter cam", text_font: font_md, text_color: c_text }
+        - button:
+            x: 670
+            y: 80
+            width: 160
+            height: 60
+            bg_color: 0x2f5d8a
+            radius: 12
+            on_click:
+              - lvgl.widget.show: enroll_popup
+            widgets:
+              - label: { align: CENTER, text: "Enrôler visage", text_font: font_md, text_color: 0xFFFFFF }
+        - button:
+            x: 845
+            y: 80
+            width: 165
+            height: 60
+            bg_color: 0x8a2d3a
+            radius: 12
+            on_click:
+              - lambda: |-
+                  id(face_detect).clear_all_faces();
+                  ESP_LOGI("face", "Tous les visages effacés");
+            widgets:
+              - label: { align: CENTER, text: "Effacer tous", text_font: font_md, text_color: 0xFFFFFF }
+        - label:
+            id: lbl_enrolled_count
+            x: 670
+            y: 160
+            width: 340
+            text: "Visages enregistrés : 0"
+            text_color: c_muted
+            text_font: font_sm
+        # Snapshot
+        - button:
+            x: 670
+            y: 200
+            width: 340
+            height: 60
+            bg_color: c_card_alt
+            radius: 12
+            on_click:
+              - lambda: 'id(tab5_cam).capture_frame();'
+            widgets:
+              - label: { align: CENTER, text: "Snapshot", text_font: font_md, text_color: c_text }
+        # Retour
+        - button:
+            x: 670
+            y: 520
+            width: 340
+            height: 60
+            bg_color: c_card_accent
+            radius: 12
+            on_click:
+              - switch.turn_off: camera_1_switch
+              - lvgl.page.show: home_page
+            widgets:
+              - label: { align: CENTER, text: "Retour dashboard", text_font: font_md, text_color: 0xFFFFFF }
+
+        # Popup d'enrôlement (caché)
+        - obj:
+            id: enroll_popup
+            x: 200
+            y: 100
+            width: 624
+            height: 400
+            bg_color: 0x161b22
+            bg_opa: COVER
+            radius: 16
+            border_width: 2
+            border_color: 0x3fb950
+            hidden: true
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 12
+                  text: "Saisir le nom du visage à enrôler"
+                  text_color: c_text
+                  text_font: font_md
+              - textarea:
+                  id: name_input
+                  x: 30
+                  y: 50
+                  width: 564
+                  height: 50
+                  one_line: true
+                  placeholder_text: "Nom..."
+                  text_font: font_md
+                  on_ready:
+                    - lambda: |-
+                        std::string n = lv_textarea_get_text(id(name_input));
+                        if (!n.empty()) {
+                          id(face_detect).enroll_face_with_name(n);
+                          ESP_LOGI("face", "Visage enrôlé : %s", n.c_str());
+                        }
+                        lv_textarea_set_text(id(name_input), "");
+                    - lvgl.widget.hide: enroll_popup
+              - keyboard:
+                  id: face_keyboard
+                  x: 10
+                  y: 110
+                  width: 604
+                  height: 270
+                  mode: TEXT_UPPER
+                  textarea: name_input
+              - button:
+                  align: TOP_RIGHT
+                  x: -10
+                  y: 10
+                  width: 40
+                  height: 40
+                  bg_color: 0x8a2d3a
+                  radius: 20
+                  on_click:
+                    - lvgl.widget.hide: enroll_popup
+                  widgets:
+                    - label: { align: CENTER, text: "X", text_color: 0xFFFFFF }
+
+    # ======================================================================
+    # PAGE PARAMÈTRES (luminosité, durée veille, etc.)
+    # ======================================================================
+    - id: settings_page
+      bg_color: c_bg
+      widgets:
+        - label:
+            x: 30
+            y: 20
+            text: "Paramètres"
+            text_color: c_text
+            text_font: font_lg
+        # Luminosité
+        - obj:
+            x: 30
+            y: 70
+            width: 480
+            height: 110
+            styles: card_style
+            widgets:
+              - label: { x: 0, y: 0, text: "Luminosité écran", text_color: c_text, text_font: font_md }
+              - slider:
+                  id: settings_brightness
+                  x: 0
+                  y: 50
+                  width: 440
+                  height: 16
+                  min_value: 0
+                  max_value: 100
+                  value: 50
+                  on_value:
+                    then:
+                      - lambda: |-
+                          auto call = id(brightness_slider).make_call();
+                          call.set_value((float)x);
+                          call.perform();
+        # Durée avant veille
+        - obj:
+            x: 30
+            y: 190
+            width: 480
+            height: 110
+            styles: card_style
+            widgets:
+              - label: { x: 0, y: 0, text: "Délai avant veille (s)", text_color: c_text, text_font: font_md }
+              - label:
+                  id: lbl_auto_off
+                  x: 0
+                  y: 30
+                  text: "désactivé"
+                  text_color: c_muted
+                  text_font: font_sm
+              - button:
+                  x: 0
+                  y: 60
+                  width: 100
+                  height: 40
+                  bg_color: c_card_alt
+                  radius: 8
+                  on_click:
+                    - lambda: |-
+                        auto call = id(auto_off).make_call();
+                        float v = id(auto_off).state - 10;
+                        if (v < -1) v = -1;
+                        call.set_value(v);
+                        call.perform();
+                  widgets:
+                    - label: { align: CENTER, text: "-", text_color: c_text, text_font: font_md }
+              - button:
+                  x: 110
+                  y: 60
+                  width: 100
+                  height: 40
+                  bg_color: c_card_alt
+                  radius: 8
+                  on_click:
+                    - lambda: |-
+                        auto call = id(auto_off).make_call();
+                        call.set_value(id(auto_off).state + 10);
+                        call.perform();
+                  widgets:
+                    - label: { align: CENTER, text: "+", text_color: c_text, text_font: font_md }
+        # Système
+        - obj:
+            x: 530
+            y: 70
+            width: 470
+            height: 510
+            styles: card_style
+            widgets:
+              - label: { x: 0, y: 0, text: "Système", text_color: c_text, text_font: font_md }
+              - label: { id: sram_label,   x: 0, y: 40,  text: "SRAM : --",  text_color: c_text, text_font: font_sm }
+              - label: { id: psram_label,  x: 0, y: 70,  text: "PSRAM : --", text_color: c_text, text_font: font_sm }
+              - label: { id: chip_temp_label, x: 0, y: 100, text: "Temp CPU : --", text_color: c_text, text_font: font_sm }
+              - label: { id: wifi_label,   x: 0, y: 130, text: "WiFi : --", text_color: c_text, text_font: font_sm }
+              - label: { id: faces_label,  x: 0, y: 160, text: "Visages enregistrés : --", text_color: c_text, text_font: font_sm }
+        # Retour
+        - button:
+            x: 30
+            y: 530
+            width: 480
+            height: 50
+            bg_color: c_card_accent
+            radius: 12
+            on_click:
+              - lvgl.page.show: home_page
+            widgets:
+              - label: { align: CENTER, text: "Retour", text_color: 0xFFFFFF, text_font: font_md }
+
+    # ======================================================================
+    # PAGE ORB — assistant vocal (wake word / TTS)
+    # ======================================================================
+    - id: orb_page
+      bg_color: 0x000000
+      widgets:
+        - obj:
+            align: CENTER
+            width: 280
+            height: 280
+            radius: 140
+            bg_color: 0x6b3fa5
+            bg_opa: 80%
+            border_width: 4
+            border_color: 0xb58aff
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "\U000F036C"
+                  text_font: font_mdi_lg
+                  text_color: 0xFFFFFF
+        - label:
+            id: orb_state_label
+            align: BOTTOM_MID
+            y: -120
+            text: "Dis « okay nabu »"
+            text_color: c_muted
+            text_font: font_md
+        - button:
+            align: TOP_LEFT
+            x: 20
+            y: 20
+            width: 80
+            height: 40
+            bg_color: c_card_alt
+            radius: 12
+            on_click:
+              - voice_assistant.stop
+              - lvgl.page.show: home_page
+            widgets:
+              - label: { align: CENTER, text: "Retour", text_color: c_text, text_font: font_sm }
