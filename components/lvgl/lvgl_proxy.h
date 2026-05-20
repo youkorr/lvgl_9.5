@@ -11,7 +11,9 @@ file is included in the build, LVGL is always included.
 #endif                  // LV_CONF_H
 
 #include <lvgl.h>
-#include <src/core/lv_obj.h>
+// LVGL 9.x: lv_obj_t is opaque; include private header for full definition
+// needed by ESPHome generated code that accesses obj members
+#include <src/core/lv_obj_private.h>
 namespace esphome {
 namespace lvgl {}  // namespace lvgl
 }  // namespace esphome
