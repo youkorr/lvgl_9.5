@@ -478,10 +478,9 @@ storage:
       format: rgb565
       byte_order: little_endian
 
-# Stockage USB-A (clé USB optionnelle, montée sur /usb)
+# Stockage USB-A (clé USB optionnelle, point de montage géré par le composant)
 usb_media_storage:
   id: usb_storage
-  mount_point: "/usb"
 
 # ============================================================================
 # Lecteurs MP4
