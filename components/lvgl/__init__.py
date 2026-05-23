@@ -514,9 +514,11 @@ async def to_code(configs):
         if canonical in _ALL_CANONICAL_WIDGETS:
             _used_canonical.add(canonical)
 
-    # lv_theme_default.c references lv_buttonmatrix_class unconditionally,
-    # so buttonmatrix must always be compiled even if not used in the YAML.
-    _THEME_REQUIRED_WIDGETS = {"BTNMATRIX"}
+    # lv_theme_default.c references lv_button_class and lv_buttonmatrix_class
+    # unconditionally (in theme_apply), so these widgets must always be compiled
+    # even if not used in the YAML — otherwise the linker fails with
+    # "undefined reference to lv_button_class".
+    _THEME_REQUIRED_WIDGETS = {"BTN", "BTNMATRIX"}
     _used_canonical |= _THEME_REQUIRED_WIDGETS
     # Also add to lv_uses so the build filter includes the source files
     for w in _THEME_REQUIRED_WIDGETS:
