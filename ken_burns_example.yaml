@@ -1,0 +1,292 @@
+# =============================================================================
+# Ken Burns Effect — ESP32-P4 with PPA Hardware Acceleration
+# =============================================================================
+#
+# The Ken Burns effect is a slow zoom + pan animation on still images.
+# On ESP32-P4, the PPA SRM (Scale-Rotate-Mirror) engine performs all pixel
+# scaling work in hardware DMA, leaving the CPU entirely free.
+#
+# How the PPA path is activated:
+#   - use_ppa_img: true  → enables lv_draw_ppa_img_srm() in the draw pipeline
+#   - When LVGL issues a draw task with scale_x or scale_y != LV_SCALE_NONE
+#     (256), ppa_evaluate() routes it to the SRM engine instead of software.
+#   - lv_draw_ppa_img_srm() inverts the scale to find the source block,
+#     then calls ppa_do_scale_rotate_mirror() — zero CPU pixel work.
+#
+# Image requirements:
+#   - Place a landscape photo named "landscape.jpg" (or .png) in your
+#     ESPHome config directory.
+#   - Recommended size: 1400x840 or larger (gives room to pan without
+#     hitting image edges during zoom).
+#   - RGB565 or RGBA format; JPEG is decoded to RGB565 at build time.
+#
+# Animation (two alternating phases, 8 s each):
+#   Phase A: zoom 1.0x → 1.4x, pan upper-left → lower-right
+#   Phase B: zoom 1.4x → 1.0x, pan lower-right → upper-left
+#
+# Requirements:
+#   - ESP32-P4 based board (Waveshare ESP32-P4-WIFI6-TOUCH-LCD-7B shown)
+#   - CONFIG_SOC_PPA_SUPPORTED: y in sdkconfig
+# =============================================================================
+
+substitutions:
+  name: ken-burns-ppa
+  friendly_name: "Ken Burns PPA Demo"
+  display_w: "1024"
+  display_h: "600"
+
+  # Ken Burns animation parameters
+  anim_duration_ms: "8000"   # Duration of one zoom+pan phase (ms)
+  zoom_start: "256"          # LV_SCALE_NONE = 1.0x
+  zoom_end:   "358"          # ~1.4x (256 * 1.4 = 358)
+  pan_range_x: "160"         # pixels to pan on X axis
+  pan_range_y: "90"          # pixels to pan on Y axis
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  platformio_options:
+    board_build.flash_mode: qio
+    board_build.flash_size: 16MB
+
+esp32:
+  board: esp32-p4-function-ev-board
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    version: "5.4.0"
+    sdkconfig_options:
+      CONFIG_ESPTOOLPY_FLASHSIZE_16MB: y
+      CONFIG_SPIRAM: y
+      CONFIG_SPIRAM_MODE_HEX: y
+      CONFIG_SPIRAM_SPEED_200M: y
+      CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_400: y
+      CONFIG_SOC_PPA_SUPPORTED: y
+
+psram:
+  mode: hex
+  speed: 200MHz
+
+logger:
+  level: INFO
+
+# --- Display ---
+i2c:
+  - id: bsp_bus
+    sda: GPIO8
+    scl: GPIO7
+    frequency: 400kHz
+
+touchscreen:
+  - platform: gt911
+    id: touch
+    i2c_id: bsp_bus
+    interrupt_pin: GPIO3
+
+display:
+  - platform: mipi_dsi
+    id: main_display
+    model: WAVESHARE-ESP32-P4-WIFI6-TOUCH-LCD-7B
+    reset_pin:
+      number: 33
+    rotation: 0
+    update_interval: never
+    auto_clear_enabled: false
+    dimensions:
+      width: 1024
+      height: 600
+
+# --- Image ---
+# Place a landscape photo (>=1400x840 recommended) named "landscape.jpg"
+# in your ESPHome config directory.
+image:
+  - file: "landscape.jpg"
+    id: img_landscape
+    type: RGB565
+    resize: 1400x840    # Larger than display → room to pan during zoom
+
+# --- Global state ---
+globals:
+  # Animation phase: 0 = zoom-in+pan-right, 1 = zoom-out+pan-left
+  - id: kb_phase
+    type: int
+    restore_value: no
+    initial_value: "0"
+
+  # Tick counter within the current phase (0 … kb_ticks_total-1)
+  - id: kb_tick
+    type: int
+    restore_value: no
+    initial_value: "0"
+
+  # Total ticks per phase at 33 ms interval
+  - id: kb_ticks_total
+    type: int
+    restore_value: no
+    initial_value: "242"    # 8000 ms / 33 ms ≈ 242
+
+  # FPS counters
+  - id: fps_count
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: last_fps
+    type: int
+    restore_value: no
+    initial_value: "0"
+
+# =============================================================================
+# Intervals
+# =============================================================================
+interval:
+
+  # --- Ken Burns animation tick (≈30 fps) ---
+  - interval: 33ms
+    then:
+      - lambda: |-
+          int total = id(kb_ticks_total);
+          int tick  = id(kb_tick);
+          int phase = id(kb_phase);
+
+          // Normalised progress t ∈ [0, 1]
+          float t_lin = (float)tick / (float)(total - 1);
+
+          // Ease-in-out: smoothstep(t) = 3t² - 2t³
+          float t = t_lin * t_lin * (3.0f - 2.0f * t_lin);
+
+          // Zoom: interpolate between LV_SCALE_NONE (256) and zoom_end (358)
+          const int zoom_a = ${zoom_start};
+          const int zoom_b = ${zoom_end};
+          int scale_val;
+
+          // Pivot (zoom center) within the image, interpolated for panning
+          int pivot_x, pivot_y;
+
+          // Phase 0: zoom in, pan upper-left → center
+          // Phase 1: zoom out, pan center → lower-right (reversed)
+          const int px0 = 200, py0 = 150;   // start pivot (upper-left region)
+          const int px1 = 1200, py1 = 690;  // end pivot (lower-right region)
+
+          if(phase == 0) {
+              scale_val = (int)(zoom_a + (zoom_b - zoom_a) * t);
+              pivot_x   = (int)(px0 + (px1 - px0) * t);
+              pivot_y   = (int)(py0 + (py1 - py0) * t);
+          } else {
+              scale_val = (int)(zoom_b + (zoom_a - zoom_b) * t);
+              pivot_x   = (int)(px1 + (px0 - px1) * t);
+              pivot_y   = (int)(py1 + (py0 - py1) * t);
+          }
+
+          // Apply to LVGL image widget
+          lv_image_set_scale(id(lv_kb_image), (uint32_t)scale_val);
+          lv_image_set_pivot(id(lv_kb_image), (lv_coord_t)pivot_x, (lv_coord_t)pivot_y);
+
+          id(fps_count)++;
+
+          // Advance tick; switch phase at end
+          tick++;
+          if(tick >= total) {
+              tick  = 0;
+              phase = 1 - phase;
+              id(kb_phase) = phase;
+          }
+          id(kb_tick) = tick;
+
+  # --- FPS counter ---
+  - interval: 1s
+    then:
+      - lambda: |-
+          id(last_fps) = id(fps_count);
+          id(fps_count) = 0;
+          lv_label_set_text_fmt(id(lv_fps_label), "FPS: %d  PPA SRM", id(last_fps));
+
+# =============================================================================
+# LVGL — PPA + PPA_IMG enabled for Ken Burns hardware acceleration
+# =============================================================================
+lvgl:
+  use_ppa: true        # PPA fill + blend acceleration
+  use_ppa_img: true    # PPA SRM scale (Ken Burns path: lv_draw_ppa_img_srm)
+  displays:
+    - main_display
+  touchscreens:
+    - touch
+
+  pages:
+    - id: main_page
+      widgets:
+
+        # Full-screen container — clips the zoomed/panned image
+        - obj:
+            id: lv_kb_container
+            width: 1024
+            height: 600
+            x: 0
+            y: 0
+            bg_opa: TRANSP
+            border_width: 0
+            pad_all: 0
+            clip_corner: true
+            overflow: HIDDEN
+
+            widgets:
+              # Ken Burns image widget
+              # Declared at 1400×840 so scale + pan stay within image bounds.
+              # LVGL clips the visible 1024×600 area; PPA SRM renders only
+              # the visible source block — no wasted memory bandwidth.
+              - image:
+                  id: lv_kb_image
+                  src: img_landscape
+                  align: CENTER
+                  # Initial state: no zoom, pivot at image center
+                  scale: 256          # LV_SCALE_NONE = 1.0x
+                  pivot_x: 700        # center of 1400-wide image
+                  pivot_y: 420        # center of 840-tall image
+
+        # HUD overlay (drawn on top of the Ken Burns layer)
+        - obj:
+            width: 1024
+            height: 600
+            x: 0
+            y: 0
+            bg_opa: TRANSP
+            border_width: 0
+            pad_all: 0
+
+            widgets:
+              # FPS + PPA status
+              - label:
+                  id: lv_fps_label
+                  align: TOP_RIGHT
+                  x: -12
+                  y: 12
+                  text: "FPS: -- PPA SRM"
+                  text_color: 0xFFFFFF
+                  text_font: montserrat_14
+                  bg_color: 0x000000
+                  bg_opa: 70%
+                  pad_all: 4
+
+              # Title badge
+              - label:
+                  id: lv_title_label
+                  align: TOP_LEFT
+                  x: 12
+                  y: 12
+                  text: "Ken Burns — PPA SRM Hardware Zoom"
+                  text_color: 0xFFFFFF
+                  text_font: montserrat_14
+                  bg_color: 0x000000
+                  bg_opa: 70%
+                  pad_all: 4
+
+              # Phase indicator
+              - label:
+                  id: lv_phase_label
+                  align: BOTTOM_MID
+                  y: -12
+                  text: "Zoom In  → Pan Right"
+                  text_color: 0xCCCCCC
+                  text_font: montserrat_14
+                  bg_color: 0x000000
+                  bg_opa: 50%
+                  pad_all: 3
