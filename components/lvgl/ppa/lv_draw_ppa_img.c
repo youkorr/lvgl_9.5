@@ -13,6 +13,7 @@
 #include "src/draw/lv_draw_image_private.h"
 #include "src/draw/lv_image_decoder_private.h"
 #include "src/draw/lv_image_decoder.h"
+#include <math.h>
 
 static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t * draw_dsc,
                                  const lv_image_decoder_dsc_t * decoder_dsc, lv_draw_image_sup_t * sup,
@@ -172,11 +173,13 @@ static void lv_draw_img_ppa_srm_core(lv_draw_task_t * t, const lv_draw_image_dsc
 
     if(clip_w <= 0 || clip_h <= 0) return;
 
-    /* Map clip area back to source space */
-    uint32_t src_bx = (uint32_t)(clip_rel_x / scale_x);
-    uint32_t src_by = (uint32_t)(clip_rel_y / scale_y);
-    uint32_t src_bw = (uint32_t)((float)clip_w / scale_x + 0.5f);
-    uint32_t src_bh = (uint32_t)((float)clip_h / scale_y + 0.5f);
+    /* Map clip area back to source space.
+     * Use ceilf+1 so PPA output always covers the full clip tile —
+     * rounding down would leave unfilled pixels (black band). */
+    uint32_t src_bx = (uint32_t)floorf((float)clip_rel_x / scale_x);
+    uint32_t src_by = (uint32_t)floorf((float)clip_rel_y / scale_y);
+    uint32_t src_bw = (uint32_t)ceilf((float)clip_w / scale_x) + 1u;
+    uint32_t src_bh = (uint32_t)ceilf((float)clip_h / scale_y) + 1u;
 
     /* Clamp to source bounds */
     if(src_bx >= src_w || src_by >= src_h) return;
@@ -190,10 +193,14 @@ static void lv_draw_img_ppa_srm_core(lv_draw_task_t * t, const lv_draw_image_dsc
     lv_area_move(&dest_area, -layer->buf_area.x1, -layer->buf_area.y1);
 
     /* Flush source for PPA DMA */
-    if(decoded->data_size > 0) {
-        esp_cache_msync((void *)decoded->data,
-                        lv_draw_ppa_align_size(decoded->data_size),
-                        ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+    {
+        uint32_t src_size = decoded->data_size;
+        if(src_size == 0) src_size = src_w * src_h * lv_color_format_get_size(src_cf);
+        if(src_size > 0) {
+            esp_cache_msync((void *)decoded->data,
+                            lv_draw_ppa_align_size(src_size),
+                            ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+        }
     }
 
     ppa_srm_oper_config_t cfg;
@@ -315,12 +322,14 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     lv_area_copy(&dest_area, &t->area);
     lv_area_move(&dest_area, -layer->buf_area.x1, -layer->buf_area.y1);
 
-    /* Flush decoded source buffer for PPA DMA access. Align size to cache
-     * line; _UNALIGNED flag is only a safety net for the address. */
-    if(decoded->data_size > 0) {
-        esp_cache_msync((void *)decoded->data,
-                        lv_draw_ppa_align_size(decoded->data_size),
-                        ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+    {
+        uint32_t rot_src_size = decoded->data_size;
+        if(rot_src_size == 0) rot_src_size = src_w * src_h * lv_color_format_get_size(src_cf);
+        if(rot_src_size > 0) {
+            esp_cache_msync((void *)decoded->data,
+                            lv_draw_ppa_align_size(rot_src_size),
+                            ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+        }
     }
 
     /* Configure PPA SRM operation */
