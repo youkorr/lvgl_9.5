@@ -4834,6 +4834,28 @@ lvgl:
                 lv_obj_clear_flag(id(lv_kb_image),     LV_OBJ_FLAG_SCROLLABLE);
                 lv_obj_clear_flag(id(lv_kb_image),     LV_OBJ_FLAG_CLICKABLE);
                 lv_obj_set_scroll_dir(id(lv_kb_container), LV_DIR_NONE);
+
+                // --- DEBUG: log image and container state ---
+                lv_obj_t *img = id(lv_kb_image);
+                lv_obj_t *cont = id(lv_kb_container);
+                lv_image_header_t header;
+                lv_image_decoder_get_info(lv_image_get_src(img), &header);
+                ESP_LOGI("KB_INIT", "Image src size: %dx%d, cf=%d",
+                         (int)header.w, (int)header.h, (int)header.cf);
+                ESP_LOGI("KB_INIT", "Container: x=%d y=%d w=%d h=%d",
+                         (int)lv_obj_get_x(cont), (int)lv_obj_get_y(cont),
+                         (int)lv_obj_get_width(cont), (int)lv_obj_get_height(cont));
+                ESP_LOGI("KB_INIT", "Image widget: x=%d y=%d w=%d h=%d align=%d",
+                         (int)lv_obj_get_x(img), (int)lv_obj_get_y(img),
+                         (int)lv_obj_get_width(img), (int)lv_obj_get_height(img),
+                         (int)lv_obj_get_style_align(img, LV_PART_MAIN));
+                ESP_LOGI("KB_INIT", "Image scale=%d pivot=(%d,%d)",
+                         (int)lv_image_get_scale(img),
+                         (int)lv_image_get_pivot(img).x,
+                         (int)lv_image_get_pivot(img).y);
+                ESP_LOGI("KB_INIT", "Container overflow_visible=%d clip_corner=%d",
+                         (int)lv_obj_has_flag(cont, LV_OBJ_FLAG_OVERFLOW_VISIBLE),
+                         (int)lv_obj_get_style_clip_corner(cont, LV_PART_MAIN));
         widgets:
           - obj:
               id: lv_kb_container
@@ -7053,6 +7075,26 @@ interval:
           lv_image_set_scale(id(lv_kb_image), (uint32_t)scale_val);
           lv_image_set_pivot(id(lv_kb_image), pivot_x, pivot_y);
 
+          // Log every 20 ticks (~1s at 50ms)
+          if(tick % 20 == 0) {
+              lv_obj_t *img = id(lv_kb_image);
+              lv_area_t coords;
+              lv_obj_get_coords(img, &coords);
+              float s = (float)scale_val / 256.0f;
+              ESP_LOGI("KB_TICK", "phase=%d tick=%d/%d scale=%d(%.2fx) pivot=(%d,%d) "
+                       "widget_coords=[%d,%d → %d,%d] widget_size=%dx%d",
+                       phase, tick, total, scale_val, (double)s, pivot_x, pivot_y,
+                       (int)coords.x1, (int)coords.y1, (int)coords.x2, (int)coords.y2,
+                       (int)lv_obj_get_width(img), (int)lv_obj_get_height(img));
+              // Check if image covers the 1024x600 screen
+              int scaled_w = (int)(1280.0f * s);
+              int scaled_h = (int)(720.0f * s);
+              ESP_LOGI("KB_TICK", "  scaled_img=%dx%d screen=1024x600 "
+                       "overflow_w=%d overflow_h=%d",
+                       scaled_w, scaled_h,
+                       scaled_w - 1024, scaled_h - 600);
+          }
+
           id(kb_fps_count)++;
 
           tick++;
@@ -7079,6 +7121,15 @@ interval:
               float ry = (float)(esp_random() % 1001u) / 1000.0f;
               id(kb_to_x) = min_px + rx * (max_px - min_px);
               id(kb_to_y) = min_py + ry * (max_py - min_py);
+
+              ESP_LOGI("KB_PHASE", "New phase=%d zoom=%s end_s=%.2f "
+                       "pivot_from=(%.0f,%.0f) pivot_to=(%.0f,%.0f) "
+                       "safe_bounds=[%.0f..%.0f, %.0f..%.0f]",
+                       phase, (phase%2==0) ? "in" : "out", (double)end_s,
+                       (double)id(kb_from_x), (double)id(kb_from_y),
+                       (double)id(kb_to_x), (double)id(kb_to_y),
+                       (double)min_px, (double)max_px,
+                       (double)min_py, (double)max_py);
           }
           id(kb_tick) = tick;
 
