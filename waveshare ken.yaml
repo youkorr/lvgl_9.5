@@ -4849,10 +4849,11 @@ lvgl:
                          (int)lv_obj_get_x(img), (int)lv_obj_get_y(img),
                          (int)lv_obj_get_width(img), (int)lv_obj_get_height(img),
                          (int)lv_obj_get_style_align(img, LV_PART_MAIN));
+                lv_point_t pv;
+                lv_image_get_pivot(img, &pv);
                 ESP_LOGI("KB_INIT", "Image scale=%d pivot=(%d,%d)",
                          (int)lv_image_get_scale(img),
-                         (int)lv_image_get_pivot(img).x,
-                         (int)lv_image_get_pivot(img).y);
+                         (int)pv.x, (int)pv.y);
                 ESP_LOGI("KB_INIT", "Container overflow_visible=%d clip_corner=%d",
                          (int)lv_obj_has_flag(cont, LV_OBJ_FLAG_OVERFLOW_VISIBLE),
                          (int)lv_obj_get_style_clip_corner(cont, LV_PART_MAIN));
