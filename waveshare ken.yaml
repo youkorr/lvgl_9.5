@@ -1778,19 +1778,19 @@ globals:
   - id: kb_from_x
     type: float
     restore_value: no
-    initial_value: "0.0"
+    initial_value: "640.0"
   - id: kb_from_y
     type: float
     restore_value: no
-    initial_value: "0.0"
+    initial_value: "360.0"
   - id: kb_to_x
     type: float
     restore_value: no
-    initial_value: "60.0"
+    initial_value: "860.0"
   - id: kb_to_y
     type: float
     restore_value: no
-    initial_value: "30.0"
+    initial_value: "480.0"
 
 
   - id: va_is_listening
@@ -4834,15 +4834,6 @@ lvgl:
                 lv_obj_clear_flag(id(lv_kb_image),     LV_OBJ_FLAG_SCROLLABLE);
                 lv_obj_clear_flag(id(lv_kb_image),     LV_OBJ_FLAG_CLICKABLE);
                 lv_obj_set_scroll_dir(id(lv_kb_container), LV_DIR_NONE);
-                // TOP_LEFT alignment so lv_obj_set_pos() is absolute in the container
-                // (align:CENTER in YAML stores a style that re-centers after every scale change)
-                lv_obj_set_align(id(lv_kb_image), LV_ALIGN_TOP_LEFT);
-                lv_image_set_pivot(id(lv_kb_image), 0, 0);
-                lv_image_set_scale(id(lv_kb_image), ${zoom_start});
-                float s0 = ${zoom_start} / 256.0f;
-                int ix = (int)((1024.0f - 1280.0f * s0) / 2.0f);
-                int iy = (int)((600.0f  -  720.0f * s0) / 2.0f);
-                lv_obj_set_pos(id(lv_kb_image), ix, iy);
         widgets:
           - obj:
               id: lv_kb_container
@@ -4857,14 +4848,14 @@ lvgl:
               overflow_visible: false
               scrollable: false
               clickable: false
-  
+
               widgets:
-                # Ken Burns image widget (source: 1280×720)
-                # LVGL clips the visible 1024×600 area; PPA SRM renders only
-                # the visible source block — no wasted memory bandwidth.
                 - image:
                     id: lv_kb_image
                     src: space
+                    align: CENTER
+                    pivot_x: 640
+                    pivot_y: 360
                     clickable: false
   
           # HUD overlay (drawn on top of the Ken Burns layer)
@@ -7044,7 +7035,6 @@ interval:
           int phase = id(kb_phase);
 
           float t_lin = (float)tick / (float)(total - 1);
-          // smoothstep for ease-in/ease-out
           float t = t_lin * t_lin * (3.0f - 2.0f * t_lin);
 
           const int zoom_a = ${zoom_start};
@@ -7057,27 +7047,11 @@ interval:
               scale_val = (int)(zoom_b + (zoom_a - zoom_b) * t);
           }
 
-          float s = (float)scale_val / 256.0f;
+          int pivot_x = (int)(id(kb_from_x) + (id(kb_to_x) - id(kb_from_x)) * t);
+          int pivot_y = (int)(id(kb_from_y) + (id(kb_to_y) - id(kb_from_y)) * t);
 
-          float dx = id(kb_from_x) + (id(kb_to_x) - id(kb_from_x)) * t;
-          float dy = id(kb_from_y) + (id(kb_to_y) - id(kb_from_y)) * t;
-
-          // 8px safety margin prevents sub-pixel black edges
-          float max_dx = (1280.0f * s - 1024.0f) / 2.0f - 8.0f;
-          float max_dy = (720.0f  * s -  600.0f) / 2.0f - 8.0f;
-          if(max_dx < 0.0f) max_dx = 0.0f;
-          if(max_dy < 0.0f) max_dy = 0.0f;
-          if(dx >  max_dx) dx =  max_dx;
-          if(dx < -max_dx) dx = -max_dx;
-          if(dy >  max_dy) dy =  max_dy;
-          if(dy < -max_dy) dy = -max_dy;
-
-          int pos_x = (int)((1024.0f - 1280.0f * s) / 2.0f + dx);
-          int pos_y = (int)((600.0f  -  720.0f * s) / 2.0f + dy);
-
-          // Single scale+pos update, then one invalidation
           lv_image_set_scale(id(lv_kb_image), (uint32_t)scale_val);
-          lv_obj_set_pos(id(lv_kb_image), pos_x, pos_y);
+          lv_image_set_pivot(id(lv_kb_image), pivot_x, pivot_y);
 
           id(kb_fps_count)++;
 
@@ -7085,8 +7059,8 @@ interval:
           if(tick >= total) {
               tick = 0;
 
-              id(kb_from_x) = dx;
-              id(kb_from_y) = dy;
+              id(kb_from_x) = id(kb_to_x);
+              id(kb_from_y) = id(kb_to_y);
 
               phase = (phase + 1) % 2;
               id(kb_phase) = phase;
@@ -7094,16 +7068,17 @@ interval:
               float end_s = (phase % 2 == 0)
                   ? (float)zoom_b / 256.0f
                   : (float)zoom_a / 256.0f;
-              // 8px safety margin in target generation too
-              float end_mx = (1280.0f * end_s - 1024.0f) / 2.0f - 8.0f;
-              float end_my = (720.0f  * end_s -  600.0f) / 2.0f - 8.0f;
-              if(end_mx < 0.0f) end_mx = 0.0f;
-              if(end_my < 0.0f) end_my = 0.0f;
+              float half_w = 512.0f / end_s;
+              float half_h = 300.0f / end_s;
+              float min_px = half_w + 16.0f;
+              float max_px = 1280.0f - half_w - 16.0f;
+              float min_py = half_h + 16.0f;
+              float max_py = 720.0f - half_h - 16.0f;
 
-              float rx = ((float)((int)(esp_random() % 2001u) - 1000)) / 1000.0f;
-              float ry = ((float)((int)(esp_random() % 2001u) - 1000)) / 1000.0f;
-              id(kb_to_x) = rx * end_mx * 0.75f;
-              id(kb_to_y) = ry * end_my * 0.75f;
+              float rx = (float)(esp_random() % 1001u) / 1000.0f;
+              float ry = (float)(esp_random() % 1001u) / 1000.0f;
+              id(kb_to_x) = min_px + rx * (max_px - min_px);
+              id(kb_to_y) = min_py + ry * (max_py - min_py);
           }
           id(kb_tick) = tick;
 
