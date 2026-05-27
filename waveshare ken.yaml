@@ -651,7 +651,6 @@ storage:
 
     - id: space
       file_path: /diap/NCC4.jpg
-      resize: 1280x720
       format: rgb565
       byte_order: little_endian
     
