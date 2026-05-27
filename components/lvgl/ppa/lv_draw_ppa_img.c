@@ -164,6 +164,24 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     float virt_x = (float)coords->x1 + (float)dsc->pivot.x * (1.0f - sx);
     float virt_y = (float)coords->y1 + (float)dsc->pivot.y * (1.0f - sy);
 
+    /* --- PPA SRM DEBUG (log once per second) --- */
+    {
+        static uint32_t srm_dbg_count = 0;
+        if(srm_dbg_count % 100 == 0) {
+            LV_LOG_USER("PPA_SRM coords=[%d,%d→%d,%d] pivot=(%d,%d) scale=(%d,%d) "
+                        "virt=(%.1f,%.1f) src=%ux%u buf_area=[%d,%d→%d,%d]",
+                        (int)coords->x1, (int)coords->y1,
+                        (int)coords->x2, (int)coords->y2,
+                        (int)dsc->pivot.x, (int)dsc->pivot.y,
+                        (int)dsc->scale_x, (int)dsc->scale_y,
+                        (double)virt_x, (double)virt_y,
+                        src_w, src_h,
+                        (int)layer->buf_area.x1, (int)layer->buf_area.y1,
+                        (int)layer->buf_area.x2, (int)layer->buf_area.y2);
+        }
+        srm_dbg_count++;
+    }
+
     /* Visible clip dimensions and buffer-local destination (always non-negative) */
     int32_t clip_w = lv_area_get_width(&visible_area);
     int32_t clip_h = lv_area_get_height(&visible_area);
@@ -197,6 +215,22 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     if(src_bw == 0 || src_bh == 0) {
         lv_image_decoder_close(&decoder_dsc);
         return;
+    }
+
+    /* --- PPA SRM DEBUG: source/dest blocks --- */
+    {
+        static uint32_t srm_blk_count = 0;
+        if(srm_blk_count % 100 == 0) {
+            LV_LOG_USER("PPA_SRM src_block=(%d,%d %ux%u) dest_block=(%d,%d) "
+                        "clip=%dx%d visible=[%d,%d→%d,%d] dest_buf=%dx%d",
+                        (int)src_bx, (int)src_by, src_bw, src_bh,
+                        (int)dest_area.x1, (int)dest_area.y1,
+                        clip_w, clip_h,
+                        (int)visible_area.x1, (int)visible_area.y1,
+                        (int)visible_area.x2, (int)visible_area.y2,
+                        (int)dest_buf->header.w, (int)dest_buf->header.h);
+        }
+        srm_blk_count++;
     }
 
     if(decoded->data_size > 0) {
