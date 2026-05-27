@@ -22,8 +22,8 @@ substitutions:
   # Ken Burns animation parameters
   ken_burns_image: "NCC4.jpg"
   anim_duration_ms: "20000"  # Duration of one zoom+pan phase (ms)
-  zoom_start: "256"          # LV_SCALE_NONE = 1.0x
-  zoom_end:   "320"          # ~1.25x (256 * 1.25 = 320)
+  zoom_start: "270"          # ~1.055x — guarantees image always covers screen
+  zoom_end:   "340"          # ~1.33x
   pan_range_x: "200"         # pixels to pan on X axis
   pan_range_y: "90"          # pixels to pan on Y axis
   
@@ -651,6 +651,7 @@ storage:
 
     - id: space
       file_path: /diap/NCC4.jpg
+      resize: 1280x720
       format: rgb565
       byte_order: little_endian
     
@@ -1764,7 +1765,7 @@ globals:
   - id: kb_ticks_total
     type: int
     restore_value: no
-    initial_value: "606"    # 20000 ms / 33 ms ≈ 606
+    initial_value: "400"    # 20000 ms / 50 ms = 400
 
   - id: kb_fps_count
     type: int
@@ -1786,11 +1787,11 @@ globals:
   - id: kb_to_x
     type: float
     restore_value: no
-    initial_value: "80.0"
+    initial_value: "60.0"
   - id: kb_to_y
     type: float
     restore_value: no
-    initial_value: "35.0"
+    initial_value: "30.0"
 
 
   - id: va_is_listening
@@ -4838,8 +4839,11 @@ lvgl:
                 // (align:CENTER in YAML stores a style that re-centers after every scale change)
                 lv_obj_set_align(id(lv_kb_image), LV_ALIGN_TOP_LEFT);
                 lv_image_set_pivot(id(lv_kb_image), 0, 0);
-                lv_image_set_scale(id(lv_kb_image), 256);
-                lv_obj_set_pos(id(lv_kb_image), -128, -60);
+                lv_image_set_scale(id(lv_kb_image), ${zoom_start});
+                float s0 = ${zoom_start} / 256.0f;
+                int ix = (int)((1024.0f - 1280.0f * s0) / 2.0f);
+                int iy = (int)((600.0f  -  720.0f * s0) / 2.0f);
+                lv_obj_set_pos(id(lv_kb_image), ix, iy);
         widgets:
           - obj:
               id: lv_kb_container
@@ -7032,8 +7036,8 @@ interval:
             - light.turn_off: backlight
             - lvgl.page.show: page_sleep
 
-  # --- Ken Burns animation tick (≈30 fps) ---
-  - interval: 33ms
+  # --- Ken Burns animation tick (20 fps — smooth enough for slow cinematic pan/zoom) ---
+  - interval: 50ms
     then:
       - lambda: |-
           int total = id(kb_ticks_total);
@@ -7041,12 +7045,12 @@ interval:
           int phase = id(kb_phase);
 
           float t_lin = (float)tick / (float)(total - 1);
+          // smoothstep for ease-in/ease-out
           float t = t_lin * t_lin * (3.0f - 2.0f * t_lin);
 
           const int zoom_a = ${zoom_start};
           const int zoom_b = ${zoom_end};
 
-          // Alternate zoom direction: even=in, odd=out
           int scale_val;
           if(phase % 2 == 0) {
               scale_val = (int)(zoom_a + (zoom_b - zoom_a) * t);
@@ -7056,13 +7060,12 @@ interval:
 
           float s = (float)scale_val / 256.0f;
 
-          // Interpolate pan from saved start → saved end
           float dx = id(kb_from_x) + (id(kb_to_x) - id(kb_from_x)) * t;
           float dy = id(kb_from_y) + (id(kb_to_y) - id(kb_from_y)) * t;
 
-          // Clamp to safe range at current scale (image 1280×720, screen 1024×600)
-          float max_dx = (1280.0f * s - 1024.0f) / 2.0f;
-          float max_dy = (720.0f  * s -  600.0f) / 2.0f;
+          // 8px safety margin prevents sub-pixel black edges
+          float max_dx = (1280.0f * s - 1024.0f) / 2.0f - 8.0f;
+          float max_dy = (720.0f  * s -  600.0f) / 2.0f - 8.0f;
           if(max_dx < 0.0f) max_dx = 0.0f;
           if(max_dy < 0.0f) max_dy = 0.0f;
           if(dx >  max_dx) dx =  max_dx;
@@ -7070,10 +7073,10 @@ interval:
           if(dy >  max_dy) dy =  max_dy;
           if(dy < -max_dy) dy = -max_dy;
 
-          // Position = centered scaled image + pan offset
           int pos_x = (int)((1024.0f - 1280.0f * s) / 2.0f + dx);
           int pos_y = (int)((600.0f  -  720.0f * s) / 2.0f + dy);
 
+          // Single scale+pos update, then one invalidation
           lv_image_set_scale(id(lv_kb_image), (uint32_t)scale_val);
           lv_obj_set_pos(id(lv_kb_image), pos_x, pos_y);
 
@@ -7083,24 +7086,21 @@ interval:
           if(tick >= total) {
               tick = 0;
 
-              // End position becomes next start (seamless, no jump)
               id(kb_from_x) = dx;
               id(kb_from_y) = dy;
 
-              // Next phase = opposite zoom direction
               phase = (phase + 1) % 2;
               id(kb_phase) = phase;
 
-              // Safe bounds at END of next phase
               float end_s = (phase % 2 == 0)
                   ? (float)zoom_b / 256.0f
                   : (float)zoom_a / 256.0f;
-              float end_mx = (1280.0f * end_s - 1024.0f) / 2.0f;
-              float end_my = (720.0f  * end_s -  600.0f) / 2.0f;
+              // 8px safety margin in target generation too
+              float end_mx = (1280.0f * end_s - 1024.0f) / 2.0f - 8.0f;
+              float end_my = (720.0f  * end_s -  600.0f) / 2.0f - 8.0f;
               if(end_mx < 0.0f) end_mx = 0.0f;
               if(end_my < 0.0f) end_my = 0.0f;
 
-              // Random target within 75% of safe bounds
               float rx = ((float)((int)(esp_random() % 2001u) - 1000)) / 1000.0f;
               float ry = ((float)((int)(esp_random() % 2001u) - 1000)) / 1000.0f;
               id(kb_to_x) = rx * end_mx * 0.75f;
