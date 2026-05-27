@@ -650,7 +650,7 @@ storage:
       byte_order: little_endian  
 
     - id: space
-      file_path: /diap/NCC4.jpg
+      file_path: /img1280x720/sanctuary.jpg
       format: rgb565
       byte_order: little_endian
     
