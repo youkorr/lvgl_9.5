@@ -7107,25 +7107,25 @@ interval:
               phase = (phase + 1) % 2;
               id(kb_phase) = phase;
 
-              float end_s = (phase % 2 == 0)
-                  ? (float)zoom_b / 256.0f
-                  : (float)zoom_a / 256.0f;
-              float half_w = 512.0f / end_s;
-              float half_h = 300.0f / end_s;
-              float min_px = half_w + 16.0f;
-              float max_px = 1280.0f - half_w - 16.0f;
-              float min_py = half_h + 16.0f;
-              float max_py = 720.0f - half_h - 16.0f;
+              // Always use MINIMUM zoom for safe bounds — pivot must be safe
+              // at every point during the phase, not just at the end
+              float min_s = (float)zoom_a / 256.0f;
+              float half_w = 512.0f / min_s;
+              float half_h = 300.0f / min_s;
+              float min_px = half_w + 20.0f;
+              float max_px = 1280.0f - half_w - 20.0f;
+              float min_py = half_h + 20.0f;
+              float max_py = 720.0f - half_h - 20.0f;
 
               float rx = (float)(esp_random() % 1001u) / 1000.0f;
               float ry = (float)(esp_random() % 1001u) / 1000.0f;
               id(kb_to_x) = min_px + rx * (max_px - min_px);
               id(kb_to_y) = min_py + ry * (max_py - min_py);
 
-              ESP_LOGI("KB_PHASE", "New phase=%d zoom=%s end_s=%.2f "
+              ESP_LOGI("KB_PHASE", "New phase=%d zoom=%s min_s=%.2f "
                        "pivot_from=(%.0f,%.0f) pivot_to=(%.0f,%.0f) "
                        "safe_bounds=[%.0f..%.0f, %.0f..%.0f]",
-                       phase, (phase%2==0) ? "in" : "out", (double)end_s,
+                       phase, (phase%2==0) ? "in" : "out", (double)min_s,
                        (double)id(kb_from_x), (double)id(kb_from_y),
                        (double)id(kb_to_x), (double)id(kb_to_y),
                        (double)min_px, (double)max_px,
