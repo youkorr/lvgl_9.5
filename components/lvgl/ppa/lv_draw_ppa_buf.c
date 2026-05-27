@@ -1,13 +1,6 @@
 /**
  * @file lv_draw_ppa_buf.c
- * Fixed PPA buffer cache handling for LVGL 9.4 on ESP32-P4
- * Backported from https://github.com/lvgl/lvgl/pull/9162
- * Adapted for C++ compilation (ESPHome build system)
- *
- * NOTE: We do NOT set the global invalidate_cache_cb handler because
- * it would affect ALL draw operations (software renderer included).
- * Cache sync is done per-operation in PPA dispatch, and only for
- * buffers in external (PSRAM) memory which is cached.
+ * PPA-aligned buffer allocator and cache sync for ESP32-P4
  */
 
 #include "sdkconfig.h"
@@ -15,32 +8,58 @@
 
 #include "lv_draw_ppa_private.h"
 #include "lv_draw_ppa.h"
+#include "src/draw/lv_draw_buf.h"
 #include "esp_memory_utils.h"
+
+/**********************
+ *  STATIC FUNCTIONS
+ **********************/
+
+static void * ppa_buf_malloc(size_t size, lv_color_format_t cf)
+{
+    LV_UNUSED(cf);
+    uint32_t aligned_size = lv_draw_ppa_align_size((uint32_t)size);
+    void * p = heap_caps_aligned_alloc((size_t)LV_DRAW_BUF_ALIGN, aligned_size,
+                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if(p == NULL) {
+        p = heap_caps_aligned_alloc((size_t)LV_DRAW_BUF_ALIGN, aligned_size,
+                                    MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    }
+    return p;
+}
+
+static void ppa_buf_free(void * buf)
+{
+    heap_caps_free(buf);
+}
 
 /**********************
  *   GLOBAL FUNCTIONS
  **********************/
+
 void lv_draw_buf_ppa_init_handlers(void)
 {
-    /* Intentionally empty - see file header comment */
+    lv_draw_buf_handlers_t * h = lv_draw_buf_get_handlers();
+    h->buf_malloc_cb = ppa_buf_malloc;
+    h->buf_free_cb   = ppa_buf_free;
+}
+
+static inline uint32_t ppa_buf_compute_size(lv_draw_buf_t * buf)
+{
+    if(buf->data_size > 0) return buf->data_size;
+    uint32_t bpp = lv_color_format_get_size((lv_color_format_t)buf->header.cf);
+    return (uint32_t)buf->header.w * (uint32_t)buf->header.h * bpp;
 }
 
 void lv_draw_ppa_cache_sync(lv_draw_buf_t * buf)
 {
-    if(buf == NULL || buf->data == NULL || buf->data_size == 0) return;
-
-    /* Only sync if buffer is in external (PSRAM) memory, which is cached.
-     * Internal SRAM is not cached on ESP32-P4, so esp_cache_msync would
-     * either be a no-op or could crash on non-cacheable regions. */
+    if(buf == NULL || buf->data == NULL) return;
     if(!esp_ptr_external_ram(buf->data)) return;
 
-    /* Fix for issue #9868 + LVGL PR #10107: esp_cache_msync() requires both
-     * address AND size to be aligned to the cache line size (64 B default,
-     * 128 B with CONFIG_CACHE_L2_CACHE_LINE_128B). Round size up AND pass
-     * ESP_CACHE_MSYNC_FLAG_UNALIGNED so partial leading/trailing lines from
-     * non-aligned buffer pointers (malloc()/user buffers) are handled by
-     * the kernel instead of triggering a rejection. */
-    uint32_t aligned_size = lv_draw_ppa_align_size(buf->data_size);
+    uint32_t size = ppa_buf_compute_size(buf);
+    if(size == 0) return;
+
+    uint32_t aligned_size = lv_draw_ppa_align_size(size);
 
     esp_cache_msync(buf->data, aligned_size,
                     ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA |

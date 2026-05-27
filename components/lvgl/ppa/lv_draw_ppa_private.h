@@ -36,6 +36,10 @@
 *      DEFINES
 *********************/
 
+#ifndef LV_USE_PPA_IMG
+#define LV_USE_PPA_IMG  1
+#endif
+
 /**********************
 *      TYPEDEFS
 **********************/

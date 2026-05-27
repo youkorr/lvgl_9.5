@@ -21,7 +21,7 @@ static const char * TAG = "ppa_draw";
 /* Check if a draw buffer is suitable for PPA (non-NULL, aligned, has data) */
 static inline bool ppa_buf_usable(lv_draw_buf_t * buf)
 {
-    if(buf == NULL || buf->data == NULL || buf->data_size == 0) return false;
+    if(buf == NULL || buf->data == NULL) return false;
     if(((uintptr_t)buf->data) % PPA_BUF_ALIGN != 0) return false;
     return true;
 }
@@ -39,6 +39,8 @@ static int32_t ppa_delete(lv_draw_unit_t * draw_unit);
 
 void lv_draw_ppa_init(void)
 {
+    lv_draw_buf_ppa_init_handlers();
+
     lv_draw_ppa_unit_t * draw_ppa_unit = (lv_draw_ppa_unit_t *)lv_draw_create_unit(sizeof(lv_draw_ppa_unit_t));
     draw_ppa_unit->base_unit.evaluate_cb = ppa_evaluate;
     draw_ppa_unit->base_unit.dispatch_cb = ppa_dispatch;

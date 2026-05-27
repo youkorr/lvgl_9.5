@@ -97,9 +97,12 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
     cfg.fg_ck_en             = false;
 
     /* Output */
+    uint32_t blend_bpp = lv_color_format_get_size(dest_cf);
+    uint32_t blend_size = draw_buf->data_size;
+    if(blend_size == 0) blend_size = (uint32_t)draw_buf->header.w * (uint32_t)draw_buf->header.h * blend_bpp;
+
     cfg.out.buffer           = dest_buf;
-    /* PPA hardware rejects unaligned out.buffer_size (issue #9868). */
-    cfg.out.buffer_size      = lv_draw_ppa_align_size(draw_buf->data_size);
+    cfg.out.buffer_size      = lv_draw_ppa_align_size(blend_size);
     cfg.out.pic_w            = draw_buf->header.w;
     cfg.out.pic_h            = draw_buf->header.h;
     cfg.out.block_offset_x   = (uint32_t)dest_area.x1;
@@ -205,8 +208,12 @@ static void lv_draw_img_ppa_srm_core(lv_draw_task_t * t, const lv_draw_image_dsc
     cfg.in.block_offset_y = src_by;
     cfg.in.srm_cm         = lv_color_format_to_ppa_srm(src_cf);
 
+    uint32_t out_bpp = lv_color_format_get_size(dest_cf);
+    uint32_t out_size = dest_buf->data_size;
+    if(out_size == 0) out_size = (uint32_t)dest_buf->header.w * (uint32_t)dest_buf->header.h * out_bpp;
+
     cfg.out.buffer         = dest_buf->data;
-    cfg.out.buffer_size    = lv_draw_ppa_align_size(dest_buf->data_size);
+    cfg.out.buffer_size    = lv_draw_ppa_align_size(out_size);
     cfg.out.pic_w          = dest_buf->header.w;
     cfg.out.pic_h          = dest_buf->header.h;
     cfg.out.block_offset_x = (uint32_t)dest_area.x1;
@@ -330,10 +337,12 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     cfg.in.block_offset_y = 0;
     cfg.in.srm_cm         = lv_color_format_to_ppa_srm(src_cf);
 
-    /* Output: write rotated image into layer buffer */
+    uint32_t rot_bpp = lv_color_format_get_size(dest_cf);
+    uint32_t rot_size = dest_buf->data_size;
+    if(rot_size == 0) rot_size = (uint32_t)dest_buf->header.w * (uint32_t)dest_buf->header.h * rot_bpp;
+
     cfg.out.buffer         = dest_buf->data;
-    /* PPA hardware rejects unaligned out.buffer_size (issue #9868). */
-    cfg.out.buffer_size    = lv_draw_ppa_align_size(dest_buf->data_size);
+    cfg.out.buffer_size    = lv_draw_ppa_align_size(rot_size);
     cfg.out.pic_w          = dest_buf->header.w;
     cfg.out.pic_h          = dest_buf->header.h;
     cfg.out.block_offset_x = (uint32_t)dest_area.x1;
