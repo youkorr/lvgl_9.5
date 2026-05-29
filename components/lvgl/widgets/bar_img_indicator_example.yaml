@@ -1,0 +1,68 @@
+# ESPHome LVGL — Bar / Slider à indicateur image (VU-mètre segmenté)
+#
+# Équivalent de l'exemple officiel LVGL 9.5 "lv_example_bar_img_indicator" :
+# on remplace le remplissage couleur par des bitmaps via `bg_image_src`, posé
+# sur la partie MAIN (la piste) et sur la partie `indicator` (le remplissage).
+# Quand la valeur monte, l'indicateur révèle l'image de gauche à droite.
+#
+# Les deux bitmaps sont générés par `tools/gen_bar_segments.py` (280x40, 16
+# segments cyan -> jaune -> rouge). Régénère le script à la taille de ton
+# widget : LVGL n'étire PAS l'image, il la dessine en taille native et la rogne.
+# La largeur de contenu du widget doit donc = largeur de l'image (d'où pad_all: 0).
+
+image:
+  - file: "images/bar_track.png"        # segments "éteints"  -> LV_PART_MAIN
+    id: img_bar_track
+    type: RGB565
+  - file: "images/bar_indicator.png"    # segments "allumés"  -> LV_PART_INDICATOR
+    id: img_bar_indicator
+    type: RGB565
+
+lvgl:
+  pages:
+    - id: bar_img_page
+      widgets:
+        # --- Bar fonctionnel (traduction directe de l'exemple Espressif) ---
+        - bar:
+            id: my_seg_bar
+            align: CENTER
+            y: -30
+            width: 280          # = largeur des images
+            height: 40          # = hauteur des images
+            min_value: 0
+            max_value: 100
+            value: 70
+            pad_all: 0          # indispensable : contenu = width
+            radius: 0
+            bg_opa: TRANSP                    # MAIN = piste : seulement l'image
+            bg_image_src: img_bar_track
+            indicator:
+              radius: 0
+              bg_opa: TRANSP                  # indicateur : seulement l'image
+              bg_image_src: img_bar_indicator
+
+        # --- Même technique sur un slider (luminosité backlight) ---
+        - slider:
+            id: backlight_brightness_slider
+            align: CENTER
+            y: 30
+            width: 280          # doit = largeur des images
+            height: 40
+            min_value: 35
+            max_value: 100
+            value: 100
+            pad_all: 0
+            radius: 0
+            bg_opa: TRANSP
+            bg_image_src: img_bar_track
+            indicator:
+              radius: 0
+              bg_opa: TRANSP
+              bg_image_src: img_bar_indicator
+            knob:
+              bg_opa: TRANSP                  # knob invisible
+            on_release:
+              then:
+                - light.turn_on:
+                    id: backlight
+                    brightness: !lambda return int(x) / 100.0;
