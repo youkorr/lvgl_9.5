@@ -209,6 +209,12 @@ class LvglComponent : public PollingComponent {
   size_t draw_rounding{2};
 
   display::DisplayRotation rotation{display::DISPLAY_ROTATION_0_DEGREES};
+  // Explicit rotation set via the lvgl: `rotation:` option. When set, it takes
+  // precedence over the rotation read from the display: component in setup().
+  void set_lvgl_rotation(display::DisplayRotation rotation) {
+    this->rotation = rotation;
+    this->rotation_configured_ = true;
+  }
   void set_pause_trigger(Trigger<> *trigger) { this->pause_callback_ = trigger; }
   void set_resume_trigger(Trigger<> *trigger) { this->resume_callback_ = trigger; }
   void set_draw_start_trigger(Trigger<> *trigger) { this->draw_start_callback_ = trigger; }
@@ -227,6 +233,8 @@ class LvglComponent : public PollingComponent {
   void flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p);
 
   std::vector<display::Display *> displays_{};
+  // True when rotation was set explicitly via the lvgl: `rotation:` option.
+  bool rotation_configured_{false};
   size_t buffer_frac_{1};
   bool full_refresh_{};
   bool resume_on_input_{};

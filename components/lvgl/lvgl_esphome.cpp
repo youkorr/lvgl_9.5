@@ -880,7 +880,11 @@ void LvglComponent::setup() {
   // Store buf_bytes - lv_display_set_buffers() is called at the END of setup()
   // to avoid triggering rendering before all callbacks and pages are configured.
   this->buf_bytes_ = buf_bytes;
-  this->rotation = display->get_rotation();
+  // If the user set `rotation:` on the lvgl: component, that value already lives
+  // in this->rotation (via set_lvgl_rotation). Otherwise inherit it from the
+  // display: component.
+  if (!this->rotation_configured_)
+    this->rotation = display->get_rotation();
   if (this->rotation != display::DISPLAY_ROTATION_0_DEGREES) {
     this->rotate_buf_ = static_cast<lv_color_t *>(alloc_draw_buf(buf_bytes));
     if (this->rotate_buf_ == nullptr) {

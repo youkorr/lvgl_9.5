@@ -9,7 +9,7 @@ from esphome.components.const import (
     CONF_COLOR_DEPTH,
     CONF_DRAW_ROUNDING,
 )
-from esphome.components.display import Display
+from esphome.components.display import DISPLAY_ROTATIONS, Display
 from esphome.components.psram import DOMAIN as PSRAM_DOMAIN
 import esphome.config_validation as cv
 from esphome.const import (
@@ -22,6 +22,7 @@ from esphome.const import (
     CONF_ON_BOOT,
     CONF_ON_IDLE,
     CONF_PAGES,
+    CONF_ROTATION,
     CONF_TIMEOUT,
     CONF_TRIGGER_ID,
     CONF_TYPE,
@@ -411,6 +412,8 @@ async def to_code(configs):
         lv_scr_act = get_screen_active(lv_component)
         async with LvContext():
             cg.add(lv_component.set_big_endian(config[CONF_BYTE_ORDER] == "big_endian"))
+            if CONF_ROTATION in config:
+                cg.add(lv_component.set_lvgl_rotation(config[CONF_ROTATION]))
             await touchscreens_to_code(lv_component, config)
             await encoders_to_code(lv_component, config, default_group)
             await keypads_to_code(lv_component, config, default_group)
@@ -631,6 +634,10 @@ LVGL_SCHEMA = cv.All(
                 cv.GenerateID(CONF_ID): cv.declare_id(LvglComponent),
                 cv.GenerateID(df.CONF_DISPLAYS): display_schema,
                 cv.Optional(CONF_COLOR_DEPTH): cv.one_of(16, 32),
+                # Rotation handled by the LVGL component itself (software loops,
+                # or PPA SRM hardware on ESP32-P4). Accepts 0/90/180/270.
+                # When set, it overrides the rotation read from the display:.
+                cv.Optional(CONF_ROTATION): cv.enum(DISPLAY_ROTATIONS, int=True),
                 cv.Optional(
                     df.CONF_DEFAULT_FONT, default="montserrat_14"
                 ): lvalid.lv_font,
