@@ -922,19 +922,46 @@ void LvglComponent::setup() {
   buf_bytes = (buf_bytes + BUF_SIZE_ALIGN - 1) & ~(BUF_SIZE_ALIGN - 1);
   void *buffer = nullptr;
 
-  // Helper lambda to allocate an aligned DMA-capable buffer.
-  // When USE_LVGL_PPA is defined, we try internal DMA-capable SRAM first
-  // (required for PPA on ESP32-P4), then fall back to PSRAM with cache sync.
+  // Helper lambda to allocate an aligned draw buffer.
+  //
+  // The draw buffer is handed straight to the display driver's SPI/DMA transfer
+  // (draw_pixels_at -> mipi_spi / ili9xxx). Unlike an esp_lcd / esp_lvgl_port
+  // setup, this adapter has no layer underneath that fixes up a PSRAM source
+  // buffer for DMA. On ESP32-S3 with octal PSRAM, DMA reads from PSRAM are
+  // fragile and intermittently fail with ESP_ERR_INVALID_STATE (err 101),
+  // which leaves the panel frozen on the last successfully pushed frame.
+  //
+  // So for ALL ESP32 (not just PPA / ESP32-P4) we try DMA-capable INTERNAL SRAM
+  // first. This is only attempted for reasonably small (partial) buffers so we
+  // never starve internal RAM needed by WiFi/BT/etc.; larger / full-frame
+  // buffers fall through to PSRAM exactly as before, so this can never make an
+  // existing working config worse — at worst it behaves identically to today.
   auto alloc_draw_buf = [](size_t sz) -> void * {
-#if defined(USE_LVGL_PPA) && defined(USE_ESP32)
-    // Round size up to 128-byte cache line so PPA buffer_size checks pass
-    // on both 64 B and 128 B cache-line sdkconfigs.
+#if defined(USE_ESP32)
+    // Round size up to 128-byte cache line (also satisfies PPA buffer_size
+    // checks on both 64 B and 128 B cache-line sdkconfigs).
     size_t aligned_sz = (sz + 127) & ~size_t{127};
-    void *p = heap_caps_aligned_alloc(128, aligned_sz, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
-    if (p != nullptr)
-      return p;
-    // Internal DMA SRAM full → PSRAM (128-byte aligned for 128 B cache line)
-    p = heap_caps_aligned_alloc(128, aligned_sz, MALLOC_CAP_SPIRAM);
+#if defined(USE_LVGL_PPA)
+    // PPA (ESP32-P4): always prefer internal DMA-capable SRAM, as before — the
+    // P4 has ample internal RAM and PPA performs best from it.
+    bool try_internal = true;
+#else
+    // Other ESP32 (e.g. S3-Box): only steer small/partial buffers into internal
+    // SRAM so we never exhaust the scarce internal heap that WiFi/BT/etc. need.
+    // ~64 KB comfortably holds a partial buffer (e.g. buffer_size: 20%). Larger
+    // / full-frame buffers fall through to PSRAM exactly as before — so this can
+    // never make an existing working config worse.
+    constexpr size_t MAX_INTERNAL_DRAW_BUF = 64 * 1024;
+    bool try_internal = (sz <= MAX_INTERNAL_DRAW_BUF);
+#endif
+    if (try_internal) {
+      void *p = heap_caps_aligned_alloc(128, aligned_sz, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+      if (p != nullptr)
+        return p;
+    }
+    // Internal DMA SRAM unavailable/too small → PSRAM (128-byte aligned for
+    // 128 B cache line, required by PPA when enabled).
+    void *p = heap_caps_aligned_alloc(128, aligned_sz, MALLOC_CAP_SPIRAM);
     if (p != nullptr)
       return p;
 #endif
@@ -955,6 +982,19 @@ void LvglComponent::setup() {
     return;
   }
   this->draw_buf_ = static_cast<uint8_t *>(buffer);
+#if defined(USE_ESP32)
+  // Report where the transmitted draw buffer landed. An "internal SRAM" buffer
+  // is DMA-safe; a "PSRAM" buffer on a tight S3/octal-PSRAM board is the
+  // fragile case behind intermittent SPI "err 101" / a frozen panel. Logging
+  // this lets the buffer placement be confirmed remotely from the boot log.
+  // (Heuristic address check: ESP32-S3 maps external RAM at 0x3C00_0000.)
+  {
+    auto addr = reinterpret_cast<uintptr_t>(buffer);
+    bool in_psram = addr >= 0x3C000000U && addr < 0x3E000000U;
+    ESP_LOGCONFIG(TAG, "Draw buffer: %zu bytes @ %p (%s)", buf_bytes, buffer,
+                  in_psram ? "PSRAM" : "internal SRAM");
+  }
+#endif
   lv_display_set_resolution(this->disp_, this->width_, this->height_);
 #if LV_COLOR_DEPTH == 32
   // RGB888: 3 bytes per pixel, fully supported by PPA as destination
