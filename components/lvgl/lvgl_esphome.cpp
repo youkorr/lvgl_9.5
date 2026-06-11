@@ -922,46 +922,19 @@ void LvglComponent::setup() {
   buf_bytes = (buf_bytes + BUF_SIZE_ALIGN - 1) & ~(BUF_SIZE_ALIGN - 1);
   void *buffer = nullptr;
 
-  // Helper lambda to allocate an aligned draw buffer.
-  //
-  // The draw buffer is handed straight to the display driver's SPI/DMA transfer
-  // (draw_pixels_at -> mipi_spi / ili9xxx). Unlike an esp_lcd / esp_lvgl_port
-  // setup, this adapter has no layer underneath that fixes up a PSRAM source
-  // buffer for DMA. On ESP32-S3 with octal PSRAM, DMA reads from PSRAM are
-  // fragile and intermittently fail with ESP_ERR_INVALID_STATE (err 101),
-  // which leaves the panel frozen on the last successfully pushed frame.
-  //
-  // So for ALL ESP32 (not just PPA / ESP32-P4) we try DMA-capable INTERNAL SRAM
-  // first. This is only attempted for reasonably small (partial) buffers so we
-  // never starve internal RAM needed by WiFi/BT/etc.; larger / full-frame
-  // buffers fall through to PSRAM exactly as before, so this can never make an
-  // existing working config worse — at worst it behaves identically to today.
+  // Helper lambda to allocate an aligned DMA-capable buffer.
+  // When USE_LVGL_PPA is defined, we try internal DMA-capable SRAM first
+  // (required for PPA on ESP32-P4), then fall back to PSRAM with cache sync.
   auto alloc_draw_buf = [](size_t sz) -> void * {
-#if defined(USE_ESP32)
-    // Round size up to 128-byte cache line (also satisfies PPA buffer_size
-    // checks on both 64 B and 128 B cache-line sdkconfigs).
+#if defined(USE_LVGL_PPA) && defined(USE_ESP32)
+    // Round size up to 128-byte cache line so PPA buffer_size checks pass
+    // on both 64 B and 128 B cache-line sdkconfigs.
     size_t aligned_sz = (sz + 127) & ~size_t{127};
-#if defined(USE_LVGL_PPA)
-    // PPA (ESP32-P4): always prefer internal DMA-capable SRAM, as before — the
-    // P4 has ample internal RAM and PPA performs best from it.
-    bool try_internal = true;
-#else
-    // Other ESP32 (e.g. S3-Box): only steer small/partial buffers into internal
-    // SRAM so we never exhaust the scarce internal heap that WiFi/BT/etc. need.
-    // ~64 KB comfortably holds a partial buffer (e.g. buffer_size: 20%). Larger
-    // / full-frame buffers fall through to PSRAM exactly as before — so this can
-    // never make an existing working config worse.
-    constexpr size_t MAX_INTERNAL_DRAW_BUF = 64 * 1024;
-    bool try_internal = (sz <= MAX_INTERNAL_DRAW_BUF);
-#endif
-    if (try_internal) {
-      void *p = heap_caps_aligned_alloc(128, aligned_sz, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
-      if (p != nullptr)
-        return p;
-    }
-    // Internal DMA SRAM unavailable/too small → PSRAM (128-byte aligned for
-    // 128 B cache line, required by PPA when enabled).
-    void *p = heap_caps_aligned_alloc(128, aligned_sz, MALLOC_CAP_SPIRAM);
+    void *p = heap_caps_aligned_alloc(128, aligned_sz, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    if (p != nullptr)
+      return p;
+    // Internal DMA SRAM full → PSRAM (128-byte aligned for 128 B cache line)
+    p = heap_caps_aligned_alloc(128, aligned_sz, MALLOC_CAP_SPIRAM);
     if (p != nullptr)
       return p;
 #endif
