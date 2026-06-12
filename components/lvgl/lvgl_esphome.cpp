@@ -9,6 +9,8 @@
 // Portable bits so the component also builds on non-ESP32 targets (host/SDL).
 #ifdef USE_ESP32
 #include "esp_timer.h"
+#include "esp_heap_caps.h"
+#include "esp_memory_utils.h"  // esp_ptr_internal()
 #else
 #include <chrono>
 #endif
@@ -952,6 +954,57 @@ void LvglComponent::setup() {
   // ('out.buffer addr or out.buffer_size not aligned to cache line size').
   constexpr size_t BUF_SIZE_ALIGN = 128;
   buf_bytes = (buf_bytes + BUF_SIZE_ALIGN - 1) & ~(BUF_SIZE_ALIGN - 1);
+
+  // --- Internal-SRAM rotation pipeline (opt-in) ---------------------------
+  // On PSRAM-bandwidth-limited ESP32-P4 silicon (e.g. rev v1.0) the bottleneck
+  // is not the PPA or the CPU but the PSRAM bus. A rotated frame whose draw and
+  // rotate buffers live in PSRAM costs ~5 PSRAM round-trips (render write, PPA
+  // read+write, draw_pixels_at read+write), which starves the DSI scan-out and
+  // the camera. If we instead shrink those buffers so all three (draw_buf_,
+  // draw_buf2_, rotate_buf_) fit in internal SRAM — a separate, ~10x faster bus
+  // — the whole render+rotate pipeline stays on-chip and only the final panel
+  // push touches PSRAM (1 pass instead of 5). The trade is more, smaller
+  // partial flushes, which is a net win precisely when PSRAM is the bottleneck.
+  // Counter-intuitive vs. the usual "bigger buffer = faster" rule, which only
+  // holds when PSRAM bandwidth is abundant.
+#if defined(USE_LVGL_PPA) && defined(USE_ESP32)
+  {
+    display::DisplayRotation eff_rot =
+        this->rotation_configured_ ? this->rotation : display->get_rotation();
+    if (this->rotation_internal_sram_ && this->full_refresh_) {
+      ESP_LOGW(TAG,
+               "rotation_buffers_internal is ignored with full_refresh: true (full refresh needs a "
+               "full-screen buffer). Use partial refresh to keep the rotation pipeline in SRAM.");
+    }
+    if (this->rotation_internal_sram_ && !this->full_refresh_ &&
+        eff_rot != display::DISPLAY_ROTATION_0_DEGREES) {
+      size_t free_int = heap_caps_get_free_size(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+      // Three buffers split the budget; keep ~30% internal-SRAM headroom for
+      // the rest of the app (DMA descriptors, stacks, other components).
+      size_t per_buf = (free_int * 7 / 10) / 3;
+      per_buf &= ~static_cast<size_t>(BUF_SIZE_ALIGN - 1);
+      // Need at least a few rounded rows for the rotation math to be useful.
+      size_t min_buf = static_cast<size_t>(width) * this->draw_rounding * BYTES_PER_PIXEL;
+      min_buf = (min_buf + BUF_SIZE_ALIGN - 1) & ~(BUF_SIZE_ALIGN - 1);
+      if (per_buf >= min_buf && per_buf < buf_bytes) {
+        size_t full_bytes = static_cast<size_t>(width) * height * BYTES_PER_PIXEL;
+        buf_bytes = per_buf;
+        frac = (full_bytes + buf_bytes - 1) / buf_bytes;
+        ESP_LOGI(TAG,
+                 "Rotation internal-SRAM pipeline ON: buffers shrunk to %zu B (~1/%zu screen), "
+                 "free internal SRAM=%zu B. Render+rotate stay on-chip; only the panel push hits PSRAM.",
+                 buf_bytes, static_cast<size_t>(frac), free_int);
+      } else {
+        ESP_LOGW(TAG,
+                 "Rotation internal-SRAM pipeline requested but not applied: internal-SRAM budget "
+                 "%zu B/buf can't beat the current %zu B buffer (free internal=%zu B). Falling back "
+                 "to normal allocation (buffers may land in PSRAM).",
+                 per_buf, buf_bytes, free_int);
+      }
+    }
+  }
+#endif
+
   void *buffer = nullptr;
 
   // Helper lambda to allocate an aligned DMA-capable buffer.
@@ -1049,6 +1102,14 @@ void LvglComponent::setup() {
         ESP_LOGW(TAG, "Pipelined flush unavailable -> synchronous rotation (lower FPS)");
       }
     }
+    // Report where the rotation pipeline buffers actually landed. This is the
+    // proof of whether the internal-SRAM optimization took effect: if any of
+    // these say PSRAM, that buffer's traffic still competes with the DSI/camera.
+    auto mem_of = [](const void *p) -> const char * {
+      return p == nullptr ? "none" : (esp_ptr_internal(p) ? "internal SRAM" : "PSRAM");
+    };
+    ESP_LOGI(TAG, "Rotation buffers: draw_buf=%s, draw_buf2=%s, rotate_buf=%s (%zu B each)",
+             mem_of(this->draw_buf_), mem_of(this->draw_buf2_), mem_of(this->rotate_buf_), buf_bytes);
 #endif
   }
   if (this->draw_start_callback_ != nullptr) {

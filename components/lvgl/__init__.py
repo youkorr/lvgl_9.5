@@ -94,6 +94,7 @@ CODEOWNERS = ["@youkorr"]  # LVGL 9.5.0 implementation with ThorVG enabled by de
 HELLO_WORLD_FILE = "hello_world.yaml"
 CONF_USE_PPA = "use_ppa"
 CONF_USE_PPA_IMG = "use_ppa_img"
+CONF_ROTATION_BUFFERS_INTERNAL = "rotation_buffers_internal"
 CONF_USE_FPS_BENCHMARK = "fps_benchmark"
 CONF_USE_PERF_MONITOR = "perf_monitor"
 
@@ -434,6 +435,12 @@ async def to_code(configs):
             cg.add(lv_component.set_big_endian(config[CONF_BYTE_ORDER] == "big_endian"))
             if CONF_ROTATION in config:
                 cg.add(lv_component.set_lvgl_rotation(config[CONF_ROTATION]))
+            if config.get(CONF_ROTATION_BUFFERS_INTERNAL):
+                cg.add(
+                    lv_component.set_rotation_buffers_internal(
+                        config[CONF_ROTATION_BUFFERS_INTERNAL]
+                    )
+                )
             await touchscreens_to_code(lv_component, config)
             await encoders_to_code(lv_component, config, default_group)
             await keypads_to_code(lv_component, config, default_group)
@@ -662,6 +669,12 @@ LVGL_SCHEMA = cv.All(
                 # the display: component. DSI panels have no MADCTL hardware
                 # rotation, so the framebuffer is rotated by the PPA here.
                 cv.Optional(CONF_ROTATION): cv.enum(DISPLAY_ROTATIONS, int=True),
+                # Opt-in: keep the rotation pipeline buffers in internal SRAM
+                # instead of PSRAM. Helps PSRAM-bandwidth-limited ESP32-P4
+                # silicon (e.g. rev v1.0) by cutting per-frame PSRAM traffic.
+                cv.Optional(
+                    CONF_ROTATION_BUFFERS_INTERNAL, default=False
+                ): cv.boolean,
                 cv.Optional(
                     df.CONF_DEFAULT_FONT, default="montserrat_14"
                 ): lvalid.lv_font,

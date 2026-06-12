@@ -215,6 +215,11 @@ class LvglComponent : public PollingComponent {
     this->rotation = rotation;
     this->rotation_configured_ = true;
   }
+  // Opt-in: when rotation is active, shrink the draw/rotate buffers so the whole
+  // render+rotate pipeline fits in internal SRAM instead of spilling into PSRAM.
+  // On PSRAM-bandwidth-limited ESP32-P4 silicon (e.g. rev v1.0) this trades a
+  // few extra partial flushes for ~5x less PSRAM traffic per rotated frame.
+  void set_rotation_buffers_internal(bool enable) { this->rotation_internal_sram_ = enable; }
   void set_pause_trigger(Trigger<> *trigger) { this->pause_callback_ = trigger; }
   void set_resume_trigger(Trigger<> *trigger) { this->resume_callback_ = trigger; }
   void set_draw_start_trigger(Trigger<> *trigger) { this->draw_start_callback_ = trigger; }
@@ -235,6 +240,8 @@ class LvglComponent : public PollingComponent {
   std::vector<display::Display *> displays_{};
   // True when rotation was set explicitly via the lvgl: `rotation:` option.
   bool rotation_configured_{false};
+  // When true, force the rotation pipeline buffers into internal SRAM (opt-in).
+  bool rotation_internal_sram_{false};
   size_t buffer_frac_{1};
   bool full_refresh_{};
   bool resume_on_input_{};
