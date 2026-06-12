@@ -334,10 +334,18 @@ void LvglComponent::esphome_lvgl_init() {
     srm_cfg.oper_type = PPA_OPERATION_SRM;
     srm_cfg.max_pending_trans_num = 1;
     srm_cfg.data_burst_length = PPA_DATA_BURST_LENGTH_64;
-    if (ppa_register_client(&srm_cfg, &s_display_srm_client) == ESP_OK) {
-      ESP_LOGI(TAG, "PPA display rotation SRM client registered");
+    esp_err_t srm_ret = ppa_register_client(&srm_cfg, &s_display_srm_client);
+    if (srm_ret == ESP_OK) {
+      ESP_LOGI(TAG, "PPA display rotation SRM client registered (HW rotation active)");
     } else {
-      ESP_LOGW(TAG, "PPA display rotation SRM client failed, SW rotation will be used");
+      // Not silent: this is the difference between HW rotation (0% CPU) and the
+      // SW fallback loops (high CPU). On the Tab5 / ESP32-P4 rev v1.0 this is
+      // typically chip-revision gating in IDF, not a hardware defect.
+      ESP_LOGE(TAG,
+               "PPA SRM client registration FAILED (err=%d/%s) -> display rotation will run on the "
+               "CPU. This is an ESP-IDF/sdkconfig chip-revision gating issue (CONFIG_ESP32P4_REV_MIN), "
+               "not this code. Known-good: ESP-IDF 5.5.2 / platform 55.03.35.",
+               srm_ret, esp_err_to_name(srm_ret));
       s_display_srm_client = nullptr;
     }
   }
@@ -447,6 +455,30 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
       return;
     }
     // PPA refused this op → fall through to software rotation below.
+  }
+  // Loud, one-time diagnostic: if PPA is compiled in and we are actually
+  // rotating but the rotation is running on the CPU (SW loops below), the
+  // hardware accelerator is NOT being used. This is the "no silent CPU
+  // fallback" requirement: on a board where ppa_register_client() failed
+  // (e.g. chip-revision gating in sdkconfig/IDF), the user must SEE it in the
+  // boot log instead of silently paying the CPU cost.
+  if (this->rotation != display::DISPLAY_ROTATION_0_DEGREES) {
+    static bool sw_rotation_reported = false;
+    if (!sw_rotation_reported) {
+      sw_rotation_reported = true;
+      if (s_display_srm_client == nullptr) {
+        ESP_LOGE(TAG,
+                 "Display rotation is running on the CPU: PPA SRM client is NOT registered. "
+                 "The HW accelerator is unused and CPU load will be high. This is almost always "
+                 "ESP-IDF chip-revision gating (CONFIG_ESP32P4_REV_MIN) refusing PPA on this "
+                 "silicon/IDF combo — fix it in the YAML sdkconfig, not here. A known-good combo "
+                 "is ESP-IDF 5.5.2 / platform 55.03.35 (the Waveshare config).");
+      } else {
+        ESP_LOGE(TAG,
+                 "Display rotation fell back to CPU: PPA SRM client is registered but rejected the "
+                 "operation (check buffer cache-line alignment and dimensions).");
+      }
+    }
   }
 #endif  // USE_LVGL_PPA
 
