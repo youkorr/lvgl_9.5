@@ -11,6 +11,7 @@
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
 #include "esp_memory_utils.h"  // esp_ptr_internal()
+#include "esp_cache.h"         // esp_cache_msync()
 #else
 #include <chrono>
 #endif
@@ -174,6 +175,19 @@ static bool ppa_rotate_display_buf(const void *src, void *dst, int32_t w, int32_
   cfg.alpha_update_mode = PPA_ALPHA_NO_CHANGE;
   cfg.mode = PPA_TRANS_MODE_BLOCKING;
 
+  // Cache coherency around the PPA DMA transfer. The PPA driver does NOT
+  // maintain cache for user buffers, so without this the rotated frame shows
+  // color scintillation + trembling: the PPA writes the output to (PS)RAM by
+  // DMA, but draw_pixels_at() reads it back through the CPU cache and sees
+  // stale/partial lines.
+  //   - Input: write back the CPU-rendered source so the PPA reads fresh data.
+  //   - Output: invalidate after the transfer so the panel push reads fresh data.
+  // src/dst are already 128-byte (cache-line) aligned (checked above); round the
+  // sizes up to the cache line. Both buffers are within allocations >= these
+  // sizes, so the rounded range is owned memory.
+  size_t in_bytes = ((size_t) w * h * BPP + CACHE_LINE - 1) & ~(CACHE_LINE - 1);
+  esp_cache_msync((void *) src, in_bytes, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+
   esp_err_t ret = ppa_do_scale_rotate_mirror(s_display_srm_client, &cfg);
   if (ret != ESP_OK) {
     static bool warned = false;
@@ -181,8 +195,12 @@ static bool ppa_rotate_display_buf(const void *src, void *dst, int32_t w, int32_
       ESP_LOGW(TAG, "PPA display rotation unavailable (err=%d), using SW fallback", ret);
       warned = true;
     }
+    return false;
   }
-  return ret == ESP_OK;
+  // Invalidate the freshly written output so the subsequent panel push does not
+  // read stale cache lines (root cause of the color flicker + tremor).
+  esp_cache_msync(dst, aligned_out_bytes, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
+  return true;
 }
 #endif  // USE_LVGL_PPA
 
