@@ -28,14 +28,18 @@
 /*********************
  *      INCLUDES
  *********************/
-#include "lv_os_private.h"
+/* Compiled via lv_freertos_wrapper.cpp from the component directory (not from
+ * LVGL's src/osal/), so LVGL headers are included with paths relative to the
+ * LVGL source root.  "atomic.h" intentionally resolves to the component-local
+ * shim (components/lvgl/atomic.h). */
+#include "src/osal/lv_os_private.h"
 #if LV_USE_OS == LV_OS_FREERTOS
 
 #include "atomic.h"
 
-#include "../tick/lv_tick.h"
-#include "../misc/lv_log.h"
-#include "../core/lv_global.h"
+#include "src/tick/lv_tick.h"
+#include "src/misc/lv_log.h"
+#include "src/core/lv_global.h"
 
 #ifdef ESP_PLATFORM
 #include "esp_heap_caps.h"
@@ -127,15 +131,19 @@ lv_result_t lv_thread_init(lv_thread_t * pxThread,  const char * const name,
                             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 
     if(xTaskCreateStatus != pdPASS) {
-        /* PSRAM unavailable or full — fall back to internal SRAM. */
+        /* PSRAM unavailable or full — fall back to internal SRAM.  Still use
+         * xTaskCreateWithCaps() (just with MALLOC_CAP_INTERNAL) so the task is
+         * always created via the *WithCaps API and can be released uniformly
+         * with vTaskDeleteWithCaps(). */
         LV_LOG_WARN("xTaskCreateWithCaps(SPIRAM) failed, retrying in SRAM");
-        xTaskCreateStatus = xTaskCreate(
+        xTaskCreateStatus = xTaskCreateWithCaps(
                                 prvRunThread,
                                 name,
                                 (configSTACK_DEPTH_TYPE)(usStackSize / sizeof(StackType_t)),
                                 (void *)pxThread,
                                 tskIDLE_PRIORITY + xSchedPriority,
-                                &pxThread->xTaskHandle);
+                                &pxThread->xTaskHandle,
+                                MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     }
 #else
     xTaskCreateStatus = xTaskCreate(
@@ -158,7 +166,13 @@ lv_result_t lv_thread_init(lv_thread_t * pxThread,  const char * const name,
 
 lv_result_t lv_thread_delete(lv_thread_t * pxThread)
 {
+#ifdef ESP_PLATFORM
+    /* The task was created with xTaskCreateWithCaps(); it must be freed with
+     * the matching vTaskDeleteWithCaps() or the stack+TCB block leaks. */
+    vTaskDeleteWithCaps(pxThread->xTaskHandle);
+#else
     vTaskDelete(pxThread->xTaskHandle);
+#endif
 
     return LV_RESULT_OK;
 }
@@ -484,7 +498,12 @@ static void prvRunThread(void * pxArg)
     /* Run the thread routine. */
     pxThread->pvStartRoutine((void *)pxThread->pTaskArg);
 
+#ifdef ESP_PLATFORM
+    /* Match the xTaskCreateWithCaps() allocation when the task self-deletes. */
+    vTaskDeleteWithCaps(NULL);
+#else
     vTaskDelete(NULL);
+#endif
 }
 
 static void prvMutexInit(lv_mutex_t * pxMutex)
