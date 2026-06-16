@@ -90,7 +90,7 @@ for module_info in pkgutil.iter_modules(widgets.__path__):
 DOMAIN = "lvgl"
 DEPENDENCIES = ["display"]
 AUTO_LOAD = ["key_provider", "button"]
-CODEOWNERS = ["@youkorr"]  # LVGL 9.5.0 implementation with ThorVG enabled by default
+CODEOWNERS = ["@youkorr"]  # LVGL 9.6.0 (master pin) implementation with ThorVG enabled by default
 HELLO_WORLD_FILE = "hello_world.yaml"
 CONF_USE_PPA = "use_ppa"
 CONF_USE_PPA_IMG = "use_ppa_img"
@@ -240,7 +240,13 @@ def final_validation(config_list):
 async def to_code(configs):
     config_0 = configs[0]
     # Global configuration
-    cg.add_library("lvgl/lvgl", "9.5.0")
+    # LVGL 9.6.0 is still master (no published registry release yet), so pin a
+    # specific lvgl/lvgl master commit for a reproducible build instead of a tag.
+    cg.add_library(
+        "lvgl",
+        None,
+        "https://github.com/lvgl/lvgl.git#603d534270624e7d3f37f70cdd5f608a41825305",
+    )
     cg.add_define("USE_LVGL")
 
     # Add build filter to exclude LVGL platform code not needed for ESP32
@@ -259,7 +265,7 @@ async def to_code(configs):
 
     # suppress default enabling of extra widgets
     df.add_define("_LV_KCONFIG_PRESENT")
-    # Memory alignment configuration for LVGL 9.5
+    # Memory alignment configuration for LVGL 9.6
     df.add_define("LV_DRAW_BUF_STRIDE_ALIGN", "1")  # LVGL default
     # Keep LV_DRAW_BUF_ALIGN at LVGL default (4). Setting higher values
     # causes crashes because LVGL's internal stack/static buffers can't meet
@@ -287,7 +293,7 @@ async def to_code(configs):
         )
         use_ppa = use_ppa_img = use_fps_benchmark = use_perf_monitor = False
     if use_ppa:
-        # LVGL 9.5 includes the PPA fix (PR #9162) natively.
+        # LVGL 9.6 includes the PPA fix (PR #9162) natively.
         # We keep our custom PPA files as a fallback option.
         # PPA evaluate checks buffer alignment at runtime before claiming tasks.
         cg.add_define("USE_LVGL_PPA")
