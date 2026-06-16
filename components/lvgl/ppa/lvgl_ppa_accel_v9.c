@@ -451,7 +451,7 @@ void lvgl_port_ppa_v9_init(lv_display_t *display)
     if (!s_handler_registered) {
         lv_draw_sw_register_blend_handler(&s_custom_handler);
         s_handler_registered = true;
-        ESP_LOGI(TAG, "PPA v9 blend handler registered for RGB565");
+        ESP_LOGI(TAG_V9, "PPA v9 blend handler registered for RGB565");
     }
 }
 
