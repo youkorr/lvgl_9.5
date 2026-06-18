@@ -1,22 +1,30 @@
 /**
  * @file lv_freertos.c
  *
- * Patched for ESPHome / ESP32: lv_thread_init() allocates the draw-thread
- * stack from PSRAM (MALLOC_CAP_SPIRAM) instead of internal SRAM when running
- * on ESP-IDF.  All other behaviour is identical to the upstream LVGL 9.5 file.
+ * ESPHome / ESP32: lv_thread_init() allocates the LVGL software draw-thread
+ * ("swdraw") stack from INTERNAL SRAM, exactly like upstream LVGL 9.5.
  *
- * Why: youkorr's lvgl_9.5 fork sets LV_USE_OS=LV_OS_FREERTOS on all ESP32
- * targets so that ThorVG / Lottie mutexes work correctly.  This causes LVGL
- * to spawn FreeRTOS draw threads via xTaskCreate(), which places the stack in
- * internal SRAM.  With LV_DRAW_THREAD_STACK_SIZE=(48*1024) (ThorVG path) the
- * ESP32-P4 runs out of internal SRAM before the main app task can start,
- * resulting in:
- *   assert failed: esp_startup_start_app app_startup.c:86 (res == pdTRUE)
+ * Why this matters (the bug this file used to introduce):
+ * A previous revision allocated the draw-thread stack from PSRAM via
+ * xTaskCreateWithCaps(MALLOC_CAP_SPIRAM) to "save internal SRAM".  On ESP32 a
+ * FreeRTOS task whose stack lives in PSRAM is unsafe: whenever the external
+ * memory cache is disabled (SPI-flash writes, OTA, some Wi-Fi/RF paths) or an
+ * ISR needs the stack, a task running on a PSRAM stack faults with a
+ * cache-access error (LoadProhibited).  A short render (simple page) usually
+ * finishes inside a safe window, but a long/complex render (chart, settings,
+ * ThorVG/Lottie) spends far more time on the stack and reliably overlaps a
+ * cache-disabled window -> crash on page switch.  The fault PC lands inside
+ * the draw task, so the backtrace/ELF never points at user code.
  *
- * Fix: use xTaskCreateWithCaps() (ESP-IDF idf_additions.h) to allocate the
- * task stack from PSRAM.  ThorVG render threads are not hot-path stack users,
- * so PSRAM latency is acceptable.  A SRAM fallback is kept for the case where
- * PSRAM is unavailable.
+ * Fix: allocate the task stack in internal SRAM (plain xTaskCreate), which is
+ * the only safe place for a FreeRTOS task stack on ESP32.  The dedicated
+ * LV_DRAW_THREAD_STACK_SIZE (48 KB on the ThorVG path) stays isolated on this
+ * thread, so ThorVG / Lottie / SVG keep their large render stack and ESPHome's
+ * loopTask is untouched.
+ *
+ * Note: the earlier "esp_startup_start_app app_startup.c:86 (res == pdTRUE)"
+ * boot assert was NOT caused by this stack: that assert fires during ESP-IDF
+ * startup, before the application task (and therefore before LVGL init) runs.
  */
 
 /**
@@ -40,11 +48,6 @@
 #include "src/tick/lv_tick.h"
 #include "src/misc/lv_log.h"
 #include "src/core/lv_global.h"
-
-#ifdef ESP_PLATFORM
-#include "esp_heap_caps.h"
-#include "freertos/idf_additions.h"
-#endif
 
 /*********************
  *      DEFINES
@@ -117,35 +120,9 @@ lv_result_t lv_thread_init(lv_thread_t * pxThread,  const char * const name,
 
     BaseType_t xTaskCreateStatus;
 
-#ifdef ESP_PLATFORM
-    /* Try to allocate the draw-thread stack from PSRAM first so we don't
-     * exhaust internal SRAM.  xTaskCreateWithCaps() is an ESP-IDF extension
-     * (freertos/idf_additions.h) that accepts heap capability flags. */
-    xTaskCreateStatus = xTaskCreateWithCaps(
-                            prvRunThread,
-                            name,
-                            (configSTACK_DEPTH_TYPE)(usStackSize / sizeof(StackType_t)),
-                            (void *)pxThread,
-                            tskIDLE_PRIORITY + xSchedPriority,
-                            &pxThread->xTaskHandle,
-                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-
-    if(xTaskCreateStatus != pdPASS) {
-        /* PSRAM unavailable or full — fall back to internal SRAM.  Still use
-         * xTaskCreateWithCaps() (just with MALLOC_CAP_INTERNAL) so the task is
-         * always created via the *WithCaps API and can be released uniformly
-         * with vTaskDeleteWithCaps(). */
-        LV_LOG_WARN("xTaskCreateWithCaps(SPIRAM) failed, retrying in SRAM");
-        xTaskCreateStatus = xTaskCreateWithCaps(
-                                prvRunThread,
-                                name,
-                                (configSTACK_DEPTH_TYPE)(usStackSize / sizeof(StackType_t)),
-                                (void *)pxThread,
-                                tskIDLE_PRIORITY + xSchedPriority,
-                                &pxThread->xTaskHandle,
-                                MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    }
-#else
+    /* Allocate the task stack in internal SRAM (xTaskCreate always uses
+     * internal RAM for dynamically created stacks).  A FreeRTOS task stack
+     * must NOT live in PSRAM on ESP32 — see the file header for details. */
     xTaskCreateStatus = xTaskCreate(
                             prvRunThread,
                             name,
@@ -153,7 +130,6 @@ lv_result_t lv_thread_init(lv_thread_t * pxThread,  const char * const name,
                             (void *)pxThread,
                             tskIDLE_PRIORITY + xSchedPriority,
                             &pxThread->xTaskHandle);
-#endif
 
     /* Ensure that the FreeRTOS task was successfully created. */
     if(xTaskCreateStatus != pdPASS) {
@@ -166,13 +142,8 @@ lv_result_t lv_thread_init(lv_thread_t * pxThread,  const char * const name,
 
 lv_result_t lv_thread_delete(lv_thread_t * pxThread)
 {
-#ifdef ESP_PLATFORM
-    /* The task was created with xTaskCreateWithCaps(); it must be freed with
-     * the matching vTaskDeleteWithCaps() or the stack+TCB block leaks. */
-    vTaskDeleteWithCaps(pxThread->xTaskHandle);
-#else
+    /* Stack was allocated by xTaskCreate(), so free it with plain vTaskDelete(). */
     vTaskDelete(pxThread->xTaskHandle);
-#endif
 
     return LV_RESULT_OK;
 }
@@ -498,12 +469,7 @@ static void prvRunThread(void * pxArg)
     /* Run the thread routine. */
     pxThread->pvStartRoutine((void *)pxThread->pTaskArg);
 
-#ifdef ESP_PLATFORM
-    /* Match the xTaskCreateWithCaps() allocation when the task self-deletes. */
-    vTaskDeleteWithCaps(NULL);
-#else
     vTaskDelete(NULL);
-#endif
 }
 
 static void prvMutexInit(lv_mutex_t * pxMutex)
