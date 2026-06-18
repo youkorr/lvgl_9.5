@@ -427,6 +427,8 @@ async def to_code(configs):
             config[df.CONF_UPDATE_WHEN_DISPLAY_IDLE],
         )
         await cg.register_component(lv_component, config)
+        if paused := config[df.CONF_PAUSED]:
+            cg.add(lv_component.set_paused(paused, False))
         Widget.create(config[CONF_ID], lv_component, LvScrActType(), config)
 
         lv_scr_act = get_screen_active(lv_component)
@@ -714,6 +716,7 @@ LVGL_SCHEMA = cv.All(
                 cv.Optional(df.CONF_KEYPADS, default=None): KEYPADS_CONFIG,
                 cv.GenerateID(df.CONF_DEFAULT_GROUP): cv.declare_id(lv_group_t),
                 cv.Optional(df.CONF_RESUME_ON_INPUT, default=True): cv.boolean,
+                cv.Optional(df.CONF_PAUSED, default=False): cv.boolean,
                 cv.Optional(CONF_USE_PPA, default=False): cv.boolean,
                 cv.Optional(CONF_USE_PPA_IMG, default=False): cv.boolean,
                 cv.Optional(CONF_USE_FPS_BENCHMARK, default=False): cv.boolean,

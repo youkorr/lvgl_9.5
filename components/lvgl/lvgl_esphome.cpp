@@ -287,7 +287,11 @@ void LvglComponent::dump_config() {
 #ifdef USE_LVGL_PPA
   ESP_LOGCONFIG(TAG, "  PPA SRM (display rotation): %s",
                 s_display_srm_client != nullptr ? "registered (HW)" : "failed (SW fallback)");
+#if LV_USE_OS == LV_OS_NONE
   ESP_LOGCONFIG(TAG, "  PPA SW-blend handler (v9):  registered (RGB565 fills/blends → HW)");
+#else
+  ESP_LOGCONFIG(TAG, "  PPA SW-blend handler (v9):  disabled (LV_OS_FREERTOS — PPA draw unit covers fills/blends)");
+#endif
   ESP_LOGCONFIG(TAG, "  PPA draw unit:              registered (canvas/image → HW)");
 #else
   ESP_LOGCONFIG(TAG, "  PPA acceleration: disabled (use_ppa: false)");
@@ -298,8 +302,10 @@ void LvglComponent::set_paused(bool paused, bool show_snow) {
   this->paused_ = paused;
   this->show_snow_ = show_snow;
   if (!paused && lv_screen_active() != nullptr) {
+    lv_lock();
     lv_display_trigger_activity(this->disp_);  // resets the inactivity time
     lv_obj_invalidate(lv_screen_active());
+    lv_unlock();
   }
   if (paused && this->pause_callback_ != nullptr)
     this->pause_callback_->trigger();
@@ -375,7 +381,13 @@ void LvglComponent::show_page(size_t index, lv_scr_load_anim_t anim, uint32_t ti
   if (index >= this->pages_.size())
     return;
   this->current_page_ = index;
-  lv_scr_load_anim(this->pages_[this->current_page_]->obj, anim, time, 0, false);
+  lv_lock();
+  if (anim == LV_SCR_LOAD_ANIM_NONE) {
+    lv_screen_load(this->pages_[this->current_page_]->obj);
+  } else {
+    lv_scr_load_anim(this->pages_[this->current_page_]->obj, anim, time, 0, false);
+  }
+  lv_unlock();
 }
 
 void LvglComponent::show_next_page(lv_scr_load_anim_t anim, uint32_t time) {
@@ -739,8 +751,10 @@ static std::string join_string(std::vector<std::string> options) {
 void LvSelectable::set_selected_text(const std::string &text, lv_anim_enable_t anim) {
   auto index = std::find(this->options_.begin(), this->options_.end(), text);
   if (index != this->options_.end()) {
+    lv_lock();
     this->set_selected_index(index - this->options_.begin(), anim);
     lv_obj_send_event(this->obj, lv_api_event, nullptr);
+    lv_unlock();
   }
 }
 
@@ -749,9 +763,11 @@ void LvSelectable::set_options(std::vector<std::string> options) {
   if (index >= options.size())
     index = options.size() - 1;
   this->options_ = std::move(options);
+  lv_lock();
   this->set_option_string(join_string(this->options_).c_str());
   lv_obj_send_event(this->obj, LV_EVENT_REFRESH, nullptr);
   this->set_selected_index(index, LV_ANIM_OFF);
+  lv_unlock();
 }
 #endif  // USE_LVGL_DROPDOWN || LV_USE_ROLLER
 
@@ -1055,10 +1071,14 @@ void LvglComponent::setup() {
                          this->full_refresh_ ? LV_DISPLAY_RENDER_MODE_FULL : LV_DISPLAY_RENDER_MODE_PARTIAL);
   this->buffers_configured_ = true;
 
-#ifdef USE_LVGL_PPA
-  // Espressif esp-iot-solution PPA SW blend handler — accelerates all
-  // RGB565 SW blend paths (text, gradients post-rasterize, partial blends).
-  // Complements the higher-level PPA draw unit in lv_draw_ppa.c.
+#if defined(USE_LVGL_PPA) && (LV_USE_OS == LV_OS_NONE)
+  // Espressif esp-iot-solution PPA SW blend handler — accelerates RGB565
+  // fills/blends in the SW pipeline. Only safe under LV_OS_NONE where the
+  // draw unit and SW blend paths are called sequentially on one thread.
+  // Under LV_OS_FREERTOS the render task and the PPA draw unit (lv_draw_ppa)
+  // can dispatch PPA ops concurrently through different client handles,
+  // causing PPA hardware races and PSRAM heap corruption. The PPA draw unit
+  // already covers fills and image blits, so skip this handler under FreeRTOS.
   lvgl_port_ppa_v9_init(this->disp_);
 #endif
 
@@ -1109,7 +1129,9 @@ void LvglComponent::loop() {
     // counts only real render work (matches lvgl_camera_display's
     // approach: cpu_time / frame_interval).
     uint64_t t0 = lvgl_now_us();
+    lv_lock();
     lv_timer_handler();
+    lv_unlock();
     uint64_t t1 = lvgl_now_us();
     this->perf_busy_us_ += (t1 - t0);
     uint64_t now_us = t1;

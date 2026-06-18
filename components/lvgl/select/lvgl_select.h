@@ -21,8 +21,11 @@ class LVGLSelect : public select::Select, public Component {
     if (this->restore_) {
       size_t index;
       this->pref_ = global_preferences->make_preference<size_t>(this->get_preference_hash());
-      if (this->pref_.load(&index))
+      if (this->pref_.load(&index)) {
+        lv_lock();
         this->widget_->set_selected_index(index, LV_ANIM_OFF);
+        lv_unlock();
+      }
     }
     this->publish();
     lv_obj_add_event_cb(
@@ -50,7 +53,9 @@ class LVGLSelect : public select::Select, public Component {
 
  protected:
   void control(size_t index) override {
+    lv_lock();
     this->widget_->set_selected_index(index, this->anim_);
+    lv_unlock();
     this->publish();
   }
   void set_options_() {

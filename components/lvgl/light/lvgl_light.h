@@ -19,7 +19,9 @@ class LVLight : public light::LightOutput {
     state->current_values_as_rgb(&red, &green, &blue, false);
     auto color = lv_color_make(red * 255, green * 255, blue * 255);
     if (this->obj_ != nullptr) {
+      lv_lock();
       this->set_value_(color);
+      lv_unlock();
     } else {
       this->initial_value_ = color;
     }
@@ -28,8 +30,10 @@ class LVLight : public light::LightOutput {
   void set_obj(lv_obj_t *obj) {
     this->obj_ = obj;
     if (this->initial_value_) {
+      lv_lock();
       lv_led_set_color(obj, this->initial_value_.value());
       lv_led_on(obj);
+      lv_unlock();
       this->initial_value_.reset();
     }
   }

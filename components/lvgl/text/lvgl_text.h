@@ -3,6 +3,7 @@
 #include "esphome/components/text/text.h"
 #include "esphome/core/automation.h"
 #include "esphome/core/component.h"
+#include "lvgl.h"
 
 namespace esphome {
 namespace lvgl {
@@ -12,7 +13,9 @@ class LVGLText : public text::Text {
   void set_control_lambda(const std::function<void(std::string)> &control_lambda) {
     this->control_lambda_ = control_lambda;
     if (this->initial_state_.has_value()) {
+      lv_lock();
       this->control_lambda_(this->initial_state_.value());
+      lv_unlock();
       this->initial_state_.reset();
     }
   }
@@ -20,7 +23,9 @@ class LVGLText : public text::Text {
  protected:
   void control(const std::string &value) override {
     if (this->control_lambda_ != nullptr) {
+      lv_lock();
       this->control_lambda_(value);
+      lv_unlock();
     } else {
       this->initial_state_ = value;
     }

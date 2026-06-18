@@ -292,7 +292,11 @@ class IdleTrigger : public Trigger<> {
 template<typename... Ts> class LvglAction : public Action<Ts...>, public Parented<LvglComponent> {
  public:
   explicit LvglAction(std::function<void(LvglComponent *)> &&lamb) : action_(std::move(lamb)) {}
-  void play(const Ts &...x) override { this->action_(this->parent_); }
+  void play(const Ts &...x) override {
+    lv_lock();
+    this->action_(this->parent_);
+    lv_unlock();
+  }
 
  protected:
   std::function<void(LvglComponent *)> action_{};

@@ -10,9 +10,32 @@ Communication from ESPHome (__init__.py) via build flags:
   -DLVGL_USE_THORVG=1        → compile ThorVG sources
   -DLVGL_WIDGETS_USED="..."  → comma-separated list of used widget/feature names
 """
+import os
 import re
+import shutil
 
 Import("env")
+
+# Patch LVGL's lv_freertos.c with our PSRAM-aware version before compilation.
+# The patched file is stored as lv_freertos_psram.c.inc (non-.c extension so
+# ESPHome's component scanner does not try to compile it directly — it needs
+# lv_os_private.h which is only resolvable from inside the LVGL library tree).
+# SCons prepends the script's own directory to sys.path before exec (SConscript.py:256),
+# so sys.path[0] is reliably our component directory regardless of how the script
+# was registered or what $BUILD_SCRIPT / __file__ resolve to.
+import sys as _sys
+_component_dir = _sys.path[0]
+_patch_src = os.path.join(_component_dir, "lv_freertos_psram.c.inc")
+# Find lv_freertos.c by walking the project dir — location varies across
+# build environments (.pioenvs/, managed_components/, .pio/libdeps/, etc.)
+_project_dir = env.subst("$PROJECT_DIR")
+_lvgl_freertos = None
+for _root, _dirs, _files in os.walk(_project_dir):
+    if "lv_freertos.c" in _files and "osal" in _root:
+        _lvgl_freertos = os.path.join(_root, "lv_freertos.c")
+        break
+if os.path.isfile(_patch_src) and _lvgl_freertos:
+    shutil.copy2(_patch_src, _lvgl_freertos)
 
 # Parse build flags from ESPHome's __init__.py
 _build_flags = " ".join(env.get("BUILD_FLAGS", []))
@@ -164,7 +187,8 @@ def lvgl_src_filter(env, node):
         "/osal/lv_cmsis_rtos2.",    # CMSIS RTOS2
         "/osal/lv_mqx.",            # MQX RTOS
         "/osal/lv_rtthread.",       # RT-Thread
-        "/osal/lv_freertos.",       # replaced by patched copy in component dir
+        # lv_freertos.c is NOT excluded — it is replaced in-place by the copy
+        # step above (lv_freertos_psram.c.inc → lv_freertos.c) and compiled normally.
     ]
 
     # ===== stdlib NOT for ESP32 (uses custom malloc) =====

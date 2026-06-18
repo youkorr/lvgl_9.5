@@ -81,14 +81,16 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
     cfg.bg_alpha_fix_val     = 0xFF;
     cfg.bg_ck_en             = false;
 
-    /* Foreground input */
+    /* Foreground input: zero-alpha A8 mask so PPA treats this as a
+     * passthrough (bg fully opaque). Dimensions must match the draw
+     * buffer, not the source image, to avoid out-of-bounds DMA reads. */
     cfg.in_fg.buffer         = (void *)dest_buf;
-    cfg.in_fg.pic_w          = draw_dsc->header.w;
-    cfg.in_fg.pic_h          = draw_dsc->header.h;
+    cfg.in_fg.pic_w          = draw_buf->header.w;
+    cfg.in_fg.pic_h          = draw_buf->header.h;
     cfg.in_fg.block_w        = (uint32_t)lv_area_get_width(clipped_img_area);
     cfg.in_fg.block_h        = (uint32_t)lv_area_get_height(clipped_img_area);
-    cfg.in_fg.block_offset_x = (uint32_t)src_area.x1;
-    cfg.in_fg.block_offset_y = (uint32_t)src_area.y1;
+    cfg.in_fg.block_offset_x = (uint32_t)dest_area.x1;
+    cfg.in_fg.block_offset_y = (uint32_t)dest_area.y1;
     cfg.in_fg.blend_cm       = PPA_BLEND_COLOR_MODE_A8;
 
     cfg.fg_rgb_swap          = false;
@@ -210,8 +212,7 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
 
     uint32_t out_bpp = (dest_cf == LV_COLOR_FORMAT_RGB565) ? 2u :
                        (dest_cf == LV_COLOR_FORMAT_RGB888)  ? 3u : 4u;
-    uint32_t raw_bytes    = (uint32_t)dest_buf->header.w * dest_buf->header.h * out_bpp;
-    uint32_t aligned_size = lv_draw_ppa_align_size(raw_bytes);
+    uint32_t aligned_size = lv_draw_ppa_align_size(dest_buf->data_size);
 
     ppa_srm_oper_config_t cfg;
     lv_memzero(&cfg, sizeof(cfg));
@@ -377,8 +378,7 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
 
     uint32_t out_bpp_r    = (dest_cf == LV_COLOR_FORMAT_RGB565) ? 2u :
                             (dest_cf == LV_COLOR_FORMAT_RGB888)  ? 3u : 4u;
-    uint32_t aligned_size_r = lv_draw_ppa_align_size(
-                                  (uint32_t)dest_buf->header.w * dest_buf->header.h * out_bpp_r);
+    uint32_t aligned_size_r = lv_draw_ppa_align_size(dest_buf->data_size);
 
     /* Draw buffers are cache-aligned (lv_draw_buf_ppa_init_handlers). */
     cfg.out.buffer         = dest_buf->data;
