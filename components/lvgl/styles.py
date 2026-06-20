@@ -100,18 +100,15 @@ async def theme_to_code(config):
     if theme := config.get(CONF_THEME):
         add_lv_use(CONF_THEME)
         for w_name, style in theme.items():
-            # Work around Python 3.10 bug with nested async comprehensions
-            # With Python 3.11 this could be simplified
-            # TODO: Now that we require Python 3.11+, this can be updated to use nested comprehensions
-            styles = {}
-            for part, states in collect_parts(style).items():
-                styles[part] = {
+            theme_widget_map[w_name] = {
+                part: {
                     state: await create_style(
                         "_lv_theme_style_" + w_name + "_" + part + "_" + state, props
                     )
                     for state, props in states.items()
                 }
-            theme_widget_map[w_name] = styles
+                for part, states in collect_parts(style).items()
+            }
 
 
 async def add_top_layer(lv_component, config):
