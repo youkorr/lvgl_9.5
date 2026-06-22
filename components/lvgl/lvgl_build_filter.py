@@ -164,7 +164,10 @@ def lvgl_src_filter(env, node):
         "/osal/lv_cmsis_rtos2.",    # CMSIS RTOS2
         "/osal/lv_mqx.",            # MQX RTOS
         "/osal/lv_rtthread.",       # RT-Thread
-        "/osal/lv_freertos.",       # replaced by patched copy in component dir
+        # NOTE: do NOT exclude /osal/lv_freertos. — LVGL's own lv_freertos.c must
+        # compile inside the library (where its "../tick/", "lv_os_private.h"
+        # includes resolve). A patched component-level copy cannot be compiled
+        # standalone, which broke the build with "lv_os_private.h: No such file".
     ]
 
     # ===== stdlib NOT for ESP32 (uses custom malloc) =====
