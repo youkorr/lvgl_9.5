@@ -1,0 +1,55 @@
+# =============================================================================
+# CI compile test for youkorr/lvgl_9.5 on ESP32-P4 (M5Stack Tab5).
+# Reproduces a real `esphome compile` so LVGL build problems (lv_freertos.c,
+# lv_conf.h, osal includes, etc.) surface in CI instead of on a tester's board.
+# Runtime is NOT validated here, only that the firmware builds.
+# =============================================================================
+
+esphome:
+  name: lvgl-p4-citest
+
+esp32:
+  board: esp32-p4-evboard
+  variant: esp32p4
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    advanced:
+      enable_idf_experimental_features: true
+
+psram:
+  mode: hex
+  speed: 200MHz
+
+logger:
+
+esp_ldo:
+  - voltage: 2.5V
+    channel: 3
+
+display:
+  - platform: mipi_dsi
+    id: tab5_display
+    model: JC1060P470
+    enable_pin: GPIO22
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+    components: [lvgl, image, font]
+
+font:
+  - file: "gfonts://Roboto"
+    id: roboto
+    size: 14
+
+lvgl:
+  displays:
+    - tab5_display
+  pages:
+    - id: main_page
+      widgets:
+        - label:
+            text: "LVGL 9.5 build test"
+            align: CENTER
