@@ -2,6 +2,9 @@ name: ESPHome compile (esp32-p4)
 
 # Full `esphome compile` of youkorr/lvgl_9.5 on ESP32-P4, so LVGL build issues
 # are caught in CI instead of on hardware. Runtime is not validated.
+# Two configs build in parallel:
+#   - tab5_lvgl_test.yaml ......... base LVGL (no ThorVG)
+#   - tab5_lvgl_thorvg_test.yaml .. ThorVG enabled (svg widget)
 
 on:
   push:
@@ -16,6 +19,13 @@ jobs:
   compile:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - tests/esphome/tab5_lvgl_test.yaml
+          - tests/esphome/tab5_lvgl_thorvg_test.yaml
+    name: compile (${{ matrix.config }})
     steps:
       - uses: actions/checkout@v4
 
@@ -30,7 +40,7 @@ jobs:
             ~/.platformio
             ~/.espressif
             ~/.cache/pip
-          key: lvgl-p4-${{ hashFiles('tests/esphome/tab5_lvgl_test.yaml') }}
+          key: lvgl-p4-${{ hashFiles(matrix.config) }}
           restore-keys: |
             lvgl-p4-
 
@@ -41,7 +51,7 @@ jobs:
           esphome version
 
       - name: Validate config
-        run: esphome config tests/esphome/tab5_lvgl_test.yaml
+        run: esphome config ${{ matrix.config }}
 
       - name: Compile firmware
-        run: esphome compile tests/esphome/tab5_lvgl_test.yaml
+        run: esphome compile ${{ matrix.config }}
