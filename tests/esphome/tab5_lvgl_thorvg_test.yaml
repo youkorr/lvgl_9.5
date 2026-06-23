@@ -43,6 +43,11 @@ lvgl:
   pages:
     - id: main_page
       widgets:
+        # lv_image (pulled in by svg) requires LV_USE_LABEL, which the fork
+        # disables unless a label widget is present — so include one.
+        - label:
+            text: "ThorVG test"
+            align: TOP_MID
         # An svg widget pulls in ThorVG (LV_USE_VECTOR_GRAPHIC / THORVG_INTERNAL).
         - svg:
             file: "../../svg/dashboard_preview.svg"
