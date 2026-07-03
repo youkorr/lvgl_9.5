@@ -111,16 +111,6 @@ static ppa_client_handle_t s_display_srm_client = nullptr;
  */
 static bool ppa_rotate_display_buf(const void *src, void *dst, int32_t w, int32_t h,
                                    display::DisplayRotation rot, size_t src_capacity, size_t dst_capacity) {
-  // TEMPORARY BASELINE: force the proven software rotation path (the same loops
-  // clydebarrow's official ESPHome lvgl uses) by making the PPA rotate always
-  // decline. The PPA display-rotate path still crashes at 90/270 even in
-  // synchronous mode (esp_cache_msync, garbage source pointer), so we take the
-  // safe route first, then re-enable + fix PPA once SW rotation is confirmed
-  // working. Set to true to test the PPA path again.
-  constexpr bool USE_PPA_DISPLAY_ROTATE = false;
-  if (!USE_PPA_DISPLAY_ROTATE)
-    return false;
-
   if (s_display_srm_client == nullptr || w < 2 || h < 2)
     return false;
   // A null buffer would silently pass the alignment check below (0 & 127 == 0)
