@@ -110,8 +110,12 @@ static ppa_client_handle_t s_display_srm_client = nullptr;
  *   270° CW → PPA_SRM_ROTATION_ANGLE_90  (90° CCW)
  */
 static bool ppa_rotate_display_buf(const void *src, void *dst, int32_t w, int32_t h,
-                                   display::DisplayRotation rot) {
+                                   display::DisplayRotation rot, size_t src_capacity, size_t dst_capacity) {
   if (s_display_srm_client == nullptr || w < 2 || h < 2)
+    return false;
+  // A null buffer would silently pass the alignment check below (0 & 127 == 0)
+  // and then crash inside esp_cache_msync / the PPA. Reject explicitly.
+  if (src == nullptr || dst == nullptr)
     return false;
 
   // ESP32-P4 PPA requires both buffer address and buffer_size to be aligned
@@ -156,6 +160,26 @@ static bool ppa_rotate_display_buf(const void *src, void *dst, int32_t w, int32_
 
   size_t out_bytes = (size_t) out_w * out_h * BPP;
   size_t aligned_out_bytes = (out_bytes + CACHE_LINE - 1) & ~(CACHE_LINE - 1);
+  size_t in_bytes = ((size_t) w * h * BPP + CACHE_LINE - 1) & ~(CACHE_LINE - 1);
+
+  // Safety: the source read range and the rotated output must fit inside their
+  // buffers. If the geometry is inconsistent (e.g. `display:` rotation stacked
+  // on top of `lvgl: rotation:`, which swaps dimensions twice), the PPA would
+  // otherwise write past rotate_buf_ and corrupt adjacent memory -> garbage
+  // pointer -> crash in esp_cache_msync. Fall back to software instead.
+  if (in_bytes > src_capacity || aligned_out_bytes > dst_capacity) {
+    static bool warned = false;
+    if (!warned) {
+      warned = true;
+      ESP_LOGE(TAG,
+               "PPA display rotation skipped: geometry does not fit the buffers "
+               "(in=%zuB/cap %zuB, out=%zuB/cap %zuB, %dx%d). This usually means "
+               "rotation is applied twice (both `display:` and `lvgl: rotation:`). "
+               "Set rotation in only ONE of them.",
+               in_bytes, src_capacity, aligned_out_bytes, dst_capacity, (int) w, (int) h);
+    }
+    return false;
+  }
 
   ppa_srm_oper_config_t cfg = {};
   cfg.in.buffer = (void *) src;
@@ -182,10 +206,8 @@ static bool ppa_rotate_display_buf(const void *src, void *dst, int32_t w, int32_
   // stale/partial lines.
   //   - Input: write back the CPU-rendered source so the PPA reads fresh data.
   //   - Output: invalidate after the transfer so the panel push reads fresh data.
-  // src/dst are already 128-byte (cache-line) aligned (checked above); round the
-  // sizes up to the cache line. Both buffers are within allocations >= these
-  // sizes, so the rounded range is owned memory.
-  size_t in_bytes = ((size_t) w * h * BPP + CACHE_LINE - 1) & ~(CACHE_LINE - 1);
+  // src/dst are already 128-byte (cache-line) aligned (checked above); the sizes
+  // were rounded up to the cache line and validated to fit their buffers above.
   esp_cache_msync((void *) src, in_bytes, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
 
   esp_err_t ret = ppa_do_scale_rotate_mirror(s_display_srm_client, &cfg);
@@ -445,7 +467,8 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
   // Try PPA hardware rotation first (zero CPU cost, ~10x faster than SW loops).
   // Falls back to software automatically if PPA rejects the operation.
   if (s_display_srm_client != nullptr && this->rotation != display::DISPLAY_ROTATION_0_DEGREES) {
-    if (ppa_rotate_display_buf(ptr, this->rotate_buf_, width, height, this->rotation)) {
+    if (ppa_rotate_display_buf(ptr, this->rotate_buf_, width, height, this->rotation, this->buf_bytes_,
+                               this->buf_bytes_)) {
       // dst already points to rotate_buf_ (initialized above)
       // Coordinate update: identical geometry to the software path
       switch (this->rotation) {
