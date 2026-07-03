@@ -4,6 +4,8 @@
 #include "esphome/core/log.h"
 #include "lvgl_esphome.h"
 
+#include <utility>  // std::swap
+
 #include "core/lv_obj_class_private.h"
 
 // Portable bits so the component also builds on non-ESP32 targets (host/SDL).
@@ -976,8 +978,18 @@ void LvglComponent::setup() {
   // cater for displays with dimensions that don't divide by the required rounding
   this->width_ = display->get_width();
   this->height_ = display->get_height();
-  auto width = (display->get_width() + rounding - 1) / rounding * rounding;
-  auto height = (display->get_height() + rounding - 1) / rounding * rounding;
+  // When rotation is set via `lvgl: rotation:` (not the display: component), the
+  // display itself is NOT rotated, so get_width()/get_height() return the
+  // *physical* panel dimensions. For a 90/270 rotation LVGL must render at the
+  // swapped logical size, so that after we rotate the rendered frame it matches
+  // the physical panel. (For `display: rotation:`, get_width()/get_height()
+  // already reflect the swap, so we must not swap again.)
+  if (this->rotation_configured_ && (this->rotation == display::DISPLAY_ROTATION_90_DEGREES ||
+                                     this->rotation == display::DISPLAY_ROTATION_270_DEGREES)) {
+    std::swap(this->width_, this->height_);
+  }
+  auto width = (this->width_ + rounding - 1) / rounding * rounding;
+  auto height = (this->height_ + rounding - 1) / rounding * rounding;
   auto frac = this->buffer_frac_;
   if (frac == 0)
     frac = 1;
