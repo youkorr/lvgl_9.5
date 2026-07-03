@@ -1116,7 +1116,15 @@ void LvglComponent::setup() {
     // the task rotates+pushes frame N. The task does NO LVGL calls; the main
     // loop / flush_wait_cb_ call lv_display_flush_ready, so there is no thread
     // race. Falls back to the synchronous single-buffer path on any failure.
-    this->draw_buf2_ = static_cast<uint8_t *>(alloc_draw_buf(buf_bytes));
+    //
+    // TEMPORARILY DISABLED: the async flush task (pinned to core 1) crashed with
+    // a garbage source pointer inside esp_cache_msync (Core 1 Load access fault).
+    // Force the synchronous single-buffer path to isolate the async handoff.
+    // If synchronous rotation is stable, the bug is in the double-buffer /
+    // flush-task pipeline, not in the PPA rotate itself.
+    constexpr bool ENABLE_ASYNC_ROTATION = false;
+    this->draw_buf2_ =
+        ENABLE_ASYNC_ROTATION ? static_cast<uint8_t *>(alloc_draw_buf(buf_bytes)) : nullptr;
     if (this->draw_buf2_ != nullptr) {
       this->flush_queue_ = xQueueCreate(2, sizeof(FlushJob));
       this->flush_done_sem_ = xSemaphoreCreateCounting(8, 0);
