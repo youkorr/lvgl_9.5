@@ -321,8 +321,10 @@ async def to_code(configs):
         # We keep our custom PPA files as a fallback option.
         # PPA evaluate checks buffer alignment at runtime before claiming tasks.
         cg.add_define("USE_LVGL_PPA")
-        ppa_dir = Path(__file__).parent / "ppa"
-        cg.add_build_flag(f"-I{ppa_dir}")
+        # PPA .tcc units + their .h now live at the component top level (they are
+        # #included by lv_draw_ppa_wrapper.cpp, same directory), so no extra
+        # include path is needed. A ppa/ subdir would not be copied into the
+        # build under ESPHome 2026.6+ (external components lack recursive_sources).
     if use_ppa_img:
         # Enable PPA SRM hardware rotation for images (0/90/180/270 degrees)
         cg.add_define("LV_USE_PPA_IMG")
