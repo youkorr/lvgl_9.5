@@ -254,16 +254,23 @@ async def to_code(configs):
     if CORE.is_esp32:
         from esphome.components import esp32
 
-        # Absolute path: the component-manager resolves a relative `path` from a
-        # base that does not match the generated src tree ("path does not point
-        # to a directory"). relative_src_path gives the absolute location of the
-        # copied component in the build's src/ tree.
-        atomic_shim_dir = CORE.relative_src_path(
-            "esphome", "components", "lvgl", "atomic_shim"
+        # Drop the atomic.h shim in as a plain ESP-IDF component under the
+        # project's auto-scanned components/ dir (add_extra_build_file copies to
+        # <build>/<name>). This avoids the component MANAGER entirely:
+        # add_idf_component(path=...) writes a self-referential override_path
+        # that IDF rejects ("path does not point to a directory") when the
+        # component lives inside the generated src tree. A component in
+        # <build>/components/ is discovered natively; its CMakeLists appends the
+        # dir to the global COMPILE_OPTIONS (-I) so the separately-built managed
+        # __idf_lvgl can resolve lv_freertos.c's bare #include "atomic.h".
+        shim_src = Path(__file__).parent / "atomic_shim"
+        esp32.add_extra_build_file(
+            "components/lvgl_atomic_shim/CMakeLists.txt",
+            shim_src / "CMakeLists.txt",
         )
-        esp32.add_idf_component(
-            name="lvgl_atomic_shim",
-            path=Path(atomic_shim_dir).as_posix(),
+        esp32.add_extra_build_file(
+            "components/lvgl_atomic_shim/atomic.h",
+            shim_src / "atomic.h",
         )
 
     # Add build filter to exclude LVGL platform code not needed for ESP32

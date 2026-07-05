@@ -1,5 +1,0 @@
-# Minimal manifest so the ESP-IDF component manager accepts this header-only
-# local component. Deliberately has NO "path" field (a self-referential path
-# is what triggered "path does not point to a directory"). Provides the
-# atomic.h shim for the managed lvgl/lvgl 9.5.0 component (LVGL #7589).
-version: "1.0.0"
