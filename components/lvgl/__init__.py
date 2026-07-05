@@ -254,9 +254,16 @@ async def to_code(configs):
     if CORE.is_esp32:
         from esphome.components import esp32
 
+        # Absolute path: the component-manager resolves a relative `path` from a
+        # base that does not match the generated src tree ("path does not point
+        # to a directory"). relative_src_path gives the absolute location of the
+        # copied component in the build's src/ tree.
+        atomic_shim_dir = CORE.relative_src_path(
+            "esphome", "components", "lvgl", "atomic_shim"
+        )
         esp32.add_idf_component(
             name="lvgl_atomic_shim",
-            path="esphome/components/lvgl/atomic_shim",
+            path=Path(atomic_shim_dir).as_posix(),
         )
 
     # Add build filter to exclude LVGL platform code not needed for ESP32
