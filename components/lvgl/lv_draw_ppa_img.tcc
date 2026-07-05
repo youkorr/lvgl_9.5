@@ -255,7 +255,7 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     esp_err_t ret = ppa_do_scale_rotate_mirror(u->srm_client, &cfg);
     if(ret != ESP_OK) {
         LV_LOG_ERROR("PPA SRM scale failed: %d (src %ux%u scale %.2f/%.2f)",
-                     (int)ret, src_w, src_h, (double)sx, (double)sy);
+                     (int)ret, (unsigned)src_w, (unsigned)src_h, (double)sx, (double)sy);
     }
 
     /* PPA floorf rounding leaves a 1-pixel gap at right/bottom edges.
@@ -490,9 +490,10 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     if(ret != ESP_OK) {
         LV_LOG_ERROR("PPA SRM rotate failed: %d angle=%d src=%ux%u "
                      "in[off %d,%d blk %dx%d] out[off %d,%d pic %ux%u]",
-                     (int)ret, angle, src_w, src_h,
-                     sx, sy, sw, sh,
-                     dest_area.x1, dest_area.y1, dest_buf->header.w, dest_buf->header.h);
+                     (int)ret, (int)angle, (unsigned)src_w, (unsigned)src_h,
+                     (int)sx, (int)sy, (int)sw, (int)sh,
+                     (int)dest_area.x1, (int)dest_area.y1,
+                     (unsigned)dest_buf->header.w, (unsigned)dest_buf->header.h);
     }
 
     lv_image_decoder_close(&decoder_dsc);

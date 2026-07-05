@@ -16,5 +16,11 @@
 #pragma once
 
 #ifdef ESP_PLATFORM
+/* freertos/atomic.h defines many static inline helpers; lv_freertos.c uses only
+ * a few, so the rest trip -Wunused-function. Silence it for this include only
+ * (these warnings are in the FreeRTOS header, not our code). */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
 #include "freertos/atomic.h"
+#pragma GCC diagnostic pop
 #endif
