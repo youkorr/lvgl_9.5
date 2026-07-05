@@ -354,17 +354,27 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
      * source SUB-block and clamp the destination to the layer buffer. The old
      * code rotated the FULL image and placed it at the on-screen offset, so the
      * rotated block overran the destination picture and the PPA rejected it
-     * ("scale does not fit in the out pic"). */
+     * ("scale does not fit in the out pic").
+     *
+     * IMPORTANT: `coords` (== t->area) is the ORIGINAL, un-rotated image rect.
+     * The on-screen area actually covered by the rotated image is t->_real_area
+     * (the transformed bounding box). For 90/270 its dims are swapped
+     * (src_h x src_w), which is what maps 1:1 to the PPA output block. Using
+     * `coords` here made 90/270 collapse to the wrong (square/empty) region. */
+    LV_UNUSED(coords);
     int32_t buf_w = (int32_t)dest_buf->header.w;
     int32_t buf_h = (int32_t)dest_buf->header.h;
 
+    const lv_area_t * real = &t->_real_area;
+
     lv_area_t vis;
-    if(!lv_area_intersect(&vis, coords, &layer->buf_area)) {
+    if(!lv_area_intersect(&vis, real, &t->clip_area) ||
+       !lv_area_intersect(&vis, &vis, &layer->buf_area)) {
         lv_image_decoder_close(&decoder_dsc);
         return;
     }
-    int32_t out_dx = vis.x1 - coords->x1;
-    int32_t out_dy = vis.y1 - coords->y1;
+    int32_t out_dx = vis.x1 - real->x1;
+    int32_t out_dy = vis.y1 - real->y1;
     int32_t vw = lv_area_get_width(&vis);
     int32_t vh = lv_area_get_height(&vis);
 
