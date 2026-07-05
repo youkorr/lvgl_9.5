@@ -251,7 +251,7 @@ async def to_code(configs):
     # (atomic_shim/) whose CMakeLists globally injects its dir as -I so the
     # managed lvgl component can resolve the bare include. Needed because we run
     # LV_USE_OS=LV_OS_FREERTOS (the lottie/svg async loaders call lv_lock()).
-    if CORE.using_esp_idf:
+    if CORE.is_esp32:
         from esphome.components import esp32
 
         esp32.add_idf_component(
