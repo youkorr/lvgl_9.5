@@ -575,8 +575,10 @@ async def to_code(configs):
         df.add_define("LV_VG_LITE_THORVG_16PIXELS_ALIGN", "1")
         # Large stack for ThorVG rendering
         df.add_define("LV_DRAW_THREAD_STACK_SIZE", "(48 * 1024)")
-        # pngdec only needed for ThorVG image pipeline
-        cg.add_library("pngdec", "1.0.1")
+        # NOTE: ThorVG has its OWN built-in PNG decoder (LodePng, in
+        # thorvg/src/loaders/png/). The bitbank2 "pngdec" library is Arduino-only
+        # (requires <Arduino.h>) and is NOT used by any code here, so pulling it
+        # broke the ESP-IDF build under ESPHome 2026.6+. Removed.
         # Signal to lvgl_build_filter.py to compile ThorVG sources
         cg.add_build_flag("-DLVGL_USE_THORVG=1")
         df.LOGGER.info("ThorVG enabled (SVG/Lottie widgets detected)")
