@@ -127,10 +127,15 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     lv_layer_t * layer        = t->target_layer;
     lv_draw_buf_t * dest_buf  = layer->draw_buf;
 
-    /* coords = image rect at 1:1 scale (may extend off-screen).
-     * Intersect with the render tile to get the actual visible clip. */
+    /* coords (== t->area) is the image rect at 1:1 scale. The area actually
+     * covered on screen by the SCALED image is t->_real_area (the transformed
+     * bounding box: round(src*scale), positioned so the pivot stays fixed).
+     * Clip THAT to the render tile -- clipping `coords` instead placed a
+     * down-scaled image at the un-scaled rect origin (shifted, wrong size). */
+    LV_UNUSED(coords);
     lv_area_t visible_area;
-    if(!lv_area_intersect(&visible_area, coords, &layer->buf_area)) return;
+    if(!lv_area_intersect(&visible_area, &t->_real_area, &t->clip_area) ||
+       !lv_area_intersect(&visible_area, &visible_area, &layer->buf_area)) return;
 
     lv_image_decoder_dsc_t decoder_dsc;
     lv_image_decoder_args_t dec_args;
@@ -159,10 +164,13 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     uint32_t src_w = decoded->header.w;
     uint32_t src_h = decoded->header.h;
 
-    /* Virtual image origin: pivot stays fixed on screen as scale changes.
-     * coords->x1/y1 = image top-left at 1:1 scale. */
-    float virt_x = (float)coords->x1 + (float)dsc->pivot.x * (1.0f - sx);
-    float virt_y = (float)coords->y1 + (float)dsc->pivot.y * (1.0f - sy);
+    /* Virtual image origin = top-left of the scaled image on screen. This is
+     * exactly t->_real_area's top-left: for pure scale the box's min corner is
+     * source (0,0) mapped through pivot*(1-scale), i.e. coords.x1 +
+     * pivot.x*(1-sx). Use _real_area directly so placement matches the region
+     * we clipped against above. */
+    float virt_x = (float)t->_real_area.x1;
+    float virt_y = (float)t->_real_area.y1;
 
     /* Visible clip dimensions and buffer-local destination (always non-negative) */
     int32_t clip_w = lv_area_get_width(&visible_area);
