@@ -254,8 +254,10 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
      * Fill it by duplicating the last rendered column/row.
      * Must invalidate CPU cache first: PPA wrote via DMA, CPU cache is stale. */
     if(ret == ESP_OK && (gap_right || gap_bottom)) {
-        esp_cache_msync(dest_buf->data, aligned_size,
-                        ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+        /* M2C (invalidate) must be cache-line aligned: recent ESP-IDF rejects
+         * ESP_CACHE_MSYNC_FLAG_UNALIGNED for M2C. dest_buf->data and
+         * aligned_size are already cache-aligned, so drop the UNALIGNED flag. */
+        esp_cache_msync(dest_buf->data, aligned_size, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
 
         uint8_t *base = dest_buf->data;
         uint32_t stride = dest_buf->header.w * out_bpp;
