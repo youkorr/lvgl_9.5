@@ -244,6 +244,21 @@ async def to_code(configs):
     cg.add_library("lvgl/lvgl", "9.5.0")
     cg.add_define("USE_LVGL")
 
+    # Since ESPHome 2026.6 the lvgl/lvgl library is built as a managed ESP-IDF
+    # component (__idf_lvgl) compiled separately from the app. Its 9.5.0
+    # lv_freertos.c does #include "atomic.h" (LVGL #7589), which only exists on
+    # ESP-IDF as <freertos/atomic.h>. We ship a header-only local IDF component
+    # (atomic_shim/) whose CMakeLists globally injects its dir as -I so the
+    # managed lvgl component can resolve the bare include. Needed because we run
+    # LV_USE_OS=LV_OS_FREERTOS (the lottie/svg async loaders call lv_lock()).
+    if CORE.using_esp_idf:
+        from esphome.components import esp32
+
+        esp32.add_idf_component(
+            name="lvgl_atomic_shim",
+            path="esphome/components/lvgl/atomic_shim",
+        )
+
     # Add build filter to exclude LVGL platform code not needed for ESP32
     # This reduces compilation time and binary size significantly
     build_filter_script = Path(__file__).parent / "lvgl_build_filter.py"
