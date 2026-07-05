@@ -350,10 +350,71 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     uint32_t src_w = decoded->header.w;
     uint32_t src_h = decoded->header.h;
 
-    /* Compute destination area relative to layer buffer origin */
+    /* Tile/clip-aware geometry: map the visible render tile back onto a PPA
+     * source SUB-block and clamp the destination to the layer buffer. The old
+     * code rotated the FULL image and placed it at the on-screen offset, so the
+     * rotated block overran the destination picture and the PPA rejected it
+     * ("scale does not fit in the out pic"). */
+    int32_t buf_w = (int32_t)dest_buf->header.w;
+    int32_t buf_h = (int32_t)dest_buf->header.h;
+
+    lv_area_t vis;
+    if(!lv_area_intersect(&vis, coords, &layer->buf_area)) {
+        lv_image_decoder_close(&decoder_dsc);
+        return;
+    }
+    int32_t out_dx = vis.x1 - coords->x1;
+    int32_t out_dy = vis.y1 - coords->y1;
+    int32_t vw = lv_area_get_width(&vis);
+    int32_t vh = lv_area_get_height(&vis);
+
     lv_area_t dest_area;
-    lv_area_copy(&dest_area, &t->area);
+    lv_area_copy(&dest_area, &vis);
     lv_area_move(&dest_area, -layer->buf_area.x1, -layer->buf_area.y1);
+    if(dest_area.x1 < 0 || dest_area.y1 < 0 || dest_area.x1 >= buf_w || dest_area.y1 >= buf_h) {
+        lv_image_decoder_close(&decoder_dsc);
+        return;
+    }
+    if(dest_area.x1 + vw > buf_w) vw = buf_w - dest_area.x1;
+    if(dest_area.y1 + vh > buf_h) vh = buf_h - dest_area.y1;
+    if(vw <= 0 || vh <= 0) {
+        lv_image_decoder_close(&decoder_dsc);
+        return;
+    }
+
+    /* Invert the rotation to find the source sub-block. 90/270 swap the source
+     * axes (block dims become vh x vw); 180 keeps them (vw x vh). */
+    int32_t sx, sy, sw, sh;
+    switch(angle) {
+        case 1800:
+            sw = vw; sh = vh;
+            sx = (int32_t)src_w - out_dx - vw;
+            sy = (int32_t)src_h - out_dy - vh;
+            break;
+        case 900:
+            sw = vh; sh = vw;
+            sx = out_dy;
+            sy = (int32_t)src_h - out_dx - vw;
+            break;
+        case 2700:
+            sw = vh; sh = vw;
+            sx = (int32_t)src_w - out_dy - vh;
+            sy = out_dx;
+            break;
+        default:
+            lv_image_decoder_close(&decoder_dsc);
+            return;
+    }
+    if(sx < 0 || sy < 0 || sx >= (int32_t)src_w || sy >= (int32_t)src_h) {
+        lv_image_decoder_close(&decoder_dsc);
+        return;
+    }
+    if(sx + sw > (int32_t)src_w) sw = (int32_t)src_w - sx;
+    if(sy + sh > (int32_t)src_h) sh = (int32_t)src_h - sy;
+    if(sw <= 0 || sh <= 0) {
+        lv_image_decoder_close(&decoder_dsc);
+        return;
+    }
 
     /* Flush decoded source buffer for PPA DMA access. Align size to cache
      * line; _UNALIGNED flag is only a safety net for the address. */
@@ -367,14 +428,14 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     ppa_srm_oper_config_t cfg;
     lv_memzero(&cfg, sizeof(cfg));
 
-    /* Input: full source image block */
+    /* Input: the source sub-block that maps onto the visible tile. */
     cfg.in.buffer         = (void *)decoded->data;
     cfg.in.pic_w          = src_w;
     cfg.in.pic_h          = src_h;
-    cfg.in.block_w        = src_w;
-    cfg.in.block_h        = src_h;
-    cfg.in.block_offset_x = 0;
-    cfg.in.block_offset_y = 0;
+    cfg.in.block_w        = (uint32_t)sw;
+    cfg.in.block_h        = (uint32_t)sh;
+    cfg.in.block_offset_x = (uint32_t)sx;
+    cfg.in.block_offset_y = (uint32_t)sy;
     cfg.in.srm_cm         = lv_color_format_to_ppa_srm(src_cf);
 
     uint32_t out_bpp_r    = (dest_cf == LV_COLOR_FORMAT_RGB565) ? 2u :
@@ -392,8 +453,13 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     cfg.out.srm_cm         = lv_color_format_to_ppa_srm(dest_cf);
 
     cfg.rotation_angle     = ppa_rot;
-    cfg.scale_x            = (dsc->scale_x != LV_SCALE_NONE) ? ((float)dsc->scale_x / 256.0f) : 1.0f;
-    cfg.scale_y            = (dsc->scale_y != LV_SCALE_NONE) ? ((float)dsc->scale_y / 256.0f) : 1.0f;
+    /* Pure rotation only: the tile-aware source-block geometry above assumes a
+     * 1:1 pixel mapping (source sub-block dims == rotated dest tile dims). A
+     * simultaneous scale would invalidate that mapping, so force 1.0 here. The
+     * dispatch routes any rotation!=0 through this path regardless of scale, and
+     * the test config never combines the two. */
+    cfg.scale_x            = 1.0f;
+    cfg.scale_y            = 1.0f;
     cfg.mirror_x           = false;
     cfg.mirror_y           = false;
     cfg.rgb_swap           = false;
@@ -404,7 +470,11 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
 
     esp_err_t ret = ppa_do_scale_rotate_mirror(u->srm_client, &cfg);
     if(ret != ESP_OK) {
-        LV_LOG_ERROR("PPA SRM rotation failed: %d  (src %ux%u, angle %d)", (int)ret, src_w, src_h, angle);
+        LV_LOG_ERROR("PPA SRM rotate failed: %d angle=%d src=%ux%u "
+                     "in[off %d,%d blk %dx%d] out[off %d,%d pic %ux%u]",
+                     (int)ret, angle, src_w, src_h,
+                     sx, sy, sw, sh,
+                     dest_area.x1, dest_area.y1, dest_buf->header.w, dest_buf->header.h);
     }
 
     lv_image_decoder_close(&decoder_dsc);
