@@ -613,7 +613,16 @@ async def to_code(configs):
     lv_conf_h_file = CORE.relative_src_path(LV_CONF_FILENAME)
     write_file_if_changed(lv_conf_h_file, generate_lv_conf_h())
     cg.add_build_flag("-DLV_CONF_H=1")
-    cg.add_build_flag(f'-DLV_CONF_PATH=\\"{LV_CONF_FILENAME}\\"')
+    # Use the ABSOLUTE path to lv_conf.h. Since ESPHome 2026.6 LVGL is built as a
+    # managed ESP-IDF component (__idf_lvgl) compiled separately from the app, so
+    # a bare "lv_conf.h" (resolved via -Isrc) is NOT on that component's include
+    # path -> "fatal error: lv_conf.h: No such file or directory". An absolute
+    # path in LV_CONF_PATH resolves regardless of include dirs. Matches upstream.
+    lv_conf_h_path = Path(lv_conf_h_file).as_posix()
+    cg.add_build_flag(f'-DLV_CONF_PATH=\\"{lv_conf_h_path}\\"')
+    # LVGL's lv_conf_internal.h otherwise tries to pull options from Kconfig
+    # (sdkconfig) on ESP-IDF, which conflicts with our generated lv_conf.h.
+    cg.add_build_flag("-DLV_KCONFIG_IGNORE")
     # Add include path for atomic.h shim (needed for LV_USE_OS=LV_OS_FREERTOS on ESP-IDF)
     # Use absolute path so it works when LVGL compiles from .piolibdeps/
     component_dir = Path(__file__).parent
