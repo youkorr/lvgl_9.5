@@ -708,6 +708,9 @@ LVTouchListener::LVTouchListener(uint16_t long_press_time, uint16_t long_press_r
     if (l->touch_pressed_) {
       data->point.x = l->touch_point_.x;
       data->point.y = l->touch_point_.y;
+      // Rotate the touch into LVGL's logical space when using `lvgl: rotation:`
+      // (no-op for display: rotation or rotation 0).
+      l->get_parent()->rotate_touch_point(data->point.x, data->point.y);
       data->state = LV_INDEV_STATE_PRESSED;
     } else {
       data->state = LV_INDEV_STATE_RELEASED;

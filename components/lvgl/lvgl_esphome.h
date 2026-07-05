@@ -168,6 +168,33 @@ class LvglComponent : public PollingComponent {
   void dump_config() override;
   lv_display_t *get_disp() { return this->disp_; }
   lv_obj_t *get_screen_active() { return lv_display_get_screen_active(this->disp_); }
+  // Rotate a raw touch point (in physical panel coordinates) into LVGL's
+  // rotated logical space. Only applies when rotation was set via
+  // `lvgl: rotation:` (rotation_configured_); with `display: rotation:` the
+  // panel/touchscreen already handle it. The touchscreen must be configured
+  // with an identity transform + calibration to the physical panel size so its
+  // output is in physical coordinates.
+  void rotate_touch_point(int32_t &x, int32_t &y) const {
+    if (!this->rotation_configured_)
+      return;
+    int32_t tx = x, ty = y;
+    switch (this->rotation) {
+      case display::DISPLAY_ROTATION_90_DEGREES:
+        x = this->width_ - 1 - ty;
+        y = tx;
+        break;
+      case display::DISPLAY_ROTATION_180_DEGREES:
+        x = this->width_ - 1 - tx;
+        y = this->height_ - 1 - ty;
+        break;
+      case display::DISPLAY_ROTATION_270_DEGREES:
+        x = ty;
+        y = this->height_ - 1 - tx;
+        break;
+      default:
+        break;
+    }
+  }
   // Pause or resume the display.
   // @param paused If true, pause the display. If false, resume the display.
   // @param show_snow If true, show the snow effect when paused.
