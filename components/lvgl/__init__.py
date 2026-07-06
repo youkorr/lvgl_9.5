@@ -556,11 +556,17 @@ async def to_code(configs):
         "TABLE", "TABVIEW", "TEXTAREA", "TILEVIEW", "WIN",
     }
 
-    # Add ESPHome-specific defines; add LV_USE_* only for non-widget entries
+    # Add ESPHome-specific defines; add LV_USE_* only for non-widget entries.
+    # NOTE: only define USE_LVGL_<X>. Do NOT define the core USE_<X> here: for
+    # widget names that collide with real components (switch, sensor,
+    # binary_sensor, image, ...) that would make esphome/core/entity_includes.h
+    # and lvgl_esphome.h pull in component headers that are not actual
+    # dependencies -> "esphome/components/switch/switch.h: No such file". The
+    # real core USE_<X> is defined by the component itself when it is loaded
+    # (image/font/binary_sensor are pulled in via requires_component when used).
     for use in helpers.lv_uses:
         upper = use.upper()
         cg.add_define(f"USE_LVGL_{upper}")
-        cg.add_define(f"USE_{upper}")
         canonical = _TO_CANONICAL.get(upper, upper)
         if canonical not in _ALL_CANONICAL_WIDGETS:
             # Non-widget entry (e.g. LOG, THEME_DEFAULT, USER_DATA)
