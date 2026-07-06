@@ -34,10 +34,13 @@
 
 static const char *TAG_V9 = "lvgl";  /* reuse the lvgl tag — known to pass user log filters */
 
-/* Instrumentation: how many ops landed on hardware vs the SW fallback,
-   reported once every PPA_STATS_INTERVAL_MS to confirm acceleration is
-   live. Set PPA_STATS_INTERVAL_MS to 0 to silence. */
-#define PPA_STATS_INTERVAL_MS 2000
+/* Instrumentation: how many ops landed on hardware vs the SW fallback.
+   Silent by default; enable by building with -DPPA_STATS_INTERVAL_MS=2000
+   (or any positive value in ms) to log the HW/SW ratio at that interval.
+   0 disables the periodic log entirely (the #if below compiles it out). */
+#ifndef PPA_STATS_INTERVAL_MS
+#define PPA_STATS_INTERVAL_MS 0
+#endif
 
 static uint32_t s_ppa_hw_fills   = 0;
 static uint32_t s_ppa_hw_blends  = 0;
