@@ -178,18 +178,25 @@ class LvglComponent : public PollingComponent {
     if (!this->rotation_configured_)
       return;
     int32_t tx = x, ty = y;
+    // Exact inverse of the flush rotation (see LvglComponent::flush_cb):
+    //   90 : px = height_-1-ly, py = lx        -> lx = py,            ly = height_-1-px
+    //  180 : px = width_-1-lx,  py = height_-1-ly
+    //  270 : px = ly,           py = width_-1-lx -> lx = width_-1-py, ly = px
+    // width_/height_ are the LOGICAL dimensions (already swapped for 90/270).
+    // NOTE: the 90 and 270 cases were previously swapped, which put the touch
+    // on the wrong axis for those two rotations.
     switch (this->rotation) {
       case display::DISPLAY_ROTATION_90_DEGREES:
-        x = this->width_ - 1 - ty;
-        y = tx;
+        x = ty;
+        y = this->height_ - 1 - tx;
         break;
       case display::DISPLAY_ROTATION_180_DEGREES:
         x = this->width_ - 1 - tx;
         y = this->height_ - 1 - ty;
         break;
       case display::DISPLAY_ROTATION_270_DEGREES:
-        x = ty;
-        y = this->height_ - 1 - tx;
+        x = this->width_ - 1 - ty;
+        y = tx;
         break;
       default:
         break;
