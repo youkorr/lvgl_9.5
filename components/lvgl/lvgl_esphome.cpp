@@ -1064,30 +1064,51 @@ void LvglComponent::setup() {
   void *buffer = nullptr;
 
   // Helper lambda to allocate an aligned DMA-capable buffer.
-  // When USE_LVGL_PPA is defined, we try internal DMA-capable SRAM first
-  // (required for PPA on ESP32-P4), then fall back to PSRAM with cache sync.
-  auto alloc_draw_buf = [](size_t sz) -> void * {
+  // psram_first: when true, allocate in PSRAM before internal DMA SRAM.
+  //   The PPA display-rotation path DMAs these buffers and runs esp_cache_msync
+  //   on them every frame. Internal DMA SRAM is the SAME pool the i2s audio and
+  //   the wifi stack use for their DMA; placing the PPA rotation buffers there
+  //   interleaves PPA DMA + cache maintenance with the audio/wifi DMA pool and
+  //   corrupts the heap under concurrent load (random TLSF asserts / access
+  //   faults). Putting them in PSRAM isolates the two pools. PPA works fine on
+  //   PSRAM (the image path and large displays already rely on it).
+  auto alloc_draw_buf = [](size_t sz, bool psram_first) -> void * {
 #if defined(USE_LVGL_PPA) && defined(USE_ESP32)
     // Round size up to 128-byte cache line so PPA buffer_size checks pass
     // on both 64 B and 128 B cache-line sdkconfigs.
     size_t aligned_sz = (sz + 127) & ~size_t{127};
-    void *p = heap_caps_aligned_alloc(128, aligned_sz, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    if (!psram_first) {
+      void *p = heap_caps_aligned_alloc(128, aligned_sz, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+      if (p != nullptr)
+        return p;
+    }
+    // 128-byte aligned for the 128 B cache line.
+    void *p = heap_caps_aligned_alloc(128, aligned_sz, MALLOC_CAP_SPIRAM);
     if (p != nullptr)
       return p;
-    // Internal DMA SRAM full → PSRAM (128-byte aligned for 128 B cache line)
-    p = heap_caps_aligned_alloc(128, aligned_sz, MALLOC_CAP_SPIRAM);
-    if (p != nullptr)
-      return p;
+    if (psram_first) {
+      // PSRAM exhausted → fall back to internal DMA SRAM rather than fail.
+      p = heap_caps_aligned_alloc(128, aligned_sz, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+      if (p != nullptr)
+        return p;
+    }
+#else
+    (void) psram_first;
 #endif
     return lv_malloc_core(sz);
   };
 
-  buffer = alloc_draw_buf(buf_bytes);
+  // Isolate the PPA rotation buffers in PSRAM whenever a rotation is active
+  // (either `lvgl: rotation:` or inherited from `display:`).
+  auto eff_rotation = this->rotation_configured_ ? this->rotation : display->get_rotation();
+  bool ppa_psram = eff_rotation != display::DISPLAY_ROTATION_0_DEGREES;
+
+  buffer = alloc_draw_buf(buf_bytes, ppa_psram);
   // if specific buffer size not set and can't get 100%, try for a smaller one
   if (buffer == nullptr && this->buffer_frac_ == 0) {
     frac = MIN_BUFFER_FRAC;
     buf_bytes /= MIN_BUFFER_FRAC;
-    buffer = alloc_draw_buf(buf_bytes);
+    buffer = alloc_draw_buf(buf_bytes, ppa_psram);
   }
   this->buffer_frac_ = frac;
   if (buffer == nullptr) {
@@ -1116,7 +1137,7 @@ void LvglComponent::setup() {
   if (!this->rotation_configured_)
     this->rotation = display->get_rotation();
   if (this->rotation != display::DISPLAY_ROTATION_0_DEGREES) {
-    this->rotate_buf_ = static_cast<lv_color_t *>(alloc_draw_buf(buf_bytes));
+    this->rotate_buf_ = static_cast<lv_color_t *>(alloc_draw_buf(buf_bytes, ppa_psram));
     if (this->rotate_buf_ == nullptr) {
       this->status_set_error(LOG_STR("Memory allocation failure"));
       this->mark_failed();
@@ -1139,7 +1160,7 @@ void LvglComponent::setup() {
     // flush-task pipeline, not in the PPA rotate itself.
     constexpr bool ENABLE_ASYNC_ROTATION = false;
     this->draw_buf2_ =
-        ENABLE_ASYNC_ROTATION ? static_cast<uint8_t *>(alloc_draw_buf(buf_bytes)) : nullptr;
+        ENABLE_ASYNC_ROTATION ? static_cast<uint8_t *>(alloc_draw_buf(buf_bytes, ppa_psram)) : nullptr;
     if (this->draw_buf2_ != nullptr) {
       this->flush_queue_ = xQueueCreate(2, sizeof(FlushJob));
       this->flush_done_sem_ = xSemaphoreCreateCounting(8, 0);
