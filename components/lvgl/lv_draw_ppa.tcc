@@ -61,16 +61,16 @@ void lv_draw_ppa_init(void)
         ESP_LOGE(TAG, "Failed to register SRM client: %d", res);
     }
 
-    /* Register Fill client - 64-byte burst (PR #9612 / issue #9590).
-     * A 128-byte burst maximises fill throughput but lets the PPA monopolise
-     * the external-memory bus, starving the MIPI-DSI panel fetch -> "lcd.dsi:
-     * can't fetch data from external memory fast enough, underrun happens" and
-     * visible flicker under heavy load (camera decode + audio + wifi). 64-byte
-     * bursts leave enough bandwidth for the DSI. */
+    /* Register Fill client - 128-byte burst for max fill throughput.
+     * Trade-off (LVGL issue #9590): a 64-byte burst frees external-memory
+     * bandwidth for the MIPI-DSI fetch (less flicker under heavy load) but
+     * drops PPA throughput noticeably -- with lottie + a live camera it cut the
+     * refresh from ~28 to ~17 fps. Fill is the hottest PPA op, so keep it at
+     * 128 for performance; SRM/blend/display-rotation stay at 64. */
     lv_memzero(&cfg, sizeof(cfg));
     cfg.oper_type = PPA_OPERATION_FILL;
     cfg.max_pending_trans_num = 1;
-    cfg.data_burst_length = PPA_DATA_BURST_LENGTH_64;
+    cfg.data_burst_length = PPA_DATA_BURST_LENGTH_128;
 
     res = ppa_register_client(&cfg, &draw_ppa_unit->fill_client);
     if(res != ESP_OK) {
