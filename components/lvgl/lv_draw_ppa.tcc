@@ -51,10 +51,13 @@ void lv_draw_ppa_init(void)
     ppa_client_config_t cfg;
     lv_memzero(&cfg, sizeof(cfg));
 
-    /* Register SRM client - 64-byte burst to reduce CPU/SPIRAM contention (PR #9612) */
+    /* Register SRM client - 128-byte burst for max throughput (image scale).
+     * The 64-byte burst was a DSI-underrun mitigation (issue #9590), but the
+     * flicker was traced to an sdkconfig cache option, not the PPA burst, so
+     * keep the hot ops at 128. Only the display-rotation client stays at 64. */
     cfg.oper_type = PPA_OPERATION_SRM;
     cfg.max_pending_trans_num = 1;
-    cfg.data_burst_length = PPA_DATA_BURST_LENGTH_64;
+    cfg.data_burst_length = PPA_DATA_BURST_LENGTH_128;
 
     res = ppa_register_client(&cfg, &draw_ppa_unit->srm_client);
     if(res != ESP_OK) {
@@ -66,7 +69,7 @@ void lv_draw_ppa_init(void)
      * bandwidth for the MIPI-DSI fetch (less flicker under heavy load) but
      * drops PPA throughput noticeably -- with lottie + a live camera it cut the
      * refresh from ~28 to ~17 fps. Fill is the hottest PPA op, so keep it at
-     * 128 for performance; SRM/blend/display-rotation stay at 64. */
+     * 128 for performance; only the display-rotation client stays at 64. */
     lv_memzero(&cfg, sizeof(cfg));
     cfg.oper_type = PPA_OPERATION_FILL;
     cfg.max_pending_trans_num = 1;
@@ -77,11 +80,14 @@ void lv_draw_ppa_init(void)
         ESP_LOGE(TAG, "Failed to register Fill client: %d", res);
     }
 
-    /* Register Blend client - 64-byte burst to reduce CPU/SPIRAM contention (PR #9612) */
+    /* Register Blend client - 128-byte burst for max throughput. This is the
+     * client that blits the camera canvas to the screen, so its burst directly
+     * bounds the live-camera refresh rate. (Flicker was an sdkconfig cache
+     * option, not the PPA burst -- see the SRM client note.) */
     lv_memzero(&cfg, sizeof(cfg));
     cfg.oper_type = PPA_OPERATION_BLEND;
     cfg.max_pending_trans_num = 1;
-    cfg.data_burst_length = PPA_DATA_BURST_LENGTH_64;
+    cfg.data_burst_length = PPA_DATA_BURST_LENGTH_128;
 
     res = ppa_register_client(&cfg, &draw_ppa_unit->blend_client);
     if(res != ESP_OK) {
