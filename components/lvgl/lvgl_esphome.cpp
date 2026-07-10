@@ -1099,9 +1099,11 @@ void LvglComponent::setup() {
   };
 
   // Isolate the PPA rotation buffers in PSRAM whenever a rotation is active
-  // (either `lvgl: rotation:` or inherited from `display:`).
-  auto eff_rotation = this->rotation_configured_ ? this->rotation : display->get_rotation();
-  bool ppa_psram = eff_rotation != display::DISPLAY_ROTATION_0_DEGREES;
+  // (either `lvgl: rotation:` or inherited from `display:`) -- UNLESS the
+  // internal-SRAM rotation pipeline was requested, in which case we WANT the
+  // (already shrunk) buffers in internal SRAM, so allocate internal-first.
+  auto eff_rotation2 = this->rotation_configured_ ? this->rotation : display->get_rotation();
+  bool ppa_psram = (eff_rotation2 != display::DISPLAY_ROTATION_0_DEGREES) && !this->rotation_internal_sram_;
 
   buffer = alloc_draw_buf(buf_bytes, ppa_psram);
   // if specific buffer size not set and can't get 100%, try for a smaller one
