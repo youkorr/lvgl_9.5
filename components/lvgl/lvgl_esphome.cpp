@@ -1041,9 +1041,12 @@ void LvglComponent::setup() {
     if (this->rotation_internal_sram_ && !this->full_refresh_ &&
         eff_rot != display::DISPLAY_ROTATION_0_DEGREES) {
       size_t free_int = heap_caps_get_free_size(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
-      // Three buffers split the budget; keep ~30% internal-SRAM headroom for
-      // the rest of the app (DMA descriptors, stacks, other components).
-      size_t per_buf = (free_int * 7 / 10) / 3;
+      // Only draw_buf_ + rotate_buf_ are allocated from this budget: draw_buf2_
+      // is disabled (ENABLE_ASYNC_ROTATION=false). Splitting by 2 (not 3) makes
+      // each buffer ~50% larger -> ~1/3 fewer partial flushes, which speeds up
+      // full-screen redraws (page navigation) without extra memory. Keep ~30%
+      // internal-SRAM headroom for the rest of the app (DMA descriptors, stacks).
+      size_t per_buf = (free_int * 7 / 10) / 2;
       per_buf &= ~static_cast<size_t>(BUF_SIZE_ALIGN - 1);
       // Need at least a few rounded rows for the rotation math to be useful.
       size_t min_buf = static_cast<size_t>(width) * this->draw_rounding * BYTES_PER_PIXEL;
