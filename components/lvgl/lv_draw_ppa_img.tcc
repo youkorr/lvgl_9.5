@@ -13,6 +13,7 @@
 #include "src/draw/lv_draw_image_private.h"
 #include "src/draw/lv_image_decoder_private.h"
 #include "src/draw/lv_image_decoder.h"
+#include "esp_memory_utils.h"  /* esp_ptr_external_ram(): skip cache sync on internal SRAM */
 #include <math.h>
 
 static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t * draw_dsc,
@@ -210,7 +211,7 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
         return;
     }
 
-    if(decoded->data_size > 0) {
+    if(decoded->data_size > 0 && esp_ptr_external_ram((void *)decoded->data)) {
         esp_cache_msync((void *)decoded->data,
                         lv_draw_ppa_align_size(decoded->data_size),
                         ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
@@ -264,8 +265,10 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     if(ret == ESP_OK && (gap_right || gap_bottom)) {
         /* M2C (invalidate) must be cache-line aligned: recent ESP-IDF rejects
          * ESP_CACHE_MSYNC_FLAG_UNALIGNED for M2C. dest_buf->data and
-         * aligned_size are already cache-aligned, so drop the UNALIGNED flag. */
-        esp_cache_msync(dest_buf->data, aligned_size, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
+         * aligned_size are already cache-aligned, so drop the UNALIGNED flag.
+         * PSRAM only: internal SRAM is DMA-coherent and rejects esp_cache_msync. */
+        if(esp_ptr_external_ram(dest_buf->data))
+            esp_cache_msync(dest_buf->data, aligned_size, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
 
         uint8_t *base = dest_buf->data;
         uint32_t stride = dest_buf->header.w * out_bpp;
@@ -287,8 +290,9 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
                       (uint32_t)clip_w * out_bpp);
         }
 
-        esp_cache_msync(dest_buf->data, aligned_size,
-                        ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+        if(esp_ptr_external_ram(dest_buf->data))
+            esp_cache_msync(dest_buf->data, aligned_size,
+                            ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
     }
 
     lv_image_decoder_close(&decoder_dsc);
@@ -436,7 +440,7 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
 
     /* Flush decoded source buffer for PPA DMA access. Align size to cache
      * line; _UNALIGNED flag is only a safety net for the address. */
-    if(decoded->data_size > 0) {
+    if(decoded->data_size > 0 && esp_ptr_external_ram((void *)decoded->data)) {
         esp_cache_msync((void *)decoded->data,
                         lv_draw_ppa_align_size(decoded->data_size),
                         ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
