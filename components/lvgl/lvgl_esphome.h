@@ -280,6 +280,9 @@ class LvglComponent : public PollingComponent {
   bool full_refresh_{};
   bool resume_on_input_{};
   bool update_when_display_idle_{};
+  // Ping-pong index into the mipi_dsi DPI framebuffers for the zero-copy present
+  // fast path (see draw_buffer_). Unused unless that path is active.
+  uint8_t fast_fb_index_{0};
 
   uint8_t *draw_buf_{};
   lv_display_t *disp_{};

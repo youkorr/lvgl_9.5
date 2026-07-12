@@ -14,6 +14,13 @@
 #include "esp_heap_caps.h"
 #include "esp_memory_utils.h"  // esp_ptr_internal()
 #include "esp_cache.h"         // esp_cache_msync()
+// Zero-copy present into the mipi_dsi DPI framebuffers, only when that component
+// is part of the build (its header is then copied next to ours).
+#if defined(USE_ESP32_VARIANT_ESP32P4) && __has_include("esphome/components/mipi_dsi/mipi_dsi_fast_present.h")
+#include "esphome/components/mipi_dsi/mipi_dsi_fast_present.h"
+#define LVGL_HAS_FAST_PRESENT
+#include <cstring>  // memcpy
+#endif
 #else
 #include <chrono>
 #endif
@@ -470,6 +477,39 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
   auto x1 = area->x1;
   auto y1 = area->y1;
   auto *dst = reinterpret_cast<lv_color_data *>(this->rotate_buf_);
+
+#ifdef LVGL_HAS_FAST_PRESENT
+  // Zero-copy present: mipi_dsi with >=2 DPI framebuffers + LVGL full-refresh.
+  // full-refresh makes every flush cover the whole screen, so we can PPA-rotate
+  // (or copy for rotation 0) the frame straight into a real scan-out buffer and
+  // swap it in — no draw_pixels_at copy into the scanned FB, no blocking wait.
+  if (this->full_refresh_ && mipi_dsi::g_fast_present.num_fbs >= 2 && mipi_dsi::g_fast_present.present != nullptr &&
+      width == static_cast<int32_t>(this->width_) && height == static_cast<int32_t>(this->height_)) {
+#if LV_COLOR_DEPTH == 32
+    constexpr size_t FP_BPP = 4;
+#else
+    constexpr size_t FP_BPP = LV_COLOR_DEPTH / 8;
+#endif
+    void *fb = mipi_dsi::g_fast_present.fb[this->fast_fb_index_];
+    size_t fb_bytes = static_cast<size_t>(mipi_dsi::g_fast_present.w) * mipi_dsi::g_fast_present.h * FP_BPP;
+    bool done = false;
+#ifdef USE_LVGL_PPA
+    if (s_display_srm_client != nullptr && this->rotation != display::DISPLAY_ROTATION_0_DEGREES) {
+      done = ppa_rotate_display_buf(ptr, fb, width, height, this->rotation, this->buf_bytes_, fb_bytes);
+    }
+#endif
+    if (!done && this->rotation == display::DISPLAY_ROTATION_0_DEGREES) {
+      std::memcpy(fb, ptr, static_cast<size_t>(width) * height * FP_BPP);
+      done = true;
+    }
+    if (done) {
+      mipi_dsi::g_fast_present.present(mipi_dsi::g_fast_present.instance, fb);
+      this->fast_fb_index_ = (this->fast_fb_index_ + 1) % mipi_dsi::g_fast_present.num_fbs;
+      return;
+    }
+    // Rotation requested but PPA unavailable -> fall through to the normal path.
+  }
+#endif  // LVGL_HAS_FAST_PRESENT
 
 #ifdef USE_LVGL_PPA
   // Try PPA hardware rotation first (zero CPU cost, ~10x faster than SW loops).

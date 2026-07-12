@@ -1,9 +1,16 @@
 #ifdef USE_ESP32_VARIANT_ESP32P4
 #include <utility>
 #include "mipi_dsi.h"
+#include "mipi_dsi_fast_present.h"
 #include "esphome/core/helpers.h"
 
 namespace esphome::mipi_dsi {
+
+// g_fast_present is an inline variable defined in mipi_dsi_fast_present.h; we
+// only populate it in setup() once the DPI framebuffers are known.
+static void mipi_dsi_present_trampoline(void *instance, void *fb) {
+  static_cast<MipiDsi *>(instance)->present_framebuffer(fb);
+}
 
 // Maximum bytes to log for init commands (truncated if larger)
 static constexpr size_t MIPI_DSI_MAX_CMD_LOG_BYTES = 64;
@@ -139,6 +146,15 @@ void MipiDsi::setup() {
     } else {
       ESP_LOGCONFIG(TAG, "DPI zero-copy present enabled: %u framebuffers (%p, %p)", this->num_fbs_,
                     this->framebuffers_[0], this->framebuffers_[1]);
+      // Publish the fast-present ABI for the LVGL flush path.
+      g_fast_present.num_fbs = this->num_fbs_;
+      g_fast_present.fb[0] = this->framebuffers_[0];
+      g_fast_present.fb[1] = this->framebuffers_[1];
+      g_fast_present.fb[2] = this->framebuffers_[2];
+      g_fast_present.w = static_cast<int>(this->width_);
+      g_fast_present.h = static_cast<int>(this->height_);
+      g_fast_present.instance = this;
+      g_fast_present.present = &mipi_dsi_present_trampoline;
     }
   }
   size_t index = 0;
@@ -269,7 +285,9 @@ void MipiDsi::present_framebuffer(void *fb) {
   // after issuing it), so between two presents the CPU/LVGL/PPA ran in parallel
   // with the DSI transfer instead of stalling on portMAX_DELAY.
   if (this->present_pending_) {
-    xSemaphoreTake(this->io_lock_, portMAX_DELAY);
+    // Bounded wait: if a trans-done is ever missed we drop the sync rather than
+    // hang the LVGL flush task forever.
+    xSemaphoreTake(this->io_lock_, pdMS_TO_TICKS(100));
     this->present_pending_ = false;
   }
   // `fb` is a real DPI framebuffer, so this only swaps the scan-out pointer:
