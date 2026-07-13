@@ -1070,6 +1070,13 @@ void LvglComponent::setup() {
   // Counter-intuitive vs. the usual "bigger buffer = faster" rule, which only
   // holds when PSRAM bandwidth is abundant.
 #if defined(USE_LVGL_PPA) && defined(USE_ESP32)
+  // Internal DMA SRAM to leave free for the rest of the system, as an ABSOLUTE
+  // floor. This pool is shared with every other DMA client that starts after
+  // LVGL (I2S audio DMA descriptors + gdma callback contexts, esp-sr AEC/AFE,
+  // wifi, task stacks). Draining it makes audio fail at start with
+  // "i2s_alloc_dma_desc: allocate DMA buffer failed" or "gdma: user context
+  // not in internal RAM".
+  constexpr size_t INTERNAL_DMA_RESERVE = 160 * 1024;
   {
     display::DisplayRotation eff_rot =
         this->rotation_configured_ ? this->rotation : display->get_rotation();
@@ -1084,9 +1091,12 @@ void LvglComponent::setup() {
       // Only draw_buf_ + rotate_buf_ are allocated from this budget: draw_buf2_
       // is disabled (ENABLE_ASYNC_ROTATION=false). Splitting by 2 (not 3) makes
       // each buffer ~50% larger -> ~1/3 fewer partial flushes, which speeds up
-      // full-screen redraws (page navigation) without extra memory. Keep ~30%
-      // internal-SRAM headroom for the rest of the app (DMA descriptors, stacks).
-      size_t per_buf = (free_int * 7 / 10) / 2;
+      // full-screen redraws (page navigation) without extra memory. Keep an
+      // ABSOLUTE reserve of internal SRAM for the rest of the app: a relative
+      // (percentage) headroom shrinks to nothing on a loaded build, and audio
+      // then fails to start (I2S DMA / gdma allocations happen after LVGL).
+      size_t budget = free_int > INTERNAL_DMA_RESERVE ? free_int - INTERNAL_DMA_RESERVE : 0;
+      size_t per_buf = budget / 2;
       per_buf &= ~static_cast<size_t>(BUF_SIZE_ALIGN - 1);
       // Need at least a few rounded rows for the rotation math to be useful.
       size_t min_buf = static_cast<size_t>(width) * this->draw_rounding * BYTES_PER_PIXEL;
@@ -1127,20 +1137,28 @@ void LvglComponent::setup() {
     // on both 64 B and 128 B cache-line sdkconfigs.
     size_t aligned_sz = (sz + 127) & ~size_t{127};
     if (!psram_first) {
-      void *p = heap_caps_aligned_alloc(128, aligned_sz, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
-      if (p != nullptr)
-        return p;
+      // Take internal DMA SRAM only while INTERNAL_DMA_RESERVE stays free
+      // afterwards — see the reserve's comment above. The internal-SRAM
+      // rotation pipeline already budgets its shrunk buffers against the same
+      // reserve, so its allocations still pass this check and land internal.
+      size_t free_internal = heap_caps_get_free_size(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+      if (free_internal >= aligned_sz + INTERNAL_DMA_RESERVE) {
+        void *p = heap_caps_aligned_alloc(128, aligned_sz, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+        if (p != nullptr)
+          return p;
+      } else {
+        ESP_LOGI(TAG, "draw buffer %u KB redirected to PSRAM (internal DMA SRAM low: %u KB free)",
+                 (unsigned) (aligned_sz / 1024), (unsigned) (free_internal / 1024));
+      }
     }
     // 128-byte aligned for the 128 B cache line.
     void *p = heap_caps_aligned_alloc(128, aligned_sz, MALLOC_CAP_SPIRAM);
     if (p != nullptr)
       return p;
-    if (psram_first) {
-      // PSRAM exhausted → fall back to internal DMA SRAM rather than fail.
-      p = heap_caps_aligned_alloc(128, aligned_sz, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
-      if (p != nullptr)
-        return p;
-    }
+    // PSRAM exhausted → fall back to internal DMA SRAM rather than fail.
+    p = heap_caps_aligned_alloc(128, aligned_sz, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    if (p != nullptr)
+      return p;
 #else
     (void) psram_first;
 #endif
