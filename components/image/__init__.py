@@ -787,3 +787,18 @@ async def to_code(config):
             entry[CONF_ID], prog_arr, width, height, image_type, trans_value
         )
         add_metadata(entry[CONF_ID].id, width, height, image_type, trans_value)
+
+
+def legacy_platform_migration_warning(domain, platform, removal_version):
+    """Compatibility shim for ESPHome 2026.8+ core `online_image`, which calls
+    image.legacy_platform_migration_warning(...) to build a (capture, finalize)
+    validator pair. This vendored `image` predates that helper; provide a no-op
+    version (two identity validators) so online_image loads. It only skips the
+    deprecation warning for the legacy top-level `online_image:` syntax, which
+    does not affect normal `image:`/`online_image:` platform usage.
+    """
+
+    def _identity(config):
+        return config
+
+    return _identity, _identity

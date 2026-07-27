@@ -168,6 +168,40 @@ class LvglComponent : public PollingComponent {
   void dump_config() override;
   lv_display_t *get_disp() { return this->disp_; }
   lv_obj_t *get_screen_active() { return lv_display_get_screen_active(this->disp_); }
+  // Rotate a raw touch point (in physical panel coordinates) into LVGL's
+  // rotated logical space. Only applies when rotation was set via
+  // `lvgl: rotation:` (rotation_configured_); with `display: rotation:` the
+  // panel/touchscreen already handle it. The touchscreen must be configured
+  // with an identity transform + calibration to the physical panel size so its
+  // output is in physical coordinates.
+  void rotate_touch_point(int32_t &x, int32_t &y) const {
+    if (!this->rotation_configured_)
+      return;
+    int32_t tx = x, ty = y;
+    // Exact inverse of the flush rotation (see LvglComponent::flush_cb):
+    //   90 : px = height_-1-ly, py = lx        -> lx = py,            ly = height_-1-px
+    //  180 : px = width_-1-lx,  py = height_-1-ly
+    //  270 : px = ly,           py = width_-1-lx -> lx = width_-1-py, ly = px
+    // width_/height_ are the LOGICAL dimensions (already swapped for 90/270).
+    // NOTE: the 90 and 270 cases were previously swapped, which put the touch
+    // on the wrong axis for those two rotations.
+    switch (this->rotation) {
+      case display::DISPLAY_ROTATION_90_DEGREES:
+        x = ty;
+        y = this->height_ - 1 - tx;
+        break;
+      case display::DISPLAY_ROTATION_180_DEGREES:
+        x = this->width_ - 1 - tx;
+        y = this->height_ - 1 - ty;
+        break;
+      case display::DISPLAY_ROTATION_270_DEGREES:
+        x = this->width_ - 1 - ty;
+        y = tx;
+        break;
+      default:
+        break;
+    }
+  }
   // Pause or resume the display.
   // @param paused If true, pause the display. If false, resume the display.
   // @param show_snow If true, show the snow effect when paused.
@@ -215,6 +249,11 @@ class LvglComponent : public PollingComponent {
     this->rotation = rotation;
     this->rotation_configured_ = true;
   }
+  // Opt-in: when rotation is active, shrink the draw/rotate buffers so the whole
+  // render+rotate pipeline fits in internal SRAM instead of spilling into PSRAM.
+  // On PSRAM-bandwidth-limited ESP32-P4 silicon (e.g. rev v1.0) this trades a
+  // few extra partial flushes for ~5x less PSRAM traffic per rotated frame.
+  void set_rotation_buffers_internal(bool enable) { this->rotation_internal_sram_ = enable; }
   void set_pause_trigger(Trigger<> *trigger) { this->pause_callback_ = trigger; }
   void set_resume_trigger(Trigger<> *trigger) { this->resume_callback_ = trigger; }
   void set_draw_start_trigger(Trigger<> *trigger) { this->draw_start_callback_ = trigger; }
@@ -235,10 +274,15 @@ class LvglComponent : public PollingComponent {
   std::vector<display::Display *> displays_{};
   // True when rotation was set explicitly via the lvgl: `rotation:` option.
   bool rotation_configured_{false};
+  // When true, force the rotation pipeline buffers into internal SRAM (opt-in).
+  bool rotation_internal_sram_{false};
   size_t buffer_frac_{1};
   bool full_refresh_{};
   bool resume_on_input_{};
   bool update_when_display_idle_{};
+  // Ping-pong index into the mipi_dsi DPI framebuffers for the zero-copy present
+  // fast path (see draw_buffer_). Unused unless that path is active.
+  uint8_t fast_fb_index_{0};
 
   uint8_t *draw_buf_{};
   lv_display_t *disp_{};

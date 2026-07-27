@@ -13,6 +13,7 @@
 #include "src/draw/lv_draw_image_private.h"
 #include "src/draw/lv_image_decoder_private.h"
 #include "src/draw/lv_image_decoder.h"
+#include "esp_memory_utils.h"  /* esp_ptr_external_ram(): skip cache sync on internal SRAM */
 #include <math.h>
 
 static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t * draw_dsc,
@@ -127,10 +128,15 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     lv_layer_t * layer        = t->target_layer;
     lv_draw_buf_t * dest_buf  = layer->draw_buf;
 
-    /* coords = image rect at 1:1 scale (may extend off-screen).
-     * Intersect with the render tile to get the actual visible clip. */
+    /* coords (== t->area) is the image rect at 1:1 scale. The area actually
+     * covered on screen by the SCALED image is t->_real_area (the transformed
+     * bounding box: round(src*scale), positioned so the pivot stays fixed).
+     * Clip THAT to the render tile -- clipping `coords` instead placed a
+     * down-scaled image at the un-scaled rect origin (shifted, wrong size). */
+    LV_UNUSED(coords);
     lv_area_t visible_area;
-    if(!lv_area_intersect(&visible_area, coords, &layer->buf_area)) return;
+    if(!lv_area_intersect(&visible_area, &t->_real_area, &t->clip_area) ||
+       !lv_area_intersect(&visible_area, &visible_area, &layer->buf_area)) return;
 
     lv_image_decoder_dsc_t decoder_dsc;
     lv_image_decoder_args_t dec_args;
@@ -159,10 +165,13 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     uint32_t src_w = decoded->header.w;
     uint32_t src_h = decoded->header.h;
 
-    /* Virtual image origin: pivot stays fixed on screen as scale changes.
-     * coords->x1/y1 = image top-left at 1:1 scale. */
-    float virt_x = (float)coords->x1 + (float)dsc->pivot.x * (1.0f - sx);
-    float virt_y = (float)coords->y1 + (float)dsc->pivot.y * (1.0f - sy);
+    /* Virtual image origin = top-left of the scaled image on screen. This is
+     * exactly t->_real_area's top-left: for pure scale the box's min corner is
+     * source (0,0) mapped through pivot*(1-scale), i.e. coords.x1 +
+     * pivot.x*(1-sx). Use _real_area directly so placement matches the region
+     * we clipped against above. */
+    float virt_x = (float)t->_real_area.x1;
+    float virt_y = (float)t->_real_area.y1;
 
     /* Visible clip dimensions and buffer-local destination (always non-negative) */
     int32_t clip_w = lv_area_get_width(&visible_area);
@@ -202,7 +211,7 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
         return;
     }
 
-    if(decoded->data_size > 0) {
+    if(decoded->data_size > 0 && esp_ptr_external_ram((void *)decoded->data)) {
         esp_cache_msync((void *)decoded->data,
                         lv_draw_ppa_align_size(decoded->data_size),
                         ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
@@ -247,15 +256,19 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     esp_err_t ret = ppa_do_scale_rotate_mirror(u->srm_client, &cfg);
     if(ret != ESP_OK) {
         LV_LOG_ERROR("PPA SRM scale failed: %d (src %ux%u scale %.2f/%.2f)",
-                     (int)ret, src_w, src_h, (double)sx, (double)sy);
+                     (int)ret, (unsigned)src_w, (unsigned)src_h, (double)sx, (double)sy);
     }
 
     /* PPA floorf rounding leaves a 1-pixel gap at right/bottom edges.
      * Fill it by duplicating the last rendered column/row.
      * Must invalidate CPU cache first: PPA wrote via DMA, CPU cache is stale. */
     if(ret == ESP_OK && (gap_right || gap_bottom)) {
-        esp_cache_msync(dest_buf->data, aligned_size,
-                        ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+        /* M2C (invalidate) must be cache-line aligned: recent ESP-IDF rejects
+         * ESP_CACHE_MSYNC_FLAG_UNALIGNED for M2C. dest_buf->data and
+         * aligned_size are already cache-aligned, so drop the UNALIGNED flag.
+         * PSRAM only: internal SRAM is DMA-coherent and rejects esp_cache_msync. */
+        if(esp_ptr_external_ram(dest_buf->data))
+            esp_cache_msync(dest_buf->data, aligned_size, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
 
         uint8_t *base = dest_buf->data;
         uint32_t stride = dest_buf->header.w * out_bpp;
@@ -277,8 +290,9 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
                       (uint32_t)clip_w * out_bpp);
         }
 
-        esp_cache_msync(dest_buf->data, aligned_size,
-                        ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+        if(esp_ptr_external_ram(dest_buf->data))
+            esp_cache_msync(dest_buf->data, aligned_size,
+                            ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
     }
 
     lv_image_decoder_close(&decoder_dsc);
@@ -348,14 +362,85 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     uint32_t src_w = decoded->header.w;
     uint32_t src_h = decoded->header.h;
 
-    /* Compute destination area relative to layer buffer origin */
+    /* Tile/clip-aware geometry: map the visible render tile back onto a PPA
+     * source SUB-block and clamp the destination to the layer buffer. The old
+     * code rotated the FULL image and placed it at the on-screen offset, so the
+     * rotated block overran the destination picture and the PPA rejected it
+     * ("scale does not fit in the out pic").
+     *
+     * IMPORTANT: `coords` (== t->area) is the ORIGINAL, un-rotated image rect.
+     * The on-screen area actually covered by the rotated image is t->_real_area
+     * (the transformed bounding box). For 90/270 its dims are swapped
+     * (src_h x src_w), which is what maps 1:1 to the PPA output block. Using
+     * `coords` here made 90/270 collapse to the wrong (square/empty) region. */
+    LV_UNUSED(coords);
+    int32_t buf_w = (int32_t)dest_buf->header.w;
+    int32_t buf_h = (int32_t)dest_buf->header.h;
+
+    const lv_area_t * real = &t->_real_area;
+
+    lv_area_t vis;
+    if(!lv_area_intersect(&vis, real, &t->clip_area) ||
+       !lv_area_intersect(&vis, &vis, &layer->buf_area)) {
+        lv_image_decoder_close(&decoder_dsc);
+        return;
+    }
+    int32_t out_dx = vis.x1 - real->x1;
+    int32_t out_dy = vis.y1 - real->y1;
+    int32_t vw = lv_area_get_width(&vis);
+    int32_t vh = lv_area_get_height(&vis);
+
     lv_area_t dest_area;
-    lv_area_copy(&dest_area, &t->area);
+    lv_area_copy(&dest_area, &vis);
     lv_area_move(&dest_area, -layer->buf_area.x1, -layer->buf_area.y1);
+    if(dest_area.x1 < 0 || dest_area.y1 < 0 || dest_area.x1 >= buf_w || dest_area.y1 >= buf_h) {
+        lv_image_decoder_close(&decoder_dsc);
+        return;
+    }
+    if(dest_area.x1 + vw > buf_w) vw = buf_w - dest_area.x1;
+    if(dest_area.y1 + vh > buf_h) vh = buf_h - dest_area.y1;
+    if(vw <= 0 || vh <= 0) {
+        lv_image_decoder_close(&decoder_dsc);
+        return;
+    }
+
+    /* Invert the rotation to find the source sub-block. 90/270 swap the source
+     * axes (block dims become vh x vw); 180 keeps them (vw x vh). */
+    int32_t sx, sy, sw, sh;
+    switch(angle) {
+        case 1800:
+            sw = vw; sh = vh;
+            sx = (int32_t)src_w - out_dx - vw;
+            sy = (int32_t)src_h - out_dy - vh;
+            break;
+        case 900:
+            sw = vh; sh = vw;
+            sx = out_dy;
+            sy = (int32_t)src_h - out_dx - vw;
+            break;
+        case 2700:
+            sw = vh; sh = vw;
+            sx = (int32_t)src_w - out_dy - vh;
+            sy = out_dx;
+            break;
+        default:
+            lv_image_decoder_close(&decoder_dsc);
+            return;
+    }
+    if(sx < 0 || sy < 0 || sx >= (int32_t)src_w || sy >= (int32_t)src_h) {
+        lv_image_decoder_close(&decoder_dsc);
+        return;
+    }
+    if(sx + sw > (int32_t)src_w) sw = (int32_t)src_w - sx;
+    if(sy + sh > (int32_t)src_h) sh = (int32_t)src_h - sy;
+    if(sw <= 0 || sh <= 0) {
+        lv_image_decoder_close(&decoder_dsc);
+        return;
+    }
 
     /* Flush decoded source buffer for PPA DMA access. Align size to cache
      * line; _UNALIGNED flag is only a safety net for the address. */
-    if(decoded->data_size > 0) {
+    if(decoded->data_size > 0 && esp_ptr_external_ram((void *)decoded->data)) {
         esp_cache_msync((void *)decoded->data,
                         lv_draw_ppa_align_size(decoded->data_size),
                         ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
@@ -365,14 +450,14 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     ppa_srm_oper_config_t cfg;
     lv_memzero(&cfg, sizeof(cfg));
 
-    /* Input: full source image block */
+    /* Input: the source sub-block that maps onto the visible tile. */
     cfg.in.buffer         = (void *)decoded->data;
     cfg.in.pic_w          = src_w;
     cfg.in.pic_h          = src_h;
-    cfg.in.block_w        = src_w;
-    cfg.in.block_h        = src_h;
-    cfg.in.block_offset_x = 0;
-    cfg.in.block_offset_y = 0;
+    cfg.in.block_w        = (uint32_t)sw;
+    cfg.in.block_h        = (uint32_t)sh;
+    cfg.in.block_offset_x = (uint32_t)sx;
+    cfg.in.block_offset_y = (uint32_t)sy;
     cfg.in.srm_cm         = lv_color_format_to_ppa_srm(src_cf);
 
     uint32_t out_bpp_r    = (dest_cf == LV_COLOR_FORMAT_RGB565) ? 2u :
@@ -390,8 +475,13 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     cfg.out.srm_cm         = lv_color_format_to_ppa_srm(dest_cf);
 
     cfg.rotation_angle     = ppa_rot;
-    cfg.scale_x            = (dsc->scale_x != LV_SCALE_NONE) ? ((float)dsc->scale_x / 256.0f) : 1.0f;
-    cfg.scale_y            = (dsc->scale_y != LV_SCALE_NONE) ? ((float)dsc->scale_y / 256.0f) : 1.0f;
+    /* Pure rotation only: the tile-aware source-block geometry above assumes a
+     * 1:1 pixel mapping (source sub-block dims == rotated dest tile dims). A
+     * simultaneous scale would invalidate that mapping, so force 1.0 here. The
+     * dispatch routes any rotation!=0 through this path regardless of scale, and
+     * the test config never combines the two. */
+    cfg.scale_x            = 1.0f;
+    cfg.scale_y            = 1.0f;
     cfg.mirror_x           = false;
     cfg.mirror_y           = false;
     cfg.rgb_swap           = false;
@@ -402,7 +492,12 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
 
     esp_err_t ret = ppa_do_scale_rotate_mirror(u->srm_client, &cfg);
     if(ret != ESP_OK) {
-        LV_LOG_ERROR("PPA SRM rotation failed: %d  (src %ux%u, angle %d)", (int)ret, src_w, src_h, angle);
+        LV_LOG_ERROR("PPA SRM rotate failed: %d angle=%d src=%ux%u "
+                     "in[off %d,%d blk %dx%d] out[off %d,%d pic %ux%u]",
+                     (int)ret, (int)angle, (unsigned)src_w, (unsigned)src_h,
+                     (int)sx, (int)sy, (int)sw, (int)sh,
+                     (int)dest_area.x1, (int)dest_area.y1,
+                     (unsigned)dest_buf->header.w, (unsigned)dest_buf->header.h);
     }
 
     lv_image_decoder_close(&decoder_dsc);
