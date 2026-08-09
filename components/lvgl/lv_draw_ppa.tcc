@@ -130,6 +130,10 @@ static int32_t ppa_evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * t)
                 if(dsc->opa < (lv_opa_t)LV_OPA_MAX) return 0;
                 if(dsc->blend_mode != LV_BLEND_MODE_NORMAL) return 0;
                 if(!ppa_src_cf_supported((lv_color_format_t)dsc->header.cf)) return 0;
+                /* The SRM engine transforms pixels, it does not composite them
+                 * against the destination, so a source alpha channel would be
+                 * flattened into an opaque block. Leave those to software. */
+                if(lv_ppa_cf_has_alpha((lv_color_format_t)dsc->header.cf)) return 0;
 
                 lv_draw_buf_t * dest_buf = t->target_layer->draw_buf;
                 if(!ppa_buf_usable(dest_buf)) return 0;
@@ -153,6 +157,9 @@ static int32_t ppa_evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * t)
                 if(dsc->opa < (lv_opa_t)LV_OPA_MAX) return 0;
                 if(dsc->blend_mode != LV_BLEND_MODE_NORMAL) return 0;
                 if(!ppa_src_cf_supported((lv_color_format_t)dsc->header.cf)) return 0;
+                /* Same as the rotate path: SRM cannot composite a source alpha
+                 * channel against the destination. */
+                if(lv_ppa_cf_has_alpha((lv_color_format_t)dsc->header.cf)) return 0;
                 lv_draw_buf_t * scale_dest = t->target_layer->draw_buf;
                 if(!ppa_buf_usable(scale_dest)) return 0;
                 if(!ppa_dest_cf_supported((lv_color_format_t)scale_dest->header.cf)) return 0;
@@ -165,13 +172,23 @@ static int32_t ppa_evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * t)
 #else
             if(dsc->scale_x != LV_SCALE_NONE || dsc->scale_y != LV_SCALE_NONE) return 0;
 #endif
-            if(dsc->opa < (lv_opa_t)LV_OPA_MAX) return 0;
             if(dsc->blend_mode != LV_BLEND_MODE_NORMAL) return 0;
             if(!ppa_src_cf_supported((lv_color_format_t)dsc->header.cf)) return 0;
 
             lv_draw_buf_t * dest_buf = t->target_layer->draw_buf;
             if(!ppa_buf_usable(dest_buf)) return 0;
-            if(!ppa_dest_cf_supported((lv_color_format_t)dest_buf->header.cf)) return 0;
+            lv_color_format_t dest_cf = (lv_color_format_t)dest_buf->header.cf;
+            if(!ppa_dest_cf_supported(dest_cf)) return 0;
+
+            /* An alpha channel or a global opacity means the blend engine has to
+             * composite against the destination rather than just copy over it.
+             * The hardware only blends when the background (here the
+             * destination) is ARGB8888 or RGB565, so an RGB888 target has to go
+             * back to software for those draws. */
+            if(lv_ppa_cf_has_alpha((lv_color_format_t)dsc->header.cf)
+               || dsc->opa < (lv_opa_t)LV_OPA_MAX) {
+                if(dest_cf != LV_COLOR_FORMAT_RGB565 && dest_cf != LV_COLOR_FORMAT_ARGB8888) return 0;
+            }
 
             if(t->preference_score > 70) {
                 t->preference_score = 70;
