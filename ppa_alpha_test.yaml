@@ -1,0 +1,147 @@
+# =============================================================================
+# TEST - Composition alpha PPA (ARGB8888 + opacite globale)
+# Branche: claude/jolly-lamport-ERZOC  (commit 39f8a63)
+#
+# CE QUI EST TESTE
+#   1. Transparence per-pixel : le logo LVGL est un PNG RGBA (3.6% de pixels
+#      transparents, 15.9% d'alpha PARTIEL sur les bords antialiases).
+#      Le fond de page est volontairement MAGENTA : si l'alpha est casse, on
+#      voit un rectangle noir/garbage autour du logo au lieu du magenta.
+#   2. Opacite globale : cycle 255 -> 192 -> 128 -> 64 -> 32.
+#      255      -> chemin PPA_ALPHA_NO_CHANGE (alpha de l'image tel quel)
+#      < 253    -> chemin PPA_ALPHA_SCALE     (alpha per-pixel x opacite)
+#
+# IMPORTANT : 'type: RGB' + 'transparency: alpha_channel' donne ARGB8888.
+# NE PAS mettre 'type: RGB565' : ca donne RGB565A8, que le PPA ne gere pas
+# (repli logiciel silencieux -> le test ne testerait rien).
+# =============================================================================
+
+esphome:
+  name: ppa-alpha-test
+
+esp32:
+  variant: esp32p4
+  board: esp32-p4-evboard
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+psram:
+  mode: hex
+  speed: 200MHz
+
+logger:
+  hardware_uart: USB_SERIAL_JTAG
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/youkorr/lvgl_9.5
+      ref: claude/jolly-lamport-ERZOC
+    components: [lvgl, image]
+    refresh: always
+
+i2c:
+  - id: bsp_bus
+    sda: GPIO31
+    scl: GPIO32
+    frequency: 400kHz
+
+esp_ldo:
+  - voltage: 2.5V
+    channel: 3
+
+pi4ioe5v6408:
+  - id: pi4ioe1
+    address: 0x43
+
+output:
+  - platform: ledc
+    pin: GPIO22
+    id: backlight_pwm
+    frequency: 1000Hz
+
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    id: backlight
+    name: "Backlight"
+    restore_mode: RESTORE_DEFAULT_ON
+
+display:
+  - platform: mipi_dsi
+    dimensions:
+      height: 1280
+      width: 720
+    model: M5Stack-Tab5
+    reset_pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 4
+    color_order: rgb
+
+image:
+  # PNG RGBA verifie : 48x48, color type 6, alpha partiel sur 15.9% des pixels.
+  - file: https://raw.githubusercontent.com/lvgl/lvgl/master/examples/assets/img_example_lvgl_logo.png
+    id: logo_alpha
+    resize: 240x240
+    type: RGB
+    transparency: alpha_channel
+
+lvgl:
+  use_ppa: true
+  use_ppa_img: true
+  color_depth: 16          # destination RGB565 : requis pour le blend PPA
+  buffer_size: 100%
+  byte_order: little_endian
+  rotation: 270
+  pages:
+    - id: page_test
+      bg_color: 0xFF00FF   # MAGENTA : doit rester visible a travers le logo
+      widgets:
+        - label:
+            id: lbl_state
+            align: TOP_MID
+            text: "alpha: init"
+            text_color: 0xFFFFFF
+            pad_top: 12
+        # Bandes de couleur sous le logo : la transparence doit les laisser voir.
+        - obj:
+            id: band_green
+            x: 0
+            y: 420
+            width: 720
+            height: 80
+            bg_color: 0x00FF00
+            border_width: 0
+        - obj:
+            id: band_blue
+            x: 0
+            y: 500
+            width: 720
+            height: 80
+            bg_color: 0x0000FF
+            border_width: 0
+        - image:
+            id: test_img
+            src: logo_alpha
+            align: CENTER
+
+globals:
+  - id: step
+    type: int
+    initial_value: '0'
+
+# Cycle des opacites. A 255 -> NO_CHANGE ; en dessous -> SCALE.
+interval:
+  - interval: 2s
+    then:
+      - lambda: |-
+          lv_obj_t *img = id(test_img);
+          static const int opas[] = {255, 192, 128, 64, 32};
+          int s = id(step) % 5;
+          id(step) = s + 1;
+          int o = opas[s];
+          lv_obj_set_style_image_opa(img, (lv_opa_t) o, 0);
+          char buf[32];
+          snprintf(buf, sizeof(buf), "alpha opa = %d", o);
+          lv_label_set_text(id(lbl_state), buf);
