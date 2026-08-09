@@ -24,6 +24,7 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
  * (plain stores, no logging there) and reported by LvglComponent::loop() on
  * the main task. 0 means the PPA has not drawn an image yet. */
 volatile uint8_t lv_ppa_img_last_mode    = LV_PPA_IMG_MODE_NONE;
+volatile uint8_t lv_ppa_img_seen_modes   = 0;  /* bit per LV_PPA_IMG_MODE_* seen */
 volatile uint8_t lv_ppa_img_last_src_cf  = 0;
 volatile uint8_t lv_ppa_img_last_dest_cf = 0;
 volatile uint8_t lv_ppa_img_last_opa     = 0;
@@ -204,6 +205,15 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
      * Plain stores ONLY: this runs on the draw thread, and logging from here
      * goes through the LVGL log callback into the ESPHome logger, which is not
      * safe off the main loop (it faulted on the first render). */
+    /* Accumulate every mode seen, do not just keep the last one: a screen can
+     * draw several images per frame (different opacities side by side) and
+     * loop() only reads this afterwards, so an overwriting latch would report
+     * whichever image happened to be drawn last. */
+    lv_ppa_img_seen_modes  |= (uint8_t)(1u << (needs_compositing
+                                               ? (src_has_alpha ? (opa_is_partial ? LV_PPA_IMG_MODE_ALPHA_SCALE
+                                                                                  : LV_PPA_IMG_MODE_ALPHA_NO_CHANGE)
+                                                                : LV_PPA_IMG_MODE_ALPHA_FIX)
+                                               : LV_PPA_IMG_MODE_BLIT));
     lv_ppa_img_last_mode    = needs_compositing
                               ? (src_has_alpha ? (opa_is_partial ? LV_PPA_IMG_MODE_ALPHA_SCALE
                                                                  : LV_PPA_IMG_MODE_ALPHA_NO_CHANGE)

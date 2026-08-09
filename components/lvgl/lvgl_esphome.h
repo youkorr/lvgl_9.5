@@ -315,7 +315,7 @@ class LvglComponent : public PollingComponent {
   static void flush_task_entry_(void *arg);
   static void flush_wait_cb_(lv_display_t *disp);
   bool buffers_configured_{false};  // Track if lv_display_set_buffers() has been called
-  uint8_t ppa_img_reported_mode_{0};  // Last PPA image branch reported from loop()
+  uint8_t ppa_img_reported_mode_{0};  // Bitmask of PPA image branches already reported from loop()
   size_t buf_bytes_{0};              // Store buffer size for delayed configuration
   bool loop_started_{false};  // safe to perform LVGL ops only after loop() starts
   // Sliding 1s perf window: time spent inside lv_timer_handler() vs wall,

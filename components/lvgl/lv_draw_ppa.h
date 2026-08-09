@@ -41,6 +41,7 @@ extern "C" {
 #define LV_PPA_IMG_MODE_ALPHA_FIX        4  /* global opacity only (no alpha channel) */
 
 extern volatile uint8_t lv_ppa_img_last_mode;
+extern volatile uint8_t lv_ppa_img_seen_modes;
 extern volatile uint8_t lv_ppa_img_last_src_cf;
 extern volatile uint8_t lv_ppa_img_last_dest_cf;
 extern volatile uint8_t lv_ppa_img_last_opa;

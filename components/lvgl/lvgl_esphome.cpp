@@ -1326,15 +1326,20 @@ void LvglComponent::loop() {
   // the LVGL log callback into the ESPHome logger and faults the first render.
   // Logged on change, so an opacity sweep shows each branch exactly once.
   {
-    uint8_t mode = lv_ppa_img_last_mode;
-    if (mode != LV_PPA_IMG_MODE_NONE && mode != this->ppa_img_reported_mode_) {
-      this->ppa_img_reported_mode_ = mode;
+    // A frame can draw several images through different branches (e.g. the same
+    // picture at a few opacities), so report every mode newly seen rather than
+    // whichever one happened to be drawn last.
+    uint8_t fresh = static_cast<uint8_t>(lv_ppa_img_seen_modes & ~this->ppa_img_reported_mode_);
+    if (fresh != 0) {
+      this->ppa_img_reported_mode_ |= fresh;
       static const char *const MODE_NAMES[] = {
           "none", "blit (opaque)", "alpha NO_CHANGE", "alpha SCALE", "alpha FIX_VALUE",
       };
-      ESP_LOGI(TAG, "PPA image path: %s (src_cf=%u dest_cf=%u opa=%u)", MODE_NAMES[mode],
-               (unsigned) lv_ppa_img_last_src_cf, (unsigned) lv_ppa_img_last_dest_cf,
-               (unsigned) lv_ppa_img_last_opa);
+      for (uint8_t m = 1; m < sizeof(MODE_NAMES) / sizeof(MODE_NAMES[0]); m++) {
+        if (fresh & (1u << m))
+          ESP_LOGI(TAG, "PPA image path: %s (src_cf=%u dest_cf=%u)", MODE_NAMES[m],
+                   (unsigned) lv_ppa_img_last_src_cf, (unsigned) lv_ppa_img_last_dest_cf);
+      }
     }
   }
 
