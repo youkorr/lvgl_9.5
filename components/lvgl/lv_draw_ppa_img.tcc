@@ -186,6 +186,29 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
     esp_err_t ret = ppa_do_blend(u->blend_client, &cfg);
     if(ret != ESP_OK) {
         LV_LOG_ERROR("PPA blend failed: %d", ret);
+        return;
+    }
+
+    /* Report the first draw that went through each branch. Without this a
+     * correct-looking screen is ambiguous: the task could equally have been
+     * declined here and rendered by the software path (whose blends the v9
+     * custom handler also accelerates). Logged once per branch, not per frame. */
+    if(needs_compositing) {
+        static bool logged_composite = false;
+        if(!logged_composite) {
+            logged_composite = true;
+            LV_LOG_USER("PPA image compositing active: src_cf=%d dest_cf=%d opa=%d mode=%s",
+                        (int)src_cf, (int)dest_cf, (int)opa,
+                        (src_has_alpha && !opa_is_partial) ? "NO_CHANGE"
+                        : (src_has_alpha ? "SCALE" : "FIX_VALUE"));
+        }
+    }
+    else {
+        static bool logged_blit = false;
+        if(!logged_blit) {
+            logged_blit = true;
+            LV_LOG_USER("PPA image blit active (opaque): src_cf=%d dest_cf=%d", (int)src_cf, (int)dest_cf);
+        }
     }
 }
 
