@@ -185,12 +185,17 @@ static int32_t ppa_evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * t)
 
             /* An alpha channel or a global opacity means the blend engine has to
              * composite against the destination rather than just copy over it.
-             * The hardware only blends when the background (here the
-             * destination) is ARGB8888 or RGB565, so an RGB888 target has to go
-             * back to software for those draws. */
+             * Only an RGB565 destination is taken: it has no alpha of its own,
+             * so treating the backdrop as opaque is exact. An ARGB8888
+             * destination is an intermediate layer that LVGL clears to
+             * transparent (see the lv_draw_layer_create callers in lv_refr.c),
+             * and the blend forces the background alpha to 0xFF, which would
+             * make every touched pixel opaque and break the later composition
+             * of that layer onto its parent. Those draws stay in software until
+             * the configuration preserves the destination alpha. */
             if(lv_ppa_cf_has_alpha((lv_color_format_t)dsc->header.cf)
                || dsc->opa < (lv_opa_t)LV_OPA_MAX) {
-                if(dest_cf != LV_COLOR_FORMAT_RGB565 && dest_cf != LV_COLOR_FORMAT_ARGB8888) return 0;
+                if(dest_cf != LV_COLOR_FORMAT_RGB565) return 0;
             }
 
             if(t->preference_score > 70) {

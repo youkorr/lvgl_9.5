@@ -105,7 +105,10 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
 
         cfg.bg_rgb_swap          = false;
         cfg.bg_byte_swap         = false;
-        /* The backdrop is opaque whatever its format claims. */
+        /* ppa_evaluate() only accepts RGB565 destinations for this path, and
+         * RGB565 carries no alpha, so the backdrop is opaque by construction.
+         * This would be wrong for an ARGB8888 layer, which LVGL clears to
+         * transparent -- hence the restriction. */
         cfg.bg_alpha_update_mode = PPA_ALPHA_FIX_VALUE;
         cfg.bg_alpha_fix_val     = 0xFF;
         cfg.bg_ck_en             = false;
