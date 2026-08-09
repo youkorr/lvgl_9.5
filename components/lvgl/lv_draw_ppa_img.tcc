@@ -81,37 +81,6 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
     ppa_blend_oper_config_t cfg;
     lv_memzero(&cfg, sizeof(cfg));
 
-    /* Background input (source image) */
-    cfg.in_bg.buffer         = (void *)src_buf;
-    cfg.in_bg.pic_w          = draw_dsc->header.w;
-    cfg.in_bg.pic_h          = draw_dsc->header.h;
-    cfg.in_bg.block_w        = (uint32_t)lv_area_get_width(clipped_img_area);
-    cfg.in_bg.block_h        = (uint32_t)lv_area_get_height(clipped_img_area);
-    cfg.in_bg.block_offset_x = (uint32_t)src_area.x1;
-    cfg.in_bg.block_offset_y = (uint32_t)src_area.y1;
-    cfg.in_bg.blend_cm       = lv_color_format_to_ppa_blend(src_cf);
-
-    cfg.bg_rgb_swap          = false;
-    cfg.bg_byte_swap         = false;
-    cfg.bg_alpha_update_mode = PPA_ALPHA_FIX_VALUE;
-    cfg.bg_alpha_fix_val     = 0xFF;
-    cfg.bg_ck_en             = false;
-
-    /* Foreground input */
-    cfg.in_fg.buffer         = (void *)dest_buf;
-    cfg.in_fg.pic_w          = draw_dsc->header.w;
-    cfg.in_fg.pic_h          = draw_dsc->header.h;
-    cfg.in_fg.block_w        = (uint32_t)lv_area_get_width(clipped_img_area);
-    cfg.in_fg.block_h        = (uint32_t)lv_area_get_height(clipped_img_area);
-    cfg.in_fg.block_offset_x = (uint32_t)src_area.x1;
-    cfg.in_fg.block_offset_y = (uint32_t)src_area.y1;
-    cfg.in_fg.blend_cm       = PPA_BLEND_COLOR_MODE_A8;
-
-    cfg.fg_rgb_swap          = false;
-    cfg.fg_byte_swap         = false;
-    cfg.fg_alpha_update_mode = PPA_ALPHA_FIX_VALUE;
-    cfg.fg_alpha_fix_val     = 0;
-    cfg.fg_ck_en             = false;
     if(needs_compositing) {
         /* Real alpha compositing: BG is what is already on the destination and
          * FG is the image drawn over it. (The blit path below uses the opposite
