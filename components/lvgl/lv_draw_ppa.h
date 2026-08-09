@@ -31,6 +31,20 @@ extern "C" {
  * GLOBAL PROTOTYPES
  **********************/
 
+/* Which branch the last PPA image blend took. The draw thread only stores
+ * into these (logging from that task goes through the ESPHome logger and is
+ * not safe there); LvglComponent::loop() reports the value when it changes. */
+#define LV_PPA_IMG_MODE_NONE             0
+#define LV_PPA_IMG_MODE_BLIT             1  /* opaque copy, no compositing */
+#define LV_PPA_IMG_MODE_ALPHA_NO_CHANGE  2  /* per-pixel alpha, opa >= LV_OPA_MAX */
+#define LV_PPA_IMG_MODE_ALPHA_SCALE      3  /* per-pixel alpha x global opacity */
+#define LV_PPA_IMG_MODE_ALPHA_FIX        4  /* global opacity only (no alpha channel) */
+
+extern volatile uint8_t lv_ppa_img_last_mode;
+extern volatile uint8_t lv_ppa_img_last_src_cf;
+extern volatile uint8_t lv_ppa_img_last_dest_cf;
+extern volatile uint8_t lv_ppa_img_last_opa;
+
 void lv_draw_ppa_init(void);
 void lv_draw_ppa_deinit(void);
 void lv_draw_buf_ppa_init_handlers(void);

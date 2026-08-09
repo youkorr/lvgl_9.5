@@ -46,6 +46,7 @@ static inline uint64_t lvgl_now_us() {
 
 #ifdef USE_LVGL_PPA
 #include "driver/ppa.h"
+#include "lv_draw_ppa.h"  // LV_PPA_IMG_MODE_* + the draw-thread diagnostic latch
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
@@ -1320,6 +1321,23 @@ void LvglComponent::loop() {
   }
 
 #ifdef USE_LVGL_PPA
+  // Report which branch the PPA image blend took, from the main task. The draw
+  // thread only latches the value: calling the logger from there routes through
+  // the LVGL log callback into the ESPHome logger and faults the first render.
+  // Logged on change, so an opacity sweep shows each branch exactly once.
+  {
+    uint8_t mode = lv_ppa_img_last_mode;
+    if (mode != LV_PPA_IMG_MODE_NONE && mode != this->ppa_img_reported_mode_) {
+      this->ppa_img_reported_mode_ = mode;
+      static const char *const MODE_NAMES[] = {
+          "none", "blit (opaque)", "alpha NO_CHANGE", "alpha SCALE", "alpha FIX_VALUE",
+      };
+      ESP_LOGI(TAG, "PPA image path: %s (src_cf=%u dest_cf=%u opa=%u)", MODE_NAMES[mode],
+               (unsigned) lv_ppa_img_last_src_cf, (unsigned) lv_ppa_img_last_dest_cf,
+               (unsigned) lv_ppa_img_last_opa);
+    }
+  }
+
   // Complete any async (pipelined) flushes the flush task finished. We call
   // lv_display_flush_ready here, on the main thread, so it never races with
   // lv_timer_handler — the flush task only does the rotate+push and signals.
