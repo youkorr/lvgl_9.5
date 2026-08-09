@@ -172,13 +172,14 @@ static int32_t ppa_evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * t)
 #else
             if(dsc->scale_x != LV_SCALE_NONE || dsc->scale_y != LV_SCALE_NONE) return 0;
 #endif
-            if(dsc->opa < (lv_opa_t)LV_OPA_MAX) return 0;
+            /* NOTE: no opa check here. A global opacity is exactly what the
+             * compositing path below handles; rejecting it would send every
+             * faded image back to software. */
             if(dsc->blend_mode != LV_BLEND_MODE_NORMAL) return 0;
             if(!ppa_src_cf_supported((lv_color_format_t)dsc->header.cf)) return 0;
 
             lv_draw_buf_t * dest_buf = t->target_layer->draw_buf;
             if(!ppa_buf_usable(dest_buf)) return 0;
-            if(!ppa_dest_cf_supported((lv_color_format_t)dest_buf->header.cf)) return 0;
             lv_color_format_t dest_cf = (lv_color_format_t)dest_buf->header.cf;
             if(!ppa_dest_cf_supported(dest_cf)) return 0;
 
