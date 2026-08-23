@@ -196,6 +196,19 @@ static int32_t ppa_evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * t)
             if(lv_ppa_cf_has_alpha((lv_color_format_t)dsc->header.cf)
                || dsc->opa < (lv_opa_t)LV_OPA_MAX) {
                 if(dest_cf != LV_COLOR_FORMAT_RGB565) return 0;
+#if defined(LV_PPA_ALPHA_MIN_AREA) && LV_PPA_ALPHA_MIN_AREA > 0
+                /* Each PPA operation costs a fixed amount regardless of how many
+                 * pixels it touches: config, cache maintenance, and a blocking
+                 * wait on the transaction. Small blocks cannot amortise that, so
+                 * leave them to software (which is where they went before the
+                 * compositing path existed). 0 disables the check. */
+                {
+                    lv_area_t blend_area;
+                    if(!lv_area_intersect(&blend_area, &t->area, &t->clip_area)) return 0;
+                    int32_t area_px = lv_area_get_width(&blend_area) * lv_area_get_height(&blend_area);
+                    if(area_px < (int32_t)LV_PPA_ALPHA_MIN_AREA) return 0;
+                }
+#endif
             }
 
             if(t->preference_score > 70) {
