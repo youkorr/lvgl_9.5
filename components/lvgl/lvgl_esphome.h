@@ -37,6 +37,16 @@
 #include "esphome/components/key_provider/key_provider.h"
 #endif  // USE_LVGL_BUTTONMATRIX
 
+#ifdef USE_LVGL_PPA
+// Minimum blended area before the PPA alpha-compositing path is used; 0 = always.
+// Declared here, at global scope, so a YAML lambda can flip it: a linkage
+// specification cannot appear inside a function, so the lambda has no way to
+// declare it itself.
+extern "C" {
+extern volatile uint32_t lv_ppa_alpha_min_area;
+}
+#endif  // USE_LVGL_PPA
+
 namespace esphome::lvgl {
 
 #if LV_COLOR_DEPTH == 16
