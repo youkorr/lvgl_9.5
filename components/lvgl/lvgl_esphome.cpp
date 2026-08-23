@@ -1390,6 +1390,14 @@ void LvglComponent::loop() {
                (unsigned) ((this->perf_frames_ * 1000000ULL) / elapsed_us), (unsigned) cpu_pct,
                lv_ppa_alpha_min_area == 0 ? "PPA" : "SW",
                lv_ppa_srm_min_area == 0 ? "PPA" : "SW");
+      // Free heap alongside it: transformed images make LVGL allocate
+      // intermediate layers, and a failed allocation is a likely way for a
+      // heavy scale/rotate screen to fall over.
+      // LVGL allocates through lv_malloc_core(), which lands in these heaps,
+      // so the ESP figures cover the layer allocations too.
+      ESP_LOGI(TAG, "  heap: int %u KB  psram %u KB",
+               (unsigned) (heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+               (unsigned) (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
       // Where that CPU went inside the PPA path: cache maintenance over the
       // draw buffer versus the blocking wait in the PPA calls themselves.
       if (lv_ppa_op_count > 0) {
