@@ -1386,9 +1386,10 @@ void LvglComponent::loop() {
       // Same numbers as the on-screen overlay, but in the log so a test
       // run can be copied out instead of read off the panel. Only built
       // when perf_monitor: is enabled, so normal builds stay quiet.
-      ESP_LOGI(TAG, "perf: page %u  FPS %u  CPU %u%%  alpha=%s", (unsigned) this->current_page_,
+      ESP_LOGI(TAG, "perf: page %u  FPS %u  CPU %u%%  alpha=%s srm=%s", (unsigned) this->current_page_,
                (unsigned) ((this->perf_frames_ * 1000000ULL) / elapsed_us), (unsigned) cpu_pct,
-               lv_ppa_alpha_min_area == 0 ? "PPA" : "SW");
+               lv_ppa_alpha_min_area == 0 ? "PPA" : "SW",
+               lv_ppa_srm_min_area == 0 ? "PPA" : "SW");
       // Where that CPU went inside the PPA path: cache maintenance over the
       // draw buffer versus the blocking wait in the PPA calls themselves.
       if (lv_ppa_op_count > 0) {

@@ -44,6 +44,7 @@
 // declare it itself.
 extern "C" {
 extern volatile uint32_t lv_ppa_alpha_min_area;
+extern volatile uint32_t lv_ppa_srm_min_area;
 }
 #endif  // USE_LVGL_PPA
 

@@ -46,6 +46,7 @@ extern volatile uint8_t lv_ppa_img_seen_modes;
  * Writable at runtime so a measurement can switch between the PPA and the
  * software fallback without a rebuild. */
 extern volatile uint32_t lv_ppa_alpha_min_area;
+extern volatile uint32_t lv_ppa_srm_min_area;
 /* Time breakdown of the PPA path, accumulated by the draw thread. */
 extern volatile uint32_t lv_ppa_us_cache;
 extern volatile uint32_t lv_ppa_us_op;

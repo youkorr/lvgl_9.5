@@ -31,6 +31,9 @@ volatile uint8_t lv_ppa_img_seen_modes   = 0;  /* bit per LV_PPA_IMG_MODE_* seen
 #define LV_PPA_ALPHA_MIN_AREA 0
 #endif
 volatile uint32_t lv_ppa_alpha_min_area  = LV_PPA_ALPHA_MIN_AREA;
+/* Same idea for the SRM (scale/rotate) paths, so a measurement can compare
+ * them against the software transform without a rebuild. 0 = always use it. */
+volatile uint32_t lv_ppa_srm_min_area    = 0;
 volatile uint8_t lv_ppa_img_last_src_cf  = 0;
 volatile uint8_t lv_ppa_img_last_dest_cf = 0;
 volatile uint8_t lv_ppa_img_last_opa     = 0;

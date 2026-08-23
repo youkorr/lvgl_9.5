@@ -148,6 +148,16 @@ static int32_t ppa_evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * t)
                 if(!ppa_buf_usable(dest_buf)) return 0;
                 if(!ppa_dest_cf_supported((lv_color_format_t)dest_buf->header.cf)) return 0;
 
+                /* Same fixed per-operation cost as the blend path; a measurement
+                 * can raise this to push the transform back to software. */
+                if(lv_ppa_srm_min_area > 0) {
+                    lv_area_t srm_area;
+                    if(!lv_area_intersect(&srm_area, &t->area, &t->clip_area)) return 0;
+                    uint32_t srm_px = (uint32_t)(lv_area_get_width(&srm_area) *
+                                                 lv_area_get_height(&srm_area));
+                    if(srm_px < lv_ppa_srm_min_area) return 0;
+                }
+
                 /* SRM rotation gets higher priority than software */
                 if(t->preference_score > 50) {
                     t->preference_score = 50;
@@ -172,6 +182,16 @@ static int32_t ppa_evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * t)
                 lv_draw_buf_t * scale_dest = t->target_layer->draw_buf;
                 if(!ppa_buf_usable(scale_dest)) return 0;
                 if(!ppa_dest_cf_supported((lv_color_format_t)scale_dest->header.cf)) return 0;
+                /* Same fixed per-operation cost as the blend path; a measurement
+                 * can raise this to push the transform back to software. */
+                if(lv_ppa_srm_min_area > 0) {
+                    lv_area_t srm_area;
+                    if(!lv_area_intersect(&srm_area, &t->area, &t->clip_area)) return 0;
+                    uint32_t srm_px = (uint32_t)(lv_area_get_width(&srm_area) *
+                                                 lv_area_get_height(&srm_area));
+                    if(srm_px < lv_ppa_srm_min_area) return 0;
+                }
+
                 if(t->preference_score > 50) {
                     t->preference_score = 50;
                     t->preferred_draw_unit_id = draw_unit->idx;
