@@ -1389,6 +1389,17 @@ void LvglComponent::loop() {
       ESP_LOGI(TAG, "perf: page %u  FPS %u  CPU %u%%  alpha=%s", (unsigned) this->current_page_,
                (unsigned) ((this->perf_frames_ * 1000000ULL) / elapsed_us), (unsigned) cpu_pct,
                lv_ppa_alpha_min_area == 0 ? "PPA" : "SW");
+      // Where that CPU went inside the PPA path: cache maintenance over the
+      // draw buffer versus the blocking wait in the PPA calls themselves.
+      if (lv_ppa_op_count > 0) {
+        ESP_LOGI(TAG, "  ppa: %u ops  cache %u ms  op %u ms  (%u us/op)",
+                 (unsigned) lv_ppa_op_count, (unsigned) (lv_ppa_us_cache / 1000),
+                 (unsigned) (lv_ppa_us_op / 1000),
+                 (unsigned) (lv_ppa_us_op / lv_ppa_op_count));
+      }
+      lv_ppa_us_cache = 0;
+      lv_ppa_us_op = 0;
+      lv_ppa_op_count = 0;
 #endif
       this->perf_frames_ = 0;
       // Verbose-only log: enable via 'logs: lvgl: VERBOSE' in YAML if you

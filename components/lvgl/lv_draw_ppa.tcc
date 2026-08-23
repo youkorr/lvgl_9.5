@@ -18,6 +18,14 @@
 
 static const char * TAG = "ppa_draw";
 
+/* Where the PPA path actually spends its time, accumulated by the draw thread
+ * (plain stores, no logging here) and reported by LvglComponent::loop().
+ * cache = esp_cache_msync over the draw buffer, op = the blocking wait inside
+ * the PPA call itself. */
+volatile uint32_t lv_ppa_us_cache = 0;
+volatile uint32_t lv_ppa_us_op    = 0;
+volatile uint32_t lv_ppa_op_count = 0;
+
 /* Check if a draw buffer is suitable for PPA (non-NULL, aligned, has data) */
 static inline bool ppa_buf_usable(lv_draw_buf_t * buf)
 {
@@ -257,10 +265,13 @@ static int32_t ppa_dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
         if(buf != NULL && buf->data != NULL) {
             /* Flush CPU cache once before first PPA operation */
             if(!cache_synced) {
+                int64_t t_c0 = esp_timer_get_time();
                 lv_draw_ppa_cache_sync(buf);
+                lv_ppa_us_cache += (uint32_t)(esp_timer_get_time() - t_c0);
                 cache_synced = true;
             }
 
+            int64_t t_op0 = esp_timer_get_time();
             switch(t->type) {
                 case LV_DRAW_TASK_TYPE_FILL:
                     lv_draw_ppa_fill(t, (lv_draw_fill_dsc_t *)t->draw_dsc, &t->area);
@@ -282,6 +293,8 @@ static int32_t ppa_dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
                 default:
                     break;
             }
+            lv_ppa_us_op += (uint32_t)(esp_timer_get_time() - t_op0);
+            lv_ppa_op_count++;
         }
 
         t->state = LV_DRAW_TASK_STATE_FINISHED;
@@ -295,7 +308,9 @@ static int32_t ppa_dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
     if(task_count > 0) {
         /* Single cache invalidate after all PPA operations */
         if(cache_synced && buf != NULL) {
+            int64_t t_c1 = esp_timer_get_time();
             lv_draw_ppa_cache_sync(buf);
+            lv_ppa_us_cache += (uint32_t)(esp_timer_get_time() - t_c1);
         }
         lv_draw_dispatch_request();
         return 1;
