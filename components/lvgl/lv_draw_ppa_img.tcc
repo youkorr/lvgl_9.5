@@ -25,6 +25,12 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
  * the main task. 0 means the PPA has not drawn an image yet. */
 volatile uint8_t lv_ppa_img_last_mode    = LV_PPA_IMG_MODE_NONE;
 volatile uint8_t lv_ppa_img_seen_modes   = 0;  /* bit per LV_PPA_IMG_MODE_* seen */
+/* Runtime copy of LV_PPA_ALPHA_MIN_AREA so a test can flip the compositing
+ * path on and off without rebuilding. */
+#ifndef LV_PPA_ALPHA_MIN_AREA
+#define LV_PPA_ALPHA_MIN_AREA 0
+#endif
+volatile uint32_t lv_ppa_alpha_min_area  = LV_PPA_ALPHA_MIN_AREA;
 volatile uint8_t lv_ppa_img_last_src_cf  = 0;
 volatile uint8_t lv_ppa_img_last_dest_cf = 0;
 volatile uint8_t lv_ppa_img_last_opa     = 0;

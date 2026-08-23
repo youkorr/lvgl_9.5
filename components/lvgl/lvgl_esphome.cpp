@@ -1386,8 +1386,9 @@ void LvglComponent::loop() {
       // Same numbers as the on-screen overlay, but in the log so a test
       // run can be copied out instead of read off the panel. Only built
       // when perf_monitor: is enabled, so normal builds stay quiet.
-      ESP_LOGI(TAG, "perf: page %u  FPS %u  CPU %u%%", (unsigned) this->current_page_,
-               (unsigned) ((this->perf_frames_ * 1000000ULL) / elapsed_us), (unsigned) cpu_pct);
+      ESP_LOGI(TAG, "perf: page %u  FPS %u  CPU %u%%  alpha=%s", (unsigned) this->current_page_,
+               (unsigned) ((this->perf_frames_ * 1000000ULL) / elapsed_us), (unsigned) cpu_pct,
+               lv_ppa_alpha_min_area == 0 ? "PPA" : "SW");
 #endif
       this->perf_frames_ = 0;
       // Verbose-only log: enable via 'logs: lvgl: VERBOSE' in YAML if you

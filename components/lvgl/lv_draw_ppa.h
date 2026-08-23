@@ -42,6 +42,10 @@ extern "C" {
 
 extern volatile uint8_t lv_ppa_img_last_mode;
 extern volatile uint8_t lv_ppa_img_seen_modes;
+/* Minimum blended area before the alpha-compositing path is used; 0 = always.
+ * Writable at runtime so a measurement can switch between the PPA and the
+ * software fallback without a rebuild. */
+extern volatile uint32_t lv_ppa_alpha_min_area;
 extern volatile uint8_t lv_ppa_img_last_src_cf;
 extern volatile uint8_t lv_ppa_img_last_dest_cf;
 extern volatile uint8_t lv_ppa_img_last_opa;
