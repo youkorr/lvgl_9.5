@@ -940,6 +940,7 @@ void LvKeyboardType::set_obj(lv_obj_t *lv_obj) {
 #endif  // USE_LVGL_KEYBOARD
 
 void LvglComponent::draw_end_() {
+  this->perf_frames_++;  // one rendered frame (LV_EVENT_REFR_READY)
   if (this->draw_end_callback_ != nullptr)
     this->draw_end_callback_->trigger();
   if (this->update_when_display_idle_) {
@@ -1375,6 +1376,14 @@ void LvglComponent::loop() {
       uint32_t cpu_pct = (uint32_t)((cpu_us * 100ULL) / elapsed_us);
       if (cpu_pct > 100) cpu_pct = 100;
       s_cpu_pct = cpu_pct;  // publish to __wrap_lv_timer_get_idle / sysmon overlay
+#ifdef LV_USE_PERF_MONITOR
+      // Same numbers as the on-screen overlay, but in the log so a test
+      // run can be copied out instead of read off the panel. Only built
+      // when perf_monitor: is enabled, so normal builds stay quiet.
+      ESP_LOGI(TAG, "perf: page %u  FPS %u  CPU %u%%", (unsigned) this->current_page_,
+               (unsigned) ((this->perf_frames_ * 1000000ULL) / elapsed_us), (unsigned) cpu_pct);
+#endif
+      this->perf_frames_ = 0;
       // Verbose-only log: enable via 'logs: lvgl: VERBOSE' in YAML if you
       // need the breakdown. Default DEBUG/INFO levels stay silent.
       ESP_LOGV(TAG, "perf: CPU %u%% (render %llu us, flush %llu us / wall %llu us)",

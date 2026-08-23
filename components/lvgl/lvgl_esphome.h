@@ -321,6 +321,7 @@ class LvglComponent : public PollingComponent {
   // Sliding 1s perf window: time spent inside lv_timer_handler() vs wall,
   // minus the synchronous flush wait (DMA blocking, not CPU work).
   uint64_t perf_window_start_us_{0};
+  uint32_t perf_frames_{0};  // frames rendered in the current 1 s window
   uint64_t perf_busy_us_{0};
   uint64_t perf_flush_us_{0};
 };
