@@ -1253,7 +1253,13 @@ void LvglComponent::setup() {
   if (this->draw_start_callback_ != nullptr) {
     lv_display_add_event_cb(this->disp_, render_start_cb, LV_EVENT_RENDER_START, this);
   }
+  // Also needed with perf_monitor: draw_end_() counts rendered frames for the
+  // FPS figure, so without this the counter never runs and FPS reads 0.
+#ifdef LV_USE_PERF_MONITOR
+  if (true) {
+#else
   if (this->draw_end_callback_ != nullptr || this->update_when_display_idle_) {
+#endif
     lv_display_add_event_cb(this->disp_, render_end_cb, LV_EVENT_REFR_READY, this);
   }
 #if LV_USE_LOG
