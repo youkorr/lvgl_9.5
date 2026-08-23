@@ -10,6 +10,7 @@
 
 #include "lv_draw_ppa_private.h"
 #include "lv_draw_ppa.h"
+#include "esp_timer.h"  /* esp_timer_get_time(): the timing breakdown below */
 
 /*********************
  *      DEFINES
