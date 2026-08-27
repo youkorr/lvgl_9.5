@@ -94,6 +94,7 @@ CODEOWNERS = ["@youkorr"]  # LVGL 9.5.0 implementation with ThorVG enabled by de
 HELLO_WORLD_FILE = "hello_world.yaml"
 CONF_USE_PPA = "use_ppa"
 CONF_USE_PPA_IMG = "use_ppa_img"
+CONF_PPA_ALPHA_MIN_AREA = "ppa_alpha_min_area"
 CONF_ROTATION_BUFFERS_INTERNAL = "rotation_buffers_internal"
 CONF_USE_FPS_BENCHMARK = "fps_benchmark"
 CONF_USE_PERF_MONITOR = "perf_monitor"
@@ -300,6 +301,14 @@ async def to_code(configs):
     use_ppa_img = config_0.get(CONF_USE_PPA_IMG, False)
     use_fps_benchmark = config_0.get(CONF_USE_FPS_BENCHMARK, False)
     use_perf_monitor = config_0.get(CONF_USE_PERF_MONITOR, False)
+    # Minimum blended area (in pixels) before the PPA alpha-compositing path is
+    # used. Each PPA op costs ~250-280 us that is independent of the pixel count
+    # (config, cache maintenance and a blocking wait on the transaction), so
+    # small blocks are faster in software. Measured on two boards -- M5Stack
+    # Tab5 (chip rev 1.0, 720x1280) and Waveshare 7B (rev 1.3, 1024x600) -- the
+    # PPA only wins from 256x256 up, on both, so the default is that size (65536)
+    # rather than an interpolated value. 0 disables the check.
+    ppa_alpha_min_area = config_0.get(CONF_PPA_ALPHA_MIN_AREA, 65536)
     # use_ppa_img implies use_ppa (SRM client needs PPA init)
     if use_ppa_img:
         use_ppa = True
@@ -321,6 +330,7 @@ async def to_code(configs):
         # We keep our custom PPA files as a fallback option.
         # PPA evaluate checks buffer alignment at runtime before claiming tasks.
         cg.add_define("USE_LVGL_PPA")
+        cg.add_define("LV_PPA_ALPHA_MIN_AREA", ppa_alpha_min_area)
         # PPA .tcc units + their .h now live at the component top level (they are
         # #included by lv_draw_ppa_wrapper.cpp, same directory), so no extra
         # include path is needed. A ppa/ subdir would not be copied into the
@@ -777,6 +787,7 @@ LVGL_SCHEMA = cv.All(
                 cv.Optional(df.CONF_RESUME_ON_INPUT, default=True): cv.boolean,
                 cv.Optional(CONF_USE_PPA, default=False): cv.boolean,
                 cv.Optional(CONF_USE_PPA_IMG, default=False): cv.boolean,
+                cv.Optional(CONF_PPA_ALPHA_MIN_AREA, default=65536): cv.positive_int,
                 cv.Optional(CONF_USE_FPS_BENCHMARK, default=False): cv.boolean,
                 cv.Optional(CONF_USE_PERF_MONITOR, default=False): cv.boolean,
             }
