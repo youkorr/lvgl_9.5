@@ -37,17 +37,6 @@
 #include "esphome/components/key_provider/key_provider.h"
 #endif  // USE_LVGL_BUTTONMATRIX
 
-#ifdef USE_LVGL_PPA
-// Minimum blended area before the PPA alpha-compositing path is used; 0 = always.
-// Declared here, at global scope, so a YAML lambda can flip it: a linkage
-// specification cannot appear inside a function, so the lambda has no way to
-// declare it itself.
-extern "C" {
-extern volatile uint32_t lv_ppa_alpha_min_area;
-extern volatile uint32_t lv_ppa_srm_min_area;
-}
-#endif  // USE_LVGL_PPA
-
 namespace esphome::lvgl {
 
 #if LV_COLOR_DEPTH == 16
@@ -326,13 +315,11 @@ class LvglComponent : public PollingComponent {
   static void flush_task_entry_(void *arg);
   static void flush_wait_cb_(lv_display_t *disp);
   bool buffers_configured_{false};  // Track if lv_display_set_buffers() has been called
-  uint8_t ppa_img_reported_mode_{0};  // Bitmask of PPA image branches already reported from loop()
   size_t buf_bytes_{0};              // Store buffer size for delayed configuration
   bool loop_started_{false};  // safe to perform LVGL ops only after loop() starts
   // Sliding 1s perf window: time spent inside lv_timer_handler() vs wall,
   // minus the synchronous flush wait (DMA blocking, not CPU work).
   uint64_t perf_window_start_us_{0};
-  uint32_t perf_frames_{0};  // frames rendered in the current 1 s window
   uint64_t perf_busy_us_{0};
   uint64_t perf_flush_us_{0};
 };
