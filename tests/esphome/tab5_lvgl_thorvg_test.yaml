@@ -1,0 +1,56 @@
+# =============================================================================
+# CI compile test that ENABLES ThorVG (via an svg: widget) on ESP32-P4.
+# Verifies that the lv_freertos.c fix did not break ThorVG compilation.
+# =============================================================================
+
+esphome:
+  name: lvgl-p4-thorvg
+
+esp32:
+  board: esp32-p4-evboard
+  variant: esp32p4
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    advanced:
+      enable_idf_experimental_features: true
+
+psram:
+  mode: hex
+  speed: 200MHz
+
+logger:
+
+esp_ldo:
+  - voltage: 2.5V
+    channel: 3
+
+display:
+  - platform: mipi_dsi
+    id: tab5_display
+    model: JC1060P470
+    enable_pin: GPIO22
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+    components: [lvgl, image, font]
+
+lvgl:
+  displays:
+    - tab5_display
+  pages:
+    - id: main_page
+      widgets:
+        # lv_image (pulled in by svg) requires LV_USE_LABEL, which the fork
+        # disables unless a label widget is present — so include one.
+        - label:
+            text: "ThorVG test"
+            align: TOP_MID
+        # An svg widget pulls in ThorVG (LV_USE_VECTOR_GRAPHIC / THORVG_INTERNAL).
+        - svg:
+            file: "../../svg/dashboard_preview.svg"
+            width: 480
+            height: 280
+            align: CENTER
