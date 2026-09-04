@@ -20,6 +20,24 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
                                  const lv_image_decoder_dsc_t * decoder_dsc, lv_draw_image_sup_t * sup,
                                  const lv_area_t * img_coords, const lv_area_t * clipped_img_area);
 
+/* Which branch the last PPA image blend took. Written from the draw thread
+ * (plain stores, no logging there) and reported by LvglComponent::loop() on
+ * the main task. 0 means the PPA has not drawn an image yet. */
+volatile uint8_t lv_ppa_img_last_mode    = LV_PPA_IMG_MODE_NONE;
+volatile uint8_t lv_ppa_img_seen_modes   = 0;  /* bit per LV_PPA_IMG_MODE_* seen */
+/* Runtime copy of LV_PPA_ALPHA_MIN_AREA so a test can flip the compositing
+ * path on and off without rebuilding. */
+#ifndef LV_PPA_ALPHA_MIN_AREA
+#define LV_PPA_ALPHA_MIN_AREA 0
+#endif
+volatile uint32_t lv_ppa_alpha_min_area  = LV_PPA_ALPHA_MIN_AREA;
+/* Same idea for the SRM (scale/rotate) paths, so a measurement can compare
+ * them against the software transform without a rebuild. 0 = always use it. */
+volatile uint32_t lv_ppa_srm_min_area    = 0;
+volatile uint8_t lv_ppa_img_last_src_cf  = 0;
+volatile uint8_t lv_ppa_img_last_dest_cf = 0;
+volatile uint8_t lv_ppa_img_last_opa     = 0;
+
 
 void lv_draw_ppa_img(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
                      const lv_area_t * coords)
@@ -192,6 +210,27 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
         return;
     }
 
+    /* Diagnostic latch, read and reported by LvglComponent::loop().
+     * Plain stores ONLY: this runs on the draw thread, and logging from here
+     * goes through the LVGL log callback into the ESPHome logger, which is not
+     * safe off the main loop (it faulted on the first render). */
+    /* Accumulate every mode seen, do not just keep the last one: a screen can
+     * draw several images per frame (different opacities side by side) and
+     * loop() only reads this afterwards, so an overwriting latch would report
+     * whichever image happened to be drawn last. */
+    lv_ppa_img_seen_modes  |= (uint8_t)(1u << (needs_compositing
+                                               ? (src_has_alpha ? (opa_is_partial ? LV_PPA_IMG_MODE_ALPHA_SCALE
+                                                                                  : LV_PPA_IMG_MODE_ALPHA_NO_CHANGE)
+                                                                : LV_PPA_IMG_MODE_ALPHA_FIX)
+                                               : LV_PPA_IMG_MODE_BLIT));
+    lv_ppa_img_last_mode    = needs_compositing
+                              ? (src_has_alpha ? (opa_is_partial ? LV_PPA_IMG_MODE_ALPHA_SCALE
+                                                                 : LV_PPA_IMG_MODE_ALPHA_NO_CHANGE)
+                                               : LV_PPA_IMG_MODE_ALPHA_FIX)
+                              : LV_PPA_IMG_MODE_BLIT;
+    lv_ppa_img_last_src_cf  = (uint8_t)src_cf;
+    lv_ppa_img_last_dest_cf = (uint8_t)dest_cf;
+    lv_ppa_img_last_opa     = (uint8_t)opa;
 }
 
 #ifdef LV_USE_PPA_IMG
