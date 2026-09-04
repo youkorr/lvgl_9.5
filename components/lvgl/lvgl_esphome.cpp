@@ -940,6 +940,7 @@ void LvKeyboardType::set_obj(lv_obj_t *lv_obj) {
 #endif  // USE_LVGL_KEYBOARD
 
 void LvglComponent::draw_end_() {
+  this->perf_frames_++;  // one rendered frame (LV_EVENT_REFR_READY)
   if (this->draw_end_callback_ != nullptr)
     this->draw_end_callback_->trigger();
   if (this->update_when_display_idle_) {
@@ -1253,6 +1254,11 @@ void LvglComponent::setup() {
     lv_display_add_event_cb(this->disp_, render_start_cb, LV_EVENT_RENDER_START, this);
   }
   bool want_refr_ready = this->draw_end_callback_ != nullptr || this->update_when_display_idle_;
+#ifdef LV_USE_PERF_MONITOR
+  // draw_end_() also counts rendered frames for the logged FPS figure, so the
+  // handler has to run even when nothing else asked for it.
+  want_refr_ready = true;
+#endif
   if (want_refr_ready) {
     lv_display_add_event_cb(this->disp_, render_end_cb, LV_EVENT_REFR_READY, this);
   }
@@ -1322,6 +1328,28 @@ void LvglComponent::loop() {
   }
 
 #ifdef USE_LVGL_PPA
+  // Report which branch the PPA image blend took, from the main task. The draw
+  // thread only latches the value: calling the logger from there routes through
+  // the LVGL log callback into the ESPHome logger and faults the first render.
+  // Logged on change, so an opacity sweep shows each branch exactly once.
+  {
+    // A frame can draw several images through different branches (e.g. the same
+    // picture at a few opacities), so report every mode newly seen rather than
+    // whichever one happened to be drawn last.
+    uint8_t fresh = static_cast<uint8_t>(lv_ppa_img_seen_modes & ~this->ppa_img_reported_mode_);
+    if (fresh != 0) {
+      this->ppa_img_reported_mode_ |= fresh;
+      static const char *const MODE_NAMES[] = {
+          "none", "blit (opaque)", "alpha NO_CHANGE", "alpha SCALE", "alpha FIX_VALUE",
+      };
+      for (uint8_t m = 1; m < sizeof(MODE_NAMES) / sizeof(MODE_NAMES[0]); m++) {
+        if (fresh & (1u << m))
+          ESP_LOGI(TAG, "PPA image path: %s (src_cf=%u dest_cf=%u)", MODE_NAMES[m],
+                   (unsigned) lv_ppa_img_last_src_cf, (unsigned) lv_ppa_img_last_dest_cf);
+      }
+    }
+  }
+
   // Complete any async (pipelined) flushes the flush task finished. We call
   // lv_display_flush_ready here, on the main thread, so it never races with
   // lv_timer_handler — the flush task only does the rotate+push and signals.
@@ -1354,6 +1382,35 @@ void LvglComponent::loop() {
       uint32_t cpu_pct = (uint32_t)((cpu_us * 100ULL) / elapsed_us);
       if (cpu_pct > 100) cpu_pct = 100;
       s_cpu_pct = cpu_pct;  // publish to __wrap_lv_timer_get_idle / sysmon overlay
+#ifdef LV_USE_PERF_MONITOR
+      // Same numbers as the on-screen overlay, but in the log so a test
+      // run can be copied out instead of read off the panel. Only built
+      // when perf_monitor: is enabled, so normal builds stay quiet.
+      ESP_LOGI(TAG, "perf: page %u  FPS %u  CPU %u%%  alpha=%s srm=%s", (unsigned) this->current_page_,
+               (unsigned) ((this->perf_frames_ * 1000000ULL) / elapsed_us), (unsigned) cpu_pct,
+               lv_ppa_alpha_min_area == 0 ? "PPA" : "SW",
+               lv_ppa_srm_min_area == 0 ? "PPA" : "SW");
+      // Free heap alongside it: transformed images make LVGL allocate
+      // intermediate layers, and a failed allocation is a likely way for a
+      // heavy scale/rotate screen to fall over.
+      // LVGL allocates through lv_malloc_core(), which lands in these heaps,
+      // so the ESP figures cover the layer allocations too.
+      ESP_LOGI(TAG, "  heap: int %u KB  psram %u KB",
+               (unsigned) (heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+               (unsigned) (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+      // Where that CPU went inside the PPA path: cache maintenance over the
+      // draw buffer versus the blocking wait in the PPA calls themselves.
+      if (lv_ppa_op_count > 0) {
+        ESP_LOGI(TAG, "  ppa: %u ops  cache %u ms  op %u ms  (%u us/op)",
+                 (unsigned) lv_ppa_op_count, (unsigned) (lv_ppa_us_cache / 1000),
+                 (unsigned) (lv_ppa_us_op / 1000),
+                 (unsigned) (lv_ppa_us_op / lv_ppa_op_count));
+      }
+      lv_ppa_us_cache = 0;
+      lv_ppa_us_op = 0;
+      lv_ppa_op_count = 0;
+#endif
+      this->perf_frames_ = 0;
       // Verbose-only log: enable via 'logs: lvgl: VERBOSE' in YAML if you
       // need the breakdown. Default DEBUG/INFO levels stay silent.
       ESP_LOGV(TAG, "perf: CPU %u%% (render %llu us, flush %llu us / wall %llu us)",
