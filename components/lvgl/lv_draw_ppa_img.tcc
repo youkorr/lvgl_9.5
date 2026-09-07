@@ -78,6 +78,17 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
 
     /* Use field-by-field assignment for C++ compatibility
      * (C++ designated initializers must be in declaration order) */
+    /* Row pitch, not visible width: see lv_ppa_pic_w(). LVGL's image converter
+     * pads strides, and describing a padded picture by its width shears it. A
+     * stride that is not a whole number of pixels cannot be described at all,
+     * so that draw goes to software rather than being rendered wrong. */
+    const int32_t src_pic_w  = lv_ppa_pic_w(decoded->header.stride, draw_dsc->header.w, src_cf);
+    const int32_t dest_pic_w = lv_ppa_pic_w(draw_buf->header.stride, draw_buf->header.w, dest_cf);
+    if(src_pic_w == 0 || dest_pic_w == 0) {
+        LV_LOG_WARN("PPA draw_img: stride is not a whole number of pixels");
+        return;
+    }
+
     ppa_blend_oper_config_t cfg;
     lv_memzero(&cfg, sizeof(cfg));
 
@@ -87,7 +98,7 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
          * assignment, which is why an ARGB8888 source used to lose its
          * transparency: its alpha was overwritten with 0xFF.) */
         cfg.in_bg.buffer         = (void *)dest_buf;
-        cfg.in_bg.pic_w          = draw_buf->header.w;
+        cfg.in_bg.pic_w          = (uint32_t)dest_pic_w;
         cfg.in_bg.pic_h          = draw_buf->header.h;
         cfg.in_bg.block_w        = block_w;
         cfg.in_bg.block_h        = block_h;
@@ -106,7 +117,7 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
         cfg.bg_ck_en             = false;
 
         cfg.in_fg.buffer         = (void *)src_buf;
-        cfg.in_fg.pic_w          = draw_dsc->header.w;
+        cfg.in_fg.pic_w          = (uint32_t)src_pic_w;
         cfg.in_fg.pic_h          = draw_dsc->header.h;
         cfg.in_fg.block_w        = block_w;
         cfg.in_fg.block_h        = block_h;
@@ -140,7 +151,7 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
         /* Opaque blit: the source is the background and the foreground is a
          * fully transparent dummy, so the output is just the converted source. */
         cfg.in_bg.buffer         = (void *)src_buf;
-        cfg.in_bg.pic_w          = draw_dsc->header.w;
+        cfg.in_bg.pic_w          = (uint32_t)src_pic_w;
         cfg.in_bg.pic_h          = draw_dsc->header.h;
         cfg.in_bg.block_w        = block_w;
         cfg.in_bg.block_h        = block_h;
@@ -158,7 +169,7 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
          * the destination buffer: the PPA still fetches it even though
          * fg_alpha_fix_val = 0 makes it contribute nothing. */
         cfg.in_fg.buffer         = (void *)dest_buf;
-        cfg.in_fg.pic_w          = draw_buf->header.w;
+        cfg.in_fg.pic_w          = (uint32_t)dest_pic_w;
         cfg.in_fg.pic_h          = draw_buf->header.h;
         cfg.in_fg.block_w        = block_w;
         cfg.in_fg.block_h        = block_h;
@@ -177,7 +188,7 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
     cfg.out.buffer           = dest_buf;
     /* PPA hardware rejects unaligned out.buffer_size (issue #9868). */
     cfg.out.buffer_size      = lv_draw_ppa_align_size(draw_buf->data_size);
-    cfg.out.pic_w            = draw_buf->header.w;
+    cfg.out.pic_w            = (uint32_t)dest_pic_w;
     cfg.out.pic_h            = draw_buf->header.h;
     cfg.out.block_offset_x   = (uint32_t)dest_area.x1;
     cfg.out.block_offset_y   = (uint32_t)dest_area.y1;
@@ -242,6 +253,16 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     uint32_t src_w = decoded->header.w;
     uint32_t src_h = decoded->header.h;
 
+    /* Block offsets stay in image pixels; pic_w is the row pitch. See
+     * lv_ppa_pic_w(): a padded source described by its width shears. */
+    const int32_t src_pitch  = lv_ppa_pic_w(decoded->header.stride, (int32_t)src_w, src_cf);
+    const int32_t dest_pitch = lv_ppa_pic_w(dest_buf->header.stride, dest_buf->header.w, dest_cf);
+    if(src_pitch == 0 || dest_pitch == 0) {
+        LV_LOG_WARN("PPA SRM: stride is not a whole number of pixels");
+        lv_image_decoder_close(&decoder_dsc);
+        return;
+    }
+
     /* Virtual image origin = top-left of the scaled image on screen. This is
      * exactly t->_real_area's top-left: for pure scale the box's min corner is
      * source (0,0) mapped through pivot*(1-scale), i.e. coords.x1 +
@@ -303,7 +324,7 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     lv_memzero(&cfg, sizeof(cfg));
 
     cfg.in.buffer         = (void *)decoded->data;
-    cfg.in.pic_w          = src_w;
+    cfg.in.pic_w          = (uint32_t)src_pitch;
     cfg.in.pic_h          = src_h;
     cfg.in.block_w        = src_bw;
     cfg.in.block_h        = src_bh;
@@ -313,7 +334,7 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
 
     cfg.out.buffer         = dest_buf->data;
     cfg.out.buffer_size    = aligned_size;
-    cfg.out.pic_w          = dest_buf->header.w;
+    cfg.out.pic_w          = (uint32_t)dest_pitch;
     cfg.out.pic_h          = dest_buf->header.h;
     cfg.out.block_offset_x = (uint32_t)dest_area.x1;
     cfg.out.block_offset_y = (uint32_t)dest_area.y1;
@@ -439,6 +460,16 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     uint32_t src_w = decoded->header.w;
     uint32_t src_h = decoded->header.h;
 
+    /* Block offsets stay in image pixels; pic_w is the row pitch. See
+     * lv_ppa_pic_w(): a padded source described by its width shears. */
+    const int32_t src_pitch  = lv_ppa_pic_w(decoded->header.stride, (int32_t)src_w, src_cf);
+    const int32_t dest_pitch = lv_ppa_pic_w(dest_buf->header.stride, dest_buf->header.w, dest_cf);
+    if(src_pitch == 0 || dest_pitch == 0) {
+        LV_LOG_WARN("PPA SRM: stride is not a whole number of pixels");
+        lv_image_decoder_close(&decoder_dsc);
+        return;
+    }
+
     /* Tile/clip-aware geometry: map the visible render tile back onto a PPA
      * source SUB-block and clamp the destination to the layer buffer. The old
      * code rotated the FULL image and placed it at the on-screen offset, so the
@@ -529,7 +560,7 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
 
     /* Input: the source sub-block that maps onto the visible tile. */
     cfg.in.buffer         = (void *)decoded->data;
-    cfg.in.pic_w          = src_w;
+    cfg.in.pic_w          = (uint32_t)src_pitch;
     cfg.in.pic_h          = src_h;
     cfg.in.block_w        = (uint32_t)sw;
     cfg.in.block_h        = (uint32_t)sh;
@@ -545,7 +576,7 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     /* Draw buffers are cache-aligned (lv_draw_buf_ppa_init_handlers). */
     cfg.out.buffer         = dest_buf->data;
     cfg.out.buffer_size    = aligned_size_r;
-    cfg.out.pic_w          = dest_buf->header.w;
+    cfg.out.pic_w          = (uint32_t)dest_pitch;
     cfg.out.pic_h          = dest_buf->header.h;
     cfg.out.block_offset_x = (uint32_t)dest_area.x1;
     cfg.out.block_offset_y = (uint32_t)dest_area.y1;
