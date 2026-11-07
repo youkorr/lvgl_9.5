@@ -303,7 +303,9 @@ std::string lv_event_code_name_for(lv_event_t *event) {
   if (event_code < sizeof(EVENT_NAMES) / sizeof(EVENT_NAMES[0])) {
     return EVENT_NAMES[event_code];
   }
-  return str_sprintf("%2d", event_code);
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%2d", (int) event_code);
+  return buf;
 }
 
 static void rounder_cb(lv_event_t *event) {
