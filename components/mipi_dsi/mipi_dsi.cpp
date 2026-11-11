@@ -2,9 +2,23 @@
 #include <utility>
 #include "mipi_dsi.h"
 #include "mipi_dsi_fast_present.h"
+#include "mipi_dsi_direct.h"
 #include "esphome/core/helpers.h"
+#include "esp_cache.h"
+#include "esp_heap_caps.h"
 
 namespace esphome::mipi_dsi {
+
+// Internal static storage: the ISR does not dereference an ESPHome component
+// that might have been allocated in PSRAM. Only the published panel counts.
+static ScanoutBuffers direct_buffers;
+static std::atomic<esp_lcd_panel_handle_t> direct_handle{nullptr};
+static bool IRAM_ATTR notify_frame_complete(esp_lcd_panel_handle_t panel,
+                                           esp_lcd_dpi_panel_event_data_t *, void *) {
+  if (panel == direct_handle.load(std::memory_order_acquire))
+    direct_buffers.frame_complete();
+  return false;
+}
 
 // g_fast_present is an inline variable defined in mipi_dsi_fast_present.h; we
 // only populate it in setup() once the DPI framebuffers are known.
@@ -201,12 +215,24 @@ void MipiDsi::setup() {
   this->io_lock_ = xSemaphoreCreateBinary();
   esp_lcd_dpi_panel_event_callbacks_t cbs = {
       .on_color_trans_done = notify_refresh_ready,
+      .on_frame_buf_complete = notify_frame_complete,
   };
 
   err = (esp_lcd_dpi_panel_register_event_callbacks(this->handle_, &cbs, this->io_lock_));
   if (err != ESP_OK) {
     this->smark_failed(LOG_STR("Failed to register callbacks"), err);
     return;
+  }
+
+  if (this->num_fbs_ == 3) {
+    direct_buffers.init(this->framebuffers_);
+    direct_handle.store(this->handle_, std::memory_order_release);
+    g_direct_panel = {this, this, static_cast<int>(this->width_), static_cast<int>(this->height_),
+                      3 - static_cast<int>(this->color_depth_), this->width_ * this->height_ *
+                      (3 - static_cast<int>(this->color_depth_)),
+                      [](void *p, uint32_t timeout) { return static_cast<MipiDsi *>(p)->acquire_direct_buffer(timeout); },
+                      [](void *p, uint8_t *fb) { return static_cast<MipiDsi *>(p)->present_direct_buffer(fb); },
+                      [](void *p, uint8_t *fb) { static_cast<MipiDsi *>(p)->cancel_direct_buffer(fb); }};
   }
 
   ESP_LOGCONFIG(TAG, "MIPI DSI setup complete");
@@ -239,15 +265,26 @@ void MipiDsi::update() {
   this->y_high_ = 0;
 }
 
+#if ESPHOME_VERSION_CODE >= VERSION_CODE(2026, 11, 0)
+void MipiDsi::draw_pixels_internal(int x_start, int y_start, int w, int h, const uint8_t *ptr,
+                                  display::ColorBitness bitness, bool big_endian, int x_offset, int y_offset,
+                                  int x_pad) {
+#else
 void MipiDsi::draw_pixels_at(int x_start, int y_start, int w, int h, const uint8_t *ptr, display::ColorOrder order,
                              display::ColorBitness bitness, bool big_endian, int x_offset, int y_offset, int x_pad) {
+#endif
   if (w <= 0 || h <= 0)
     return;
   // if color mapping is required, pass the buck.
   // note that endianness is not considered here - it is assumed to match!
   if (bitness != this->color_depth_) {
+#if ESPHOME_VERSION_CODE >= VERSION_CODE(2026, 11, 0)
+    display::Display::draw_pixels_internal(x_start, y_start, w, h, ptr, bitness, big_endian, x_offset, y_offset,
+                                          x_pad);
+#else
     display::Display::draw_pixels_at(x_start, y_start, w, h, ptr, order, bitness, big_endian, x_offset, y_offset,
                                      x_pad);
+#endif
     return;
   }
   this->write_to_display_(x_start, y_start, w, h, ptr, x_offset, y_offset, x_pad);
@@ -259,10 +296,14 @@ void MipiDsi::write_to_display_(int x_start, int y_start, int w, int h, const ui
   auto bytes_per_pixel = 3 - this->color_depth_;
   auto stride = (x_offset + w + x_pad) * bytes_per_pixel;
   ptr += y_offset * stride + x_offset * bytes_per_pixel;  // skip to the first pixel
+  // A direct swap's color-trans-done is synchronous. Do not let its leftover
+  // token make a following DMA rectangle appear complete before it is.
+  xSemaphoreTake(this->io_lock_, 0);
   // x_ and y_offset are offsets into the source buffer, unrelated to our own offsets into the display.
   if (x_offset == 0 && x_pad == 0) {
     err = esp_lcd_panel_draw_bitmap(this->handle_, x_start, y_start, x_start + w, y_start + h, ptr);
-    xSemaphoreTake(this->io_lock_, portMAX_DELAY);
+    if (err == ESP_OK)
+      xSemaphoreTake(this->io_lock_, portMAX_DELAY);
 
   } else {
     // draw line by line
@@ -299,6 +340,46 @@ void MipiDsi::present_framebuffer(void *fb) {
   }
   this->present_pending_ = true;
 }
+
+uint8_t *MipiDsi::acquire_direct_buffer(uint32_t timeout_ms) {
+  const uint32_t start = millis();
+  do {
+    if (void *fb = direct_buffers.acquire()) {
+      const size_t size = this->width_ * this->height_ * (3 - this->color_depth_);
+#ifdef CONFIG_CACHE_L2_CACHE_LINE_SIZE
+      constexpr size_t alignment = CONFIG_CACHE_L2_CACHE_LINE_SIZE;
+#else
+      constexpr size_t alignment = 128;
+#endif
+      if (reinterpret_cast<uintptr_t>(fb) % alignment || size % alignment) {
+        direct_buffers.cancel(fb);
+        return nullptr;
+      }
+      // The CPU may have cached a prior DMA picture or written a rectangle
+      // here. Leave no dirty/stale line to overwrite the JPEG engine's DMA.
+      if (esp_cache_msync(fb, size, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_INVALIDATE |
+                                   ESP_CACHE_MSYNC_FLAG_UNALIGNED) != ESP_OK) {
+        direct_buffers.cancel(fb);
+        return nullptr;
+      }
+      return static_cast<uint8_t *>(fb);
+    }
+    vTaskDelay(1);
+  } while (millis() - start < timeout_ms);
+  return nullptr;
+}
+
+bool MipiDsi::present_direct_buffer(uint8_t *buffer) {
+  if (!direct_buffers.leased(buffer))
+    return false;
+  xSemaphoreTake(this->io_lock_, 0);
+  const auto err = esp_lcd_panel_draw_bitmap(this->handle_, 0, 0, this->width_, this->height_, buffer);
+  // A real panel buffer is not copied; this token says nothing about scan-out.
+  xSemaphoreTake(this->io_lock_, 0);
+  return err == ESP_OK && direct_buffers.presented(buffer);
+}
+
+void MipiDsi::cancel_direct_buffer(uint8_t *buffer) { direct_buffers.cancel(buffer); }
 
 bool MipiDsi::check_buffer_() {
   if (this->is_failed())
