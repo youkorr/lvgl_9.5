@@ -12,10 +12,10 @@ namespace esphome::mipi_dsi {
 // Internal static storage: the ISR does not dereference an ESPHome component
 // that might have been allocated in PSRAM. Only the published panel counts.
 static ScanoutBuffers direct_buffers;
-static esp_lcd_panel_handle_t direct_handle;
+static std::atomic<esp_lcd_panel_handle_t> direct_handle{nullptr};
 static bool IRAM_ATTR notify_frame_complete(esp_lcd_panel_handle_t panel,
                                            esp_lcd_dpi_panel_event_data_t *, void *) {
-  if (panel == direct_handle)
+  if (panel == direct_handle.load(std::memory_order_acquire))
     direct_buffers.frame_complete();
   return false;
 }
@@ -226,7 +226,7 @@ void MipiDsi::setup() {
 
   if (this->num_fbs_ == 3) {
     direct_buffers.init(this->framebuffers_);
-    direct_handle = this->handle_;
+    direct_handle.store(this->handle_, std::memory_order_release);
     g_direct_panel = {this, this, static_cast<int>(this->width_), static_cast<int>(this->height_),
                       3 - static_cast<int>(this->color_depth_), this->width_ * this->height_ *
                       (3 - static_cast<int>(this->color_depth_)),
