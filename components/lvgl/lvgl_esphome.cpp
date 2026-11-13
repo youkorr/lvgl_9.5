@@ -2,6 +2,7 @@
 #include "esphome/core/hal.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
+#include "esphome/core/version.h"
 #include "lvgl_esphome.h"
 
 #include <utility>  // std::swap
@@ -298,12 +299,28 @@ static const unsigned LOG_LEVEL_MAP[] = {
 
 };
 
+// A block of LVGL's pixels to a display. ESPHome 2026.11 gave draw_pixels_at()
+// a form without a colour order and moved the drivers' block copy behind it;
+// the old form still compiles but ends in Display's per-pixel fallback, which
+// on ESPHome's mipi_dsi only fills a buffer of its own that is sent on
+// update() -- never, under LVGL: a black screen.
+static void draw_lvgl_block(display::Display *display, int x, int y, int w, int h, const uint8_t *px,
+                            bool big_endian) {
+#if ESPHOME_VERSION_CODE >= VERSION_CODE(2026, 11, 0)
+  display->draw_pixels_at(x, y, w, h, px, LV_BITNESS, big_endian);
+#else
+  display->draw_pixels_at(x, y, w, h, px, display::COLOR_ORDER_RGB, LV_BITNESS, big_endian);
+#endif
+}
+
 std::string lv_event_code_name_for(lv_event_t *event) {
   auto event_code = lv_event_get_code(event);
   if (event_code < sizeof(EVENT_NAMES) / sizeof(EVENT_NAMES[0])) {
     return EVENT_NAMES[event_code];
   }
-  return str_sprintf("%2d", event_code);
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%2d", (int) event_code);
+  return buf;
 }
 
 static void rounder_cb(lv_event_t *event) {
@@ -541,8 +558,7 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
           break;
       }
       for (auto *display : this->displays_) {
-        display->draw_pixels_at(x1, y1, width, height, (const uint8_t *) dst, display::COLOR_ORDER_RGB, LV_BITNESS,
-                                this->big_endian_);
+        draw_lvgl_block(display, x1, y1, width, height, (const uint8_t *) dst, this->big_endian_);
       }
       return;
     }
@@ -662,8 +678,7 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
       break;
   }
   for (auto *display : this->displays_) {
-    display->draw_pixels_at(x1, y1, width, height, (const uint8_t *) dst, display::COLOR_ORDER_RGB, LV_BITNESS,
-                            this->big_endian_);
+    draw_lvgl_block(display, x1, y1, width, height, (const uint8_t *) dst, this->big_endian_);
   }
 }
 
