@@ -1269,7 +1269,9 @@ void LvglComponent::setup() {
     lv_display_add_event_cb(this->disp_, render_start_cb, LV_EVENT_RENDER_START, this);
   }
   bool want_refr_ready = this->draw_end_callback_ != nullptr || this->update_when_display_idle_;
-#ifdef LV_USE_PERF_MONITOR
+// #if, not #ifdef: lv_conf_internal.h always defines LV_USE_PERF_MONITOR,
+// to 0 when perf_monitor: is off.
+#if LV_USE_PERF_MONITOR
   // draw_end_() also counts rendered frames for the logged FPS figure, so the
   // handler has to run even when nothing else asked for it.
   want_refr_ready = true;
@@ -1397,14 +1399,22 @@ void LvglComponent::loop() {
       uint32_t cpu_pct = (uint32_t)((cpu_us * 100ULL) / elapsed_us);
       if (cpu_pct > 100) cpu_pct = 100;
       s_cpu_pct = cpu_pct;  // publish to __wrap_lv_timer_get_idle / sysmon overlay
-#ifdef LV_USE_PERF_MONITOR
+// #if, not #ifdef: lv_conf_internal.h always defines LV_USE_PERF_MONITOR,
+// to 0 when perf_monitor: is off, and the PPA counters below exist only with
+// use_ppa:.
+#if LV_USE_PERF_MONITOR
       // Same numbers as the on-screen overlay, but in the log so a test
       // run can be copied out instead of read off the panel. Only built
       // when perf_monitor: is enabled, so normal builds stay quiet.
+#ifdef USE_LVGL_PPA
       ESP_LOGI(TAG, "perf: page %u  FPS %u  CPU %u%%  alpha=%s srm=%s", (unsigned) this->current_page_,
                (unsigned) ((this->perf_frames_ * 1000000ULL) / elapsed_us), (unsigned) cpu_pct,
                lv_ppa_alpha_min_area == 0 ? "PPA" : "SW",
                lv_ppa_srm_min_area == 0 ? "PPA" : "SW");
+#else
+      ESP_LOGI(TAG, "perf: page %u  FPS %u  CPU %u%%", (unsigned) this->current_page_,
+               (unsigned) ((this->perf_frames_ * 1000000ULL) / elapsed_us), (unsigned) cpu_pct);
+#endif
       // Free heap alongside it: transformed images make LVGL allocate
       // intermediate layers, and a failed allocation is a likely way for a
       // heavy scale/rotate screen to fall over.
@@ -1413,6 +1423,7 @@ void LvglComponent::loop() {
       ESP_LOGI(TAG, "  heap: int %u KB  psram %u KB",
                (unsigned) (heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
                (unsigned) (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+#ifdef USE_LVGL_PPA
       // Where that CPU went inside the PPA path: cache maintenance over the
       // draw buffer versus the blocking wait in the PPA calls themselves.
       if (lv_ppa_op_count > 0) {
@@ -1424,7 +1435,8 @@ void LvglComponent::loop() {
       lv_ppa_us_cache = 0;
       lv_ppa_us_op = 0;
       lv_ppa_op_count = 0;
-#endif
+#endif  // USE_LVGL_PPA
+#endif  // LV_USE_PERF_MONITOR
       this->perf_frames_ = 0;
       // Verbose-only log: enable via 'logs: lvgl: VERBOSE' in YAML if you
       // need the breakdown. Default DEBUG/INFO levels stay silent.
