@@ -183,7 +183,7 @@ def _final_validate(config):
 
     from esphome.components.lvgl import DOMAIN as LVGL_DOMAIN
 
-    if not requires_buffer(config) and LVGL_DOMAIN not in global_config:
+    if not requires_buffer(config) and LVGL_DOMAIN not in global_config and "portall" not in global_config:
         # If no drawing methods are configured, and LVGL is not enabled, show a test card
         config[CONF_SHOW_TEST_CARD] = True
     return config

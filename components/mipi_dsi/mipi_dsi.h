@@ -9,6 +9,7 @@
 #include "esphome/core/application.h"
 #include "esphome/core/log.h"
 #include "esphome/core/gpio.h"
+#include "esphome/core/version.h"
 
 #include "esphome/components/display/display.h"
 #include "esp_lcd_panel_ops.h"
@@ -79,6 +80,9 @@ class MipiDsi final : public display::Display {
   // esp_lcd_panel_draw_bitmap only swaps the scan-out pointer — no memcpy. The
   // wait for the previous transfer is deferred, so the CPU is not blocked here.
   void present_framebuffer(void *fb);
+  uint8_t *acquire_direct_buffer(uint32_t timeout_ms);
+  bool present_direct_buffer(uint8_t *buffer);
+  void cancel_direct_buffer(uint8_t *buffer);
 
   void smark_failed(const LogString *message, esp_err_t err);
 
@@ -86,8 +90,10 @@ class MipiDsi final : public display::Display {
 
   void setup() override;
 
+#if ESPHOME_VERSION_CODE < VERSION_CODE(2026, 11, 0)
   void draw_pixels_at(int x_start, int y_start, int w, int h, const uint8_t *ptr, display::ColorOrder order,
                       display::ColorBitness bitness, bool big_endian, int x_offset, int y_offset, int x_pad) override;
+#endif
 
   void draw_pixel_at(int x, int y, Color color) override;
   void fill(Color color) override;
@@ -97,6 +103,11 @@ class MipiDsi final : public display::Display {
   void dump_config() override;
 
  protected:
+#if ESPHOME_VERSION_CODE >= VERSION_CODE(2026, 11, 0)
+  void draw_pixels_internal(int x_start, int y_start, int w, int h, const uint8_t *ptr,
+                            display::ColorBitness bitness, bool big_endian, int x_offset, int y_offset,
+                            int x_pad) override;
+#endif
   void write_to_display_(int x_start, int y_start, int w, int h, const uint8_t *ptr, int x_offset, int y_offset,
                          int x_pad);
   bool check_buffer_();
