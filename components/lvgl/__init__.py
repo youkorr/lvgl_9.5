@@ -364,6 +364,12 @@ async def to_code(configs):
         cg.add_build_flag("-Wl,--wrap=lv_timer_get_idle")
         cg.add_build_flag("-Wl,--wrap=lv_os_get_idle_percent")
     df.add_define("LV_USE_STDLIB_MALLOC", "LV_STDLIB_CUSTOM")
+    # memcpy, memset, strlen and printf from the C library, as ESPHome's own
+    # lvgl component sets them: left out, LVGL falls back to its built-in
+    # lv_memcpy / lv_memset, and its software renderer spends much of a
+    # redraw in exactly those.
+    df.add_define("LV_USE_STDLIB_STRING", "LV_STDLIB_CLIB")
+    df.add_define("LV_USE_STDLIB_SPRINTF", "LV_STDLIB_CLIB")
 
     # ============================================
     # FEATURES DISABLED BY DEFAULT (enabled conditionally below)
