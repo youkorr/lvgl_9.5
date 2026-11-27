@@ -19,7 +19,7 @@ from esphome.const import (
     CONF_Y,
 )
 from esphome.core import TimePeriod
-from esphome.core.config import StartupTrigger
+from esphome.core import config as core_config
 
 from . import defines as df, lv_validation as lvalid
 from .defines import (
@@ -49,6 +49,11 @@ from .types import (
     lv_style_t,
 )
 from .widgets import WidgetType
+
+# ESPHome 2026.12 switched component automations to callbacks.
+StartupAutomation = getattr(core_config, "StartupCallback", None)
+if StartupAutomation is None:
+    StartupAutomation = core_config.StartupTrigger
 
 # this will be populated later, in __init__.py to avoid circular imports.
 WIDGET_TYPES: dict = {}
@@ -366,7 +371,7 @@ def automation_schema(typ: LvType):
             for event in events
         },
         cv.Optional(CONF_ON_BOOT): validate_automation(
-            {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(StartupTrigger)}
+            {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(StartupAutomation)}
         ),
     }
 

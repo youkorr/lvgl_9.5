@@ -8,6 +8,7 @@ from esphome.const import (
     CONF_X,
     CONF_Y,
 )
+from esphome.core import config as core_config
 
 from .defines import (
     CONF_ALIGN,
@@ -35,9 +36,14 @@ from .widgets import LvScrActType, get_screen_active, widget_map
 
 async def add_on_boot_triggers(triggers):
     for conf in triggers:
-        trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], 390)
-        await cg.register_component(trigger, conf)
-        await automation.build_automation(trigger, [], conf)
+        if hasattr(core_config, "StartupCallback"):
+            await automation.build_component_automation(
+                conf, core_config.StartupCallback, 390
+            )
+        else:
+            trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], 390)
+            await cg.register_component(trigger, conf)
+            await automation.build_automation(trigger, [], conf)
 
 
 async def generate_triggers():
