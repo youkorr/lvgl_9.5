@@ -90,7 +90,8 @@ for module_info in pkgutil.iter_modules(widgets.__path__):
 DOMAIN = "lvgl"
 DEPENDENCIES = ["display"]
 AUTO_LOAD = ["key_provider", "button"]
-CODEOWNERS = ["@youkorr"]  # LVGL 9.5.0 implementation with ThorVG enabled by default
+CODEOWNERS = ["@youkorr"]
+LVGL_VERSION = "9.6.0"
 HELLO_WORLD_FILE = "hello_world.yaml"
 CONF_USE_PPA = "use_ppa"
 CONF_USE_PPA_IMG = "use_ppa_img"
@@ -242,42 +243,24 @@ def final_validation(config_list):
 async def to_code(configs):
     config_0 = configs[0]
     # Global configuration
-    cg.add_library("lvgl/lvgl", "9.5.0")
-    cg.add_define("USE_LVGL")
-
-    # Since ESPHome 2026.6 the lvgl/lvgl library is built as a managed ESP-IDF
-    # component (__idf_lvgl) compiled separately from the app. Its 9.5.0
-    # lv_freertos.c does #include "atomic.h" (LVGL #7589), which only exists on
-    # ESP-IDF as <freertos/atomic.h>. We ship a header-only local IDF component
-    # (atomic_shim/) whose CMakeLists globally injects its dir as -I so the
-    # managed lvgl component can resolve the bare include. Needed because we run
-    # LV_USE_OS=LV_OS_FREERTOS (the lottie/svg async loaders call lv_lock()).
     if CORE.is_esp32:
         from esphome.components import esp32
 
-        # Drop the atomic.h shim in as a plain ESP-IDF component under the
-        # project's auto-scanned components/ dir (add_extra_build_file copies to
-        # <build>/<name>). This avoids the component MANAGER entirely:
-        # add_idf_component(path=...) writes a self-referential override_path
-        # that IDF rejects ("path does not point to a directory") when the
-        # component lives inside the generated src tree. A component in
-        # <build>/components/ is discovered natively; its CMakeLists appends the
-        # dir to the global COMPILE_OPTIONS (-I) so the separately-built managed
-        # __idf_lvgl can resolve lv_freertos.c's bare #include "atomic.h".
-        shim_src = Path(__file__).parent / "atomic_shim"
-        esp32.add_extra_build_file(
-            "components/lvgl_atomic_shim/CMakeLists.txt",
-            shim_src / "CMakeLists.txt",
-        )
-        esp32.add_extra_build_file(
-            "components/lvgl_atomic_shim/atomic.h",
-            shim_src / "atomic.h",
-        )
+        # Match ESPHome's managed IDF component setup for LVGL 9.6.
+        esp32.add_idf_sdkconfig_option("CONFIG_LV_BUILD_EXAMPLES", False)
+        esp32.add_idf_sdkconfig_option("CONFIG_LV_BUILD_DEMOS", False)
+        esp32.add_idf_sdkconfig_option("CONFIG_LV_USE_CUSTOM_MALLOC", True)
+        esp32.add_idf_component(name="lvgl/lvgl", ref=LVGL_VERSION)
+        # 9.6 includes freertos/atomic.h directly on ESP_PLATFORM.
+    else:
+        cg.add_library("lvgl/lvgl", LVGL_VERSION)
+    cg.add_define("USE_LVGL")
 
-    # Add build filter to exclude LVGL platform code not needed for ESP32
-    # This reduces compilation time and binary size significantly
-    build_filter_script = Path(__file__).parent / "lvgl_build_filter.py"
-    cg.add_platformio_option("extra_scripts", [f"pre:{build_filter_script}"])
+    # Native IDF builds use LVGL CMake/Kconfig; PlatformIO middleware cannot
+    # filter separately managed IDF sources. Keep it for other PIO targets.
+    if not CORE.is_esp32:
+        build_filter_script = Path(__file__).parent / "lvgl_build_filter.py"
+        cg.add_platformio_option("extra_scripts", [f"pre:{build_filter_script}"])
 
     # Define ESPHOME_ENTITY_BUTTON_COUNT for ESPHome core compatibility
     # application.h requires this symbol even when no button entities exist.
@@ -288,9 +271,13 @@ async def to_code(configs):
     if not CORE.config.get("button"):
         cg.add_define("ESPHOME_ENTITY_BUTTON_COUNT", 0)
 
-    # suppress default enabling of extra widgets
-    df.add_define("_LV_KCONFIG_PRESENT")
-    # Memory alignment configuration for LVGL 9.5
+    # LVGL 9.6 requires an explicit software draw-unit count. Keep native PPA
+    # off: the fork registers its own PPA unit, and ortho owns its draw path.
+    df.add_define("LV_USE_DRAW_SW", "1")
+    df.add_define("LV_DRAW_SW_DRAW_UNIT_CNT", "1")
+    df.add_define("LV_DRAW_SW_COMPLEX", "1")
+    df.add_define("LV_USE_PPA", "0")
+    # Preserve the fork allocator/alignment contract for the A/B migration.
     df.add_define("LV_DRAW_BUF_STRIDE_ALIGN", "1")  # LVGL default
     # Keep LV_DRAW_BUF_ALIGN at LVGL default (4). Setting higher values
     # causes crashes because LVGL's internal stack/static buffers can't meet
@@ -326,8 +313,7 @@ async def to_code(configs):
         )
         use_ppa = use_ppa_img = use_fps_benchmark = use_perf_monitor = False
     if use_ppa:
-        # LVGL 9.5 includes the PPA fix (PR #9162) natively.
-        # We keep our custom PPA files as a fallback option.
+        # Use this fork's custom PPA implementation, not LVGL's native unit.
         # PPA evaluate checks buffer alignment at runtime before claiming tasks.
         cg.add_define("USE_LVGL_PPA")
         cg.add_define("LV_PPA_ALPHA_MIN_AREA", ppa_alpha_min_area)
@@ -400,7 +386,7 @@ async def to_code(configs):
     # community for smoother sysmon readings; doesn't force higher FPS).
     df.add_define("LV_DEF_REFR_PERIOD", "15")
 
-    # LVGL 9.5: Enable blur/frosted glass support (small code, useful for shadows)
+    # Preserve the fork's blur configuration.
     df.add_define("LV_USE_DRAW_SW_BLUR", "1")
 
     df.add_define(
@@ -413,6 +399,11 @@ async def to_code(configs):
         cg.RawExpression(f"ESPHOME_LOG_LEVEL_{config_0[CONF_LOG_LEVEL]}"),
     )
     df.add_define("LV_COLOR_DEPTH", config_0[CONF_COLOR_DEPTH])
+    # Keep the legacy depth for C++ sizing and byte swap at flush.
+    df.add_define(
+        "LV_COLOR_FORMAT_DEFAULT",
+        "LV_COLOR_FORMAT_RGB888" if config_0[CONF_COLOR_DEPTH] == 32 else "LV_COLOR_FORMAT_RGB565",
+    )
     for font in helpers.lv_fonts_used:
         df.add_define(f"LV_FONT_{font.upper()}")
 
@@ -624,6 +615,7 @@ async def to_code(configs):
         df.add_define("LV_USE_FLOAT", "1")
         df.add_define("LV_USE_MATRIX", "1")
         df.add_define("LV_USE_VECTOR_GRAPHIC", "1")
+        df.add_define("LV_USE_THORVG", "1")
         df.add_define("LV_USE_THORVG_INTERNAL", "1")
         df.add_define("LV_VG_LITE_THORVG_16PIXELS_ALIGN", "1")
         # Large stack for ThorVG rendering
@@ -639,6 +631,7 @@ async def to_code(configs):
         df.add_define("LV_USE_FLOAT", "0")
         df.add_define("LV_USE_MATRIX", "0")
         df.add_define("LV_USE_VECTOR_GRAPHIC", "0")
+        df.add_define("LV_USE_THORVG", "0")
         df.add_define("LV_USE_THORVG_INTERNAL", "0")
         df.add_define("LV_USE_SVG", "0")
         df.add_define("LV_USE_LOTTIE", "0")
@@ -676,8 +669,7 @@ async def to_code(configs):
     # LVGL's lv_conf_internal.h otherwise tries to pull options from Kconfig
     # (sdkconfig) on ESP-IDF, which conflicts with our generated lv_conf.h.
     cg.add_build_flag("-DLV_KCONFIG_IGNORE")
-    # Add include path for atomic.h shim (needed for LV_USE_OS=LV_OS_FREERTOS on ESP-IDF)
-    # Use absolute path so it works when LVGL compiles from .piolibdeps/
+    # Retain the component include path for custom sources and loaders.
     component_dir = Path(__file__).parent
     cg.add_build_flag(f"-I{component_dir}")
 

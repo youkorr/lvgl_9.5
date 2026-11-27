@@ -1,0 +1,51 @@
+name: LVGL 9.6 migration
+on:
+  push:
+    branches: [lvgl-9.6]
+  workflow_dispatch:
+jobs:
+  compile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [camera-ortho, legacy-ppa-vector]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: fork
+      - uses: actions/checkout@v4
+        with:
+          repository: youkorr/ppa-alternative-
+          ref: f51bc61196f0637f3f29bc9801aac583dd94c3ff
+          path: ppa
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install "git+https://github.com/esphome/esphome@dev"
+      - run: esphome version
+      - name: Prepare test configuration
+        env:
+          MODE: ${{ matrix.mode }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+          p = Path("ppa/yaml/tab5-camera-ui.yaml")
+          s = p.read_text()
+          old = "  - source:\n      type: git\n      url: https://github.com/youkorr/lvgl_9.5\n      ref: claude/jolly-lamport-ERZOC\n    components: [lvgl]\n    refresh: 0s\n"
+          assert s.count(old) == 1
+          s = s.replace(old, "  - source:\n      type: local\n      path: ../../fork/components\n    components: [lvgl]\n")
+          if os.environ["MODE"] == "legacy-ppa-vector":
+              s, n = re.subn(r"(?m)^lvgl_ortho:\n(?:[ \t]+[^\n]*\n)+", "", s)
+              assert n == 1
+              s = s.replace("  use_ppa: false", "  use_ppa: true").replace("  use_ppa_img: false", "  use_ppa_img: true")
+              marker = "        - label:\n            id: clock_label"
+              assert s.count(marker) == 1
+              s = s.replace(marker, "        - svg:\n            src: /sdcard/test.svg\n            width: 32\n            height: 32\n        - lottie:\n            src: /sdcard/test.json\n            width: 32\n            height: 32\n" + marker)
+          p.write_text(s)
+          PY
+          printf 'wifi_ssid: "test"\nwifi_password: "testtest"\napi_encryption_key: "kIuGSIsyjV6h5x0uC4ToRJKNJa6tRtjSFdbTB8PA36A="\n' > ppa/yaml/secrets.yaml
+      - run: esphome compile ppa/yaml/tab5-camera-ui.yaml
