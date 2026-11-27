@@ -323,7 +323,7 @@ async def to_code(configs):
         # build under ESPHome 2026.6+ (external components lack recursive_sources).
     if use_ppa_img:
         # Enable PPA SRM hardware rotation for images (0/90/180/270 degrees)
-        cg.add_define("LV_USE_PPA_IMG")
+        cg.add_define("ESPHOME_LVGL_CUSTOM_PPA_IMG")
     if use_fps_benchmark:
         # Espressif esp_lvgl_adapter FPS sampler (P10/25/50/75/90 report).
         # lvgl_fps_benchmark_wrapper.cpp includes esphome/core/defines.h

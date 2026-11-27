@@ -1,3 +1,4 @@
+#ifdef ESPHOME_LVGL_PPA_IMPLEMENTATION
 /**
  * @file lv_draw_ppa_private.h
  * Custom PPA private header for ESP32-P4
@@ -12,7 +13,6 @@
 *      INCLUDES
 *********************/
 #include "lvgl.h"
-#include "src/lv_conf_internal.h"
 #include "src/draw/lv_draw_private.h"
 #include "src/draw/lv_draw_buf_private.h"
 #include "src/display/lv_display_private.h"
@@ -167,3 +167,5 @@ static inline ppa_srm_color_mode_t lv_color_format_to_ppa_srm(lv_color_format_t 
 }
 
 #endif /* LV_DRAW_PPA_PRIVATE_FIXED_H */
+
+#endif  // ESPHOME_LVGL_PPA_IMPLEMENTATION

@@ -1,3 +1,4 @@
+#ifdef ESPHOME_LVGL_PPA_IMPLEMENTATION
 /**
  * @file lv_draw_ppa_fill.c
  * Fixed PPA fill operation for LVGL 9.5 on ESP32-P4
@@ -52,3 +53,5 @@ void lv_draw_ppa_fill(lv_draw_task_t * t, const lv_draw_fill_dsc_t * dsc,
 }
 
 #endif /* CONFIG_SOC_PPA_SUPPORTED */
+
+#endif  // ESPHOME_LVGL_PPA_IMPLEMENTATION

@@ -16,6 +16,7 @@
 
 #ifdef USE_LVGL_PPA
 
+#define ESPHOME_LVGL_PPA_IMPLEMENTATION
 extern "C" {
 #include "lv_draw_ppa.tcc"
 #include "lv_draw_ppa_fill.tcc"
@@ -23,5 +24,6 @@ extern "C" {
 #include "lv_draw_ppa_buf.tcc"
 #include "lvgl_ppa_accel_v9.tcc"
 }
+#undef ESPHOME_LVGL_PPA_IMPLEMENTATION
 
 #endif /* USE_LVGL_PPA */

@@ -1,3 +1,4 @@
+#ifdef ESPHOME_LVGL_PPA_IMPLEMENTATION
 /**
  * @file lv_draw_ppa_buf.c
  * Fixed PPA buffer cache handling for LVGL 9.5 on ESP32-P4
@@ -16,7 +17,6 @@
 
 #include "lv_draw_ppa_private.h"
 #include "lv_draw_ppa.h"
-#include "src/draw/lv_draw_buf.h"
 #include "esp_memory_utils.h"
 #include <string.h>
 
@@ -65,3 +65,5 @@ void lv_draw_ppa_cache_sync(lv_draw_buf_t * buf)
 }
 
 #endif /* CONFIG_SOC_PPA_SUPPORTED */
+
+#endif  // ESPHOME_LVGL_PPA_IMPLEMENTATION

@@ -1,3 +1,4 @@
+#ifdef ESPHOME_LVGL_PPA_IMPLEMENTATION
 /**
  * @file lv_draw_ppa_img.c
  * Fixed PPA image blending for LVGL 9.5 on ESP32-P4
@@ -11,8 +12,7 @@
 #include "lv_draw_ppa_private.h"
 #include "lv_draw_ppa.h"
 #include "src/draw/lv_draw_image_private.h"
-#include "src/draw/lv_image_decoder_private.h"
-#include "src/draw/lv_image_decoder.h"
+#include "src/image/lv_image_decoder_private.h"
 #include "esp_memory_utils.h"  /* esp_ptr_external_ram(): skip cache sync on internal SRAM */
 #include <math.h>
 
@@ -205,7 +205,7 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
 
 }
 
-#ifdef LV_USE_PPA_IMG
+#ifdef ESPHOME_LVGL_CUSTOM_PPA_IMG
 
 void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
                           const lv_area_t * coords)
@@ -611,6 +611,8 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     lv_image_decoder_close(&decoder_dsc);
 }
 
-#endif /* LV_USE_PPA_IMG */
+#endif /* ESPHOME_LVGL_CUSTOM_PPA_IMG */
 
 #endif /* CONFIG_SOC_PPA_SUPPORTED */
+
+#endif  // ESPHOME_LVGL_PPA_IMPLEMENTATION

@@ -1,3 +1,4 @@
+#ifdef ESPHOME_LVGL_PPA_IMPLEMENTATION
 /**
  * @file lv_draw_ppa.c
  * Fixed PPA draw unit for LVGL 9.5 on ESP32-P4
@@ -124,7 +125,7 @@ static int32_t ppa_evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * t)
         case LV_DRAW_TASK_TYPE_IMAGE: {
             const lv_draw_image_dsc_t * dsc = (const lv_draw_image_dsc_t *)t->draw_dsc;
 
-#ifdef LV_USE_PPA_IMG
+#ifdef ESPHOME_LVGL_CUSTOM_PPA_IMG
             /* PPA SRM handles 90-degree increment rotation in hardware */
             if(dsc->rotation != 0) {
                 int32_t angle = dsc->rotation % 3600;
@@ -156,7 +157,7 @@ static int32_t ppa_evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * t)
 #endif
             if(dsc->skew_x != 0 || dsc->skew_y != 0) return 0;
 
-#ifdef LV_USE_PPA_IMG
+#ifdef ESPHOME_LVGL_CUSTOM_PPA_IMG
             /* PPA SRM handles scale+translate (Ken Burns) with rotation=0 */
             if(dsc->scale_x != LV_SCALE_NONE || dsc->scale_y != LV_SCALE_NONE) {
                 if(dsc->opa < (lv_opa_t)LV_OPA_MAX) return 0;
@@ -272,7 +273,7 @@ static int32_t ppa_dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
                     break;
                 case LV_DRAW_TASK_TYPE_IMAGE: {
                     lv_draw_image_dsc_t * img_dsc = (lv_draw_image_dsc_t *)t->draw_dsc;
-#ifdef LV_USE_PPA_IMG
+#ifdef ESPHOME_LVGL_CUSTOM_PPA_IMG
                     if(img_dsc->rotation != 0) {
                         lv_draw_ppa_img_rotate(t, img_dsc, &t->area);
                     } else if(img_dsc->scale_x != LV_SCALE_NONE || img_dsc->scale_y != LV_SCALE_NONE) {
@@ -316,3 +317,5 @@ static int32_t ppa_delete(lv_draw_unit_t * draw_unit)
 }
 
 #endif /* CONFIG_SOC_PPA_SUPPORTED */
+
+#endif  // ESPHOME_LVGL_PPA_IMPLEMENTATION

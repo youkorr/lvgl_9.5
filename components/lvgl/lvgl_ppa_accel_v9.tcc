@@ -1,3 +1,4 @@
+#ifdef ESPHOME_LVGL_PPA_IMPLEMENTATION
 /*
  * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
  * SPDX-License-Identifier: Apache-2.0
@@ -16,8 +17,6 @@
 #include "src/draw/sw/blend/lv_draw_sw_blend.h"
 #include "src/draw/sw/blend/lv_draw_sw_blend_private.h"
 #include "src/draw/sw/blend/lv_draw_sw_blend_to_rgb565.h"
-#include "src/draw/lv_draw.h"
-#include "src/draw/lv_draw_buf.h"
 #include "src/draw/lv_draw_private.h"
 #include "src/display/lv_display_private.h"
 #include "src/misc/lv_area_private.h"
@@ -466,3 +465,5 @@ void lvgl_port_ppa_v9_init(lv_display_t *display)
 }
 
 #endif /* CONFIG_SOC_PPA_SUPPORTED */
+
+#endif  // ESPHOME_LVGL_PPA_IMPLEMENTATION
